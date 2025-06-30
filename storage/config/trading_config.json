@@ -4,16 +4,50 @@
         "risk_tolerance": 0.02,
         "max_position_size": 1.0,
         "stop_loss_percentage": 0.05,
-        "take_profit_percentage": 0.10
+        "take_profit_percentage": 0.10,
+        "min_trade_size": 0.001,
+        "max_trade_size": 10.0,
+        "default_lot_size": 0.1
     },
     "model": {
         "sequence_length": 60,
         "update_frequency": 300,
-        "confidence_threshold": 0.7
+        "confidence_threshold": 0.7,
+        "min_confidence": 0.5,
+        "max_confidence": 0.95,
+        "model_version": "v1.0",
+        "retrain_interval": 86400
     },
     "api": {
         "timeout": 30,
         "retry_attempts": 3,
-        "rate_limit": 100
+        "rate_limit": 100,
+        "max_workers": 4,
+        "cache_duration": 60
+    },
+    "data": {
+        "default_period": "3mo",
+        "max_history_days": 365,
+        "min_data_points": 100,
+        "data_sources": ["yfinance"],
+        "fallback_enabled": true
+    },
+    "alerts": {
+        "price_change_threshold": 0.05,
+        "volume_spike_threshold": 2.0,
+        "signal_confidence_threshold": 0.8,
+        "drawdown_threshold": 0.1
+    },
+    "features": {
+        "technical_indicators": true,
+        "sentiment_analysis": false,
+        "on_chain_metrics": false,
+        "macro_indicators": false
+    },
+    "logging": {
+        "level": "INFO",
+        "max_file_size": "10MB",
+        "backup_count": 5,
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     }
 }

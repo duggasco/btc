@@ -1,12 +1,11 @@
-# requirements-frontend.txt
-# Streamlit Frontend Requirements for Enhanced System
+# Streamlit Frontend Requirements
 streamlit==1.28.1
 
 # Data Processing
 pandas==2.1.3
 numpy==1.24.3
 
-# Enhanced Visualization
+# Visualization
 plotly==5.17.0
 
 # API Communication
@@ -14,6 +13,3 @@ requests==2.31.0
 
 # Utilities
 python-dateutil==2.8.2
-
-# Optional for additional features
-scipy==1.11.4  # For statistical calculations

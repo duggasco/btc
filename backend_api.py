@@ -1,18 +1,16 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
 import time
 import os
 import logging
-import json
 
 from database_models import DatabaseManager
-from lstm_model import EnhancedTradingSignalGenerator
+from lstm_model import TradingSignalGenerator
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +30,7 @@ class LimitOrder(BaseModel):
     size: Optional[float] = None
     lot_id: Optional[str] = None
 
-app = FastAPI(title="BTC Trading System API", version="2.0.0")
+app = FastAPI(title="BTC Trading System API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,8 +50,8 @@ except Exception as e:
     raise
 
 try:
-    signal_generator = EnhancedTradingSignalGenerator()
-    logger.info("Enhanced signal generator initialized")
+    signal_generator = TradingSignalGenerator()
+    logger.info("Signal generator initialized")
 except Exception as e:
     logger.error(f"Failed to initialize signal generator: {e}")
     raise
@@ -63,7 +61,6 @@ latest_btc_data = None
 latest_signal = None
 signal_update_errors = 0
 max_signal_errors = 5
-portfolio_analytics_cache = {}
 
 class SignalUpdater:
     def __init__(self):
@@ -109,7 +106,7 @@ class SignalUpdater:
         
         try:
             logger.info("Fetching BTC data for signal update...")
-            btc_data = signal_generator.fetch_btc_data(period="3mo", interval="1h")
+            btc_data = signal_generator.fetch_btc_data(period="3mo")
             
             if btc_data is None or len(btc_data) == 0:
                 logger.warning("No BTC data received, using cached data if available")
@@ -119,11 +116,11 @@ class SignalUpdater:
                     raise ValueError("No BTC data available and no cached data")
             
             latest_btc_data = btc_data
-            logger.info(f"Successfully fetched {len(btc_data)} periods of BTC data")
+            logger.info(f"Successfully fetched {len(btc_data)} days of BTC data")
             
             # Generate signal
             logger.info("Generating trading signal...")
-            signal, confidence, predicted_price, factors = signal_generator.predict_signal(btc_data)
+            signal, confidence, predicted_price = signal_generator.predict_signal(btc_data)
             
             # Store signal in database
             try:
@@ -138,7 +135,6 @@ class SignalUpdater:
                 "signal": signal,
                 "confidence": confidence,
                 "predicted_price": predicted_price,
-                "factors": factors,
                 "timestamp": datetime.now()
             }
             
@@ -156,131 +152,15 @@ class SignalUpdater:
                     "signal": "hold",
                     "confidence": 0.5,
                     "predicted_price": 45000.0,
-                    "factors": {},
                     "timestamp": datetime.now()
                 }
 
 signal_updater = SignalUpdater()
 
-def calculate_portfolio_metrics(trades_df: pd.DataFrame, positions_df: pd.DataFrame, 
-                              current_price: float = None) -> Dict[str, Any]:
-    """Calculate comprehensive portfolio metrics"""
-    metrics = {}
-    
-    if trades_df.empty:
-        return {
-            'total_trades': 0,
-            'total_volume': 0,
-            'total_pnl': 0,
-            'realized_pnl': 0,
-            'unrealized_pnl': 0,
-            'positions_count': 0,
-            'total_invested': 0,
-            'win_rate': 0,
-            'avg_win': 0,
-            'avg_loss': 0,
-            'sharpe_ratio': 0,
-            'max_drawdown': 0,
-            'current_value': 0
-        }
-    
-    # Basic metrics
-    metrics['total_trades'] = len(trades_df)
-    metrics['total_volume'] = trades_df['size'].sum()
-    
-    # Calculate PnL
-    buy_trades = trades_df[trades_df['trade_type'] == 'buy']
-    sell_trades = trades_df[trades_df['trade_type'] == 'sell']
-    
-    total_bought = (buy_trades['price'] * buy_trades['size']).sum()
-    total_sold = (sell_trades['price'] * sell_trades['size']).sum()
-    
-    metrics['realized_pnl'] = total_sold - total_bought
-    
-    # Calculate unrealized PnL for open positions
-    metrics['unrealized_pnl'] = 0
-    metrics['current_value'] = 0
-    
-    if not positions_df.empty and current_price:
-        total_position_size = positions_df['total_size'].sum()
-        avg_cost_basis = (positions_df['total_size'] * positions_df['avg_buy_price']).sum() / total_position_size
-        metrics['current_value'] = total_position_size * current_price
-        metrics['unrealized_pnl'] = metrics['current_value'] - (total_position_size * avg_cost_basis)
-    
-    metrics['total_pnl'] = metrics['realized_pnl'] + metrics['unrealized_pnl']
-    metrics['positions_count'] = len(positions_df)
-    metrics['total_invested'] = total_bought
-    
-    # Calculate win rate and average win/loss
-    closed_trades = []
-    for lot_id in trades_df['lot_id'].unique():
-        lot_trades = trades_df[trades_df['lot_id'] == lot_id]
-        lot_buys = lot_trades[lot_trades['trade_type'] == 'buy']
-        lot_sells = lot_trades[lot_trades['trade_type'] == 'sell']
-        
-        if not lot_sells.empty and not lot_buys.empty:
-            buy_avg = (lot_buys['price'] * lot_buys['size']).sum() / lot_buys['size'].sum()
-            sell_avg = (lot_sells['price'] * lot_sells['size']).sum() / lot_sells['size'].sum()
-            pnl_pct = (sell_avg - buy_avg) / buy_avg
-            closed_trades.append(pnl_pct)
-    
-    if closed_trades:
-        wins = [t for t in closed_trades if t > 0]
-        losses = [t for t in closed_trades if t < 0]
-        
-        metrics['win_rate'] = len(wins) / len(closed_trades)
-        metrics['avg_win'] = np.mean(wins) if wins else 0
-        metrics['avg_loss'] = np.mean(losses) if losses else 0
-    else:
-        metrics['win_rate'] = 0
-        metrics['avg_win'] = 0
-        metrics['avg_loss'] = 0
-    
-    # Calculate Sharpe ratio and max drawdown
-    if len(trades_df) > 10:
-        # Create daily returns series
-        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
-        daily_pnl = trades_df.set_index('timestamp').resample('D').apply(
-            lambda x: ((x['price'] * x['size'] * x['trade_type'].map({'buy': -1, 'sell': 1})).sum())
-        )
-        
-        if len(daily_pnl) > 5:
-            returns = daily_pnl.pct_change().dropna()
-            if len(returns) > 0:
-                metrics['sharpe_ratio'] = np.sqrt(252) * returns.mean() / (returns.std() + 1e-8)
-            else:
-                metrics['sharpe_ratio'] = 0
-                
-            # Calculate max drawdown
-            cumulative = daily_pnl.cumsum()
-            running_max = cumulative.expanding().max()
-            drawdown = (cumulative - running_max) / (running_max + 1)
-            metrics['max_drawdown'] = drawdown.min()
-        else:
-            metrics['sharpe_ratio'] = 0
-            metrics['max_drawdown'] = 0
-    else:
-        metrics['sharpe_ratio'] = 0
-        metrics['max_drawdown'] = 0
-    
-    return metrics
-
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application"""
-    logger.info("Starting Enhanced BTC Trading System API...")
-    
-    # Load saved API configuration
-    global api_config
-    try:
-        config_path = os.path.join(os.getenv('CONFIG_PATH', '/app/config'), 'api_config.json')
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                config_data = json.load(f)
-                api_config = APIConfig(**config_data)
-                logger.info("Loaded saved API configuration")
-    except Exception as e:
-        logger.warning(f"Failed to load API configuration: {e}")
+    logger.info("Starting BTC Trading System API...")
     
     # Start signal updater
     try:
@@ -292,8 +172,8 @@ async def startup_event():
     # Generate initial signal
     try:
         logger.info("Generating initial signal...")
-        initial_data = signal_generator.fetch_btc_data(period="1mo", interval="1h")
-        signal, confidence, predicted_price, factors = signal_generator.predict_signal(initial_data)
+        initial_data = signal_generator.fetch_btc_data(period="1mo")
+        signal, confidence, predicted_price = signal_generator.predict_signal(initial_data)
         
         global latest_signal, latest_btc_data
         latest_btc_data = initial_data
@@ -302,7 +182,6 @@ async def startup_event():
             "signal": signal,
             "confidence": confidence,
             "predicted_price": predicted_price,
-            "factors": factors,
             "timestamp": datetime.now()
         }
         logger.info(f"Initial signal generated: {signal}")
@@ -315,54 +194,10 @@ async def startup_event():
             "signal": "hold",
             "confidence": 0.5,
             "predicted_price": 45000.0,
-            "factors": {},
             "timestamp": datetime.now()
         }
     
-class APIConfig(BaseModel):
-    """API Configuration model"""
-    fear_greed_api_key: Optional[str] = None
-    coingecko_api_key: Optional[str] = None
-    additional_api_keys: Optional[Dict[str, str]] = {}
-
-# Global configuration storage
-api_config = APIConfig()
-
-@app.post("/config/api-keys")
-async def update_api_keys(config: APIConfig, api_key: Optional[str] = Header(None)):
-    """Update API keys configuration"""
-    global api_config
-    try:
-        # Simple auth check (you can enhance this)
-        if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
-            raise HTTPException(status_code=403, detail="Invalid API key")
-        
-        api_config = config
-        
-        # Pass configuration to signal generator if needed
-        if config.fear_greed_api_key:
-            signal_generator.external_data_cache['api_keys'] = {
-                'fear_greed': config.fear_greed_api_key
-            }
-        
-        return {"status": "success", "message": "API keys updated"}
-    except Exception as e:
-        logger.error(f"Failed to update API keys: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/config/api-keys")
-async def get_api_keys(api_key: Optional[str] = Header(None)):
-    """Get current API keys configuration (masked)"""
-    if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
-        raise HTTPException(status_code=403, detail="Invalid API key")
-    
-    # Return masked keys
-    masked_config = {
-        "fear_greed_api_key": "***" + api_config.fear_greed_api_key[-4:] if api_config.fear_greed_api_key else None,
-        "coingecko_api_key": "***" + api_config.coingecko_api_key[-4:] if api_config.coingecko_api_key else None,
-        "additional_api_keys": {k: "***" + v[-4:] for k, v in (api_config.additional_api_keys or {}).items()}
-    }
-    return masked_config
+    logger.info("BTC Trading System API startup complete")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -375,8 +210,7 @@ async def shutdown_event():
 async def root():
     """Health check endpoint"""
     return {
-        "message": "Enhanced BTC Trading System API is running", 
-        "version": "2.0.0",
+        "message": "BTC Trading System API is running", 
         "timestamp": datetime.now(),
         "status": "healthy",
         "signal_errors": signal_update_errors
@@ -443,14 +277,6 @@ async def get_positions():
     """Get current positions"""
     try:
         positions_df = db.get_positions()
-        
-        # Add current value and unrealized PnL
-        if not positions_df.empty and latest_btc_data is not None:
-            current_price = latest_btc_data['Close'].iloc[-1]
-            positions_df['current_value'] = positions_df['total_size'] * current_price
-            positions_df['unrealized_pnl'] = positions_df['current_value'] - (positions_df['total_size'] * positions_df['avg_buy_price'])
-            positions_df['unrealized_pnl_pct'] = positions_df['unrealized_pnl'] / (positions_df['total_size'] * positions_df['avg_buy_price'])
-        
         return positions_df.to_dict('records')
     except Exception as e:
         logger.error(f"Failed to get positions: {e}")
@@ -485,22 +311,21 @@ async def get_limits():
 
 @app.get("/signals/latest")
 async def get_latest_signal():
-    """Get the latest trading signal with detailed factors"""
+    """Get the latest trading signal"""
     global latest_signal
     
     try:
         if latest_signal is None:
             logger.info("No cached signal, generating new one...")
             try:
-                btc_data = signal_generator.fetch_btc_data(period="1mo", interval="1h")
-                signal, confidence, predicted_price, factors = signal_generator.predict_signal(btc_data)
+                btc_data = signal_generator.fetch_btc_data(period="1mo")
+                signal, confidence, predicted_price = signal_generator.predict_signal(btc_data)
                 
                 latest_signal = {
                     "symbol": "BTC-USD",
                     "signal": signal,
                     "confidence": confidence,
                     "predicted_price": predicted_price,
-                    "factors": factors,
                     "timestamp": datetime.now()
                 }
                 logger.info(f"Generated new signal: {signal}")
@@ -512,7 +337,6 @@ async def get_latest_signal():
                     "signal": "hold",
                     "confidence": 0.5,
                     "predicted_price": 45000.0,
-                    "factors": {},
                     "timestamp": datetime.now(),
                     "error": "Signal generation failed, using default"
                 }
@@ -535,44 +359,31 @@ async def get_signal_history(limit: int = 50):
 
 @app.get("/portfolio/metrics")
 async def get_portfolio_metrics():
-    """Get comprehensive portfolio performance metrics"""
+    """Get portfolio performance metrics"""
     try:
-        trades_df = db.get_trades()
-        positions_df = db.get_positions()
+        metrics = db.get_portfolio_metrics()
         
-        # Get current BTC price
-        current_price = None
+        # Add current BTC price if available
         if latest_btc_data is not None and len(latest_btc_data) > 0:
             try:
-                current_price = float(latest_btc_data['Close'].iloc[-1])
+                metrics['current_btc_price'] = float(latest_btc_data['Close'].iloc[-1])
             except Exception as e:
-                logger.warning(f"Failed to get current BTC price from data: {e}")
-        
-        # Try to get real-time price
-        try:
-            real_time_price = signal_generator.get_current_btc_price()
-            if real_time_price:
-                current_price = real_time_price
-                logger.info(f"Using real-time BTC price: ${current_price:,.2f}")
-        except Exception as e:
-            logger.warning(f"Failed to get real-time price: {e}")
-        
-        # Calculate comprehensive metrics
-        metrics = calculate_portfolio_metrics(trades_df, positions_df, current_price)
-        metrics['current_btc_price'] = current_price
+                logger.warning(f"Failed to get current BTC price: {e}")
+                metrics['current_btc_price'] = None
+        else:
+            metrics['current_btc_price'] = None
         
         return metrics
-        
     except Exception as e:
         logger.error(f"Failed to get portfolio metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/market/btc-data")
-async def get_btc_data(period: str = "1mo", interval: str = "1h"):
-    """Get BTC market data with technical indicators"""
+async def get_btc_data(period: str = "1mo"):
+    """Get BTC market data"""
     try:
-        logger.info(f"Fetching BTC data for period: {period}, interval: {interval}")
-        btc_data = signal_generator.fetch_btc_data(period=period, interval=interval)
+        logger.info(f"Fetching BTC data for period: {period}")
+        btc_data = signal_generator.fetch_btc_data(period=period)
         
         if btc_data is None or len(btc_data) == 0:
             raise ValueError("No BTC data available")
@@ -587,23 +398,10 @@ async def get_btc_data(period: str = "1mo", interval: str = "1h"):
                     'low': float(row['Low']),
                     'close': float(row['Close']),
                     'volume': float(row['Volume']),
-                    # Technical indicators
                     'sma_20': float(row['SMA_20']) if not pd.isna(row['SMA_20']) else None,
                     'sma_50': float(row['SMA_50']) if not pd.isna(row['SMA_50']) else None,
                     'rsi': float(row['RSI']) if not pd.isna(row['RSI']) else None,
-                    'macd': float(row['MACD']) if not pd.isna(row['MACD']) else None,
-                    'macd_signal': float(row['MACD_Signal']) if not pd.isna(row['MACD_Signal']) else None,
-                    # New indicators
-                    'bb_upper': float(row['BB_Upper']) if not pd.isna(row['BB_Upper']) else None,
-                    'bb_lower': float(row['BB_Lower']) if not pd.isna(row['BB_Lower']) else None,
-                    'bb_position': float(row['BB_Position']) if not pd.isna(row['BB_Position']) else None,
-                    'atr': float(row['ATR']) if not pd.isna(row['ATR']) else None,
-                    'stoch_k': float(row['Stoch_K']) if not pd.isna(row['Stoch_K']) else None,
-                    'stoch_d': float(row['Stoch_D']) if not pd.isna(row['Stoch_D']) else None,
-                    'obv': float(row['OBV']) if not pd.isna(row['OBV']) else None,
-                    'vwap': float(row['VWAP']) if not pd.isna(row['VWAP']) else None,
-                    'mfi': float(row['MFI']) if not pd.isna(row['MFI']) else None,
-                    'fear_greed': float(row['Fear_Greed']) if not pd.isna(row['Fear_Greed']) else None,
+                    'macd': float(row['MACD']) if not pd.isna(row['MACD']) else None
                 }
                 data_records.append(record)
             except Exception as e:
@@ -614,10 +412,8 @@ async def get_btc_data(period: str = "1mo", interval: str = "1h"):
         return {
             "symbol": "BTC-USD",
             "period": period,
-            "interval": interval,
             "data": data_records[-100:] if len(data_records) > 100 else data_records,
-            "total_records": len(data_records),
-            "indicators_available": True
+            "total_records": len(data_records)
         }
         
     except Exception as e:
@@ -628,7 +424,7 @@ async def get_btc_data(period: str = "1mo", interval: str = "1h"):
             dummy_data = signal_generator.generate_dummy_data()
             dummy_records = []
             
-            for idx, row in dummy_data.tail(50).iterrows():  # Last 50 periods
+            for idx, row in dummy_data.tail(50).iterrows():  # Last 50 days
                 record = {
                     'timestamp': idx.isoformat(),
                     'open': float(row['Open']),
@@ -646,7 +442,6 @@ async def get_btc_data(period: str = "1mo", interval: str = "1h"):
             return {
                 "symbol": "BTC-USD",
                 "period": period,
-                "interval": interval,
                 "data": dummy_records,
                 "total_records": len(dummy_records),
                 "note": "Using simulated data due to data fetch error"
@@ -658,12 +453,12 @@ async def get_btc_data(period: str = "1mo", interval: str = "1h"):
 
 @app.get("/analytics/pnl")
 async def get_pnl_data():
-    """Get detailed P&L analytics data"""
+    """Get P&L analytics data"""
     try:
         trades_df = db.get_trades()
         
         if trades_df.empty:
-            return {"daily_pnl": [], "cumulative_pnl": [], "by_lot": {}}
+            return {"daily_pnl": [], "cumulative_pnl": []}
         
         trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
         trades_df['date'] = trades_df['timestamp'].dt.date
@@ -674,15 +469,8 @@ async def get_pnl_data():
             'hold': 0
         })
         
-        # Daily PnL
         daily_pnl = trades_df.groupby('date')['signed_value'].sum().reset_index()
         daily_pnl['cumulative_pnl'] = daily_pnl['signed_value'].cumsum()
-        
-        # PnL by lot
-        lot_pnl = {}
-        for lot_id in trades_df['lot_id'].unique():
-            lot_trades = trades_df[trades_df['lot_id'] == lot_id]
-            lot_pnl[lot_id] = lot_trades['signed_value'].sum()
         
         return {
             "daily_pnl": [
@@ -692,180 +480,10 @@ async def get_pnl_data():
             "cumulative_pnl": [
                 {"date": str(row['date']), "pnl": float(row['cumulative_pnl'])}
                 for _, row in daily_pnl.iterrows()
-            ],
-            "by_lot": lot_pnl
+            ]
         }
     except Exception as e:
         logger.error(f"Failed to get P&L data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/analytics/performance")
-async def get_performance_analytics():
-    """Get detailed performance analytics"""
-    try:
-        trades_df = db.get_trades()
-        positions_df = db.get_positions()
-        
-        if trades_df.empty:
-            return {
-                "returns": [],
-                "volatility": 0,
-                "sharpe_ratio": 0,
-                "sortino_ratio": 0,
-                "calmar_ratio": 0,
-                "max_drawdown": 0,
-                "win_rate": 0,
-                "profit_factor": 0
-            }
-        
-        # Calculate returns
-        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
-        trades_df = trades_df.sort_values('timestamp')
-        
-        # Group by day and calculate daily returns
-        daily_values = trades_df.groupby(trades_df['timestamp'].dt.date).apply(
-            lambda x: (x['price'] * x['size'] * x['trade_type'].map({'buy': -1, 'sell': 1})).sum()
-        )
-        
-        if len(daily_values) > 1:
-            daily_returns = daily_values.pct_change().dropna()
-            
-            # Performance metrics
-            avg_return = daily_returns.mean()
-            volatility = daily_returns.std()
-            
-            # Sharpe ratio (annualized)
-            sharpe_ratio = np.sqrt(252) * avg_return / (volatility + 1e-8)
-            
-            # Sortino ratio (only downside volatility)
-            downside_returns = daily_returns[daily_returns < 0]
-            downside_vol = downside_returns.std() if len(downside_returns) > 0 else volatility
-            sortino_ratio = np.sqrt(252) * avg_return / (downside_vol + 1e-8)
-            
-            # Maximum drawdown
-            cumulative_returns = (1 + daily_returns).cumprod()
-            running_max = cumulative_returns.expanding().max()
-            drawdown_series = (cumulative_returns - running_max) / running_max
-            max_drawdown = drawdown_series.min()
-            
-            # Calmar ratio
-            annual_return = (1 + avg_return) ** 252 - 1
-            calmar_ratio = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0
-            
-            # Win rate and profit factor from individual trades
-            trade_returns = []
-            for lot_id in trades_df['lot_id'].unique():
-                lot_trades = trades_df[trades_df['lot_id'] == lot_id]
-                if len(lot_trades) > 1:
-                    entry_price = lot_trades[lot_trades['trade_type'] == 'buy']['price'].mean()
-                    exit_price = lot_trades[lot_trades['trade_type'] == 'sell']['price'].mean()
-                    if entry_price > 0 and exit_price > 0:
-                        trade_returns.append((exit_price - entry_price) / entry_price)
-            
-            if trade_returns:
-                wins = [r for r in trade_returns if r > 0]
-                losses = [r for r in trade_returns if r < 0]
-                
-                win_rate = len(wins) / len(trade_returns)
-                
-                if wins and losses:
-                    avg_win = np.mean(wins)
-                    avg_loss = abs(np.mean(losses))
-                    profit_factor = (len(wins) * avg_win) / (len(losses) * avg_loss)
-                else:
-                    profit_factor = 0
-            else:
-                win_rate = 0
-                profit_factor = 0
-            
-            return {
-                "returns": daily_returns.tolist(),
-                "volatility": float(volatility),
-                "sharpe_ratio": float(sharpe_ratio),
-                "sortino_ratio": float(sortino_ratio),
-                "calmar_ratio": float(calmar_ratio),
-                "max_drawdown": float(max_drawdown),
-                "win_rate": float(win_rate),
-                "profit_factor": float(profit_factor)
-            }
-        else:
-            return {
-                "returns": [],
-                "volatility": 0,
-                "sharpe_ratio": 0,
-                "sortino_ratio": 0,
-                "calmar_ratio": 0,
-                "max_drawdown": 0,
-                "win_rate": 0,
-                "profit_factor": 0
-            }
-            
-    except Exception as e:
-        logger.error(f"Failed to get performance analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/analytics/technical")
-async def get_technical_analytics():
-    """Get current technical indicator readings and signals"""
-    try:
-        if latest_btc_data is None or len(latest_btc_data) == 0:
-            raise ValueError("No BTC data available")
-        
-        # Get latest readings
-        latest = latest_btc_data.iloc[-1]
-        
-        # Calculate signal strengths
-        rsi = latest['RSI']
-        rsi_signal = "oversold" if rsi < 30 else "overbought" if rsi > 70 else "neutral"
-        
-        bb_position = latest['BB_Position']
-        bb_signal = "oversold" if bb_position < 0.2 else "overbought" if bb_position > 0.8 else "neutral"
-        
-        stoch_k = latest['Stoch_K']
-        stoch_signal = "oversold" if stoch_k < 20 else "overbought" if stoch_k > 80 else "neutral"
-        
-        # Trend analysis
-        sma_20 = latest['SMA_20']
-        sma_50 = latest['SMA_50']
-        close = latest['Close']
-        
-        trend = "bullish" if close > sma_20 > sma_50 else "bearish" if close < sma_20 < sma_50 else "neutral"
-        
-        return {
-            "current_indicators": {
-                "price": float(close),
-                "rsi": float(rsi),
-                "rsi_signal": rsi_signal,
-                "macd": float(latest['MACD']),
-                "macd_signal_line": float(latest['MACD_Signal']),
-                "bollinger_position": float(bb_position),
-                "bollinger_signal": bb_signal,
-                "stochastic_k": float(stoch_k),
-                "stochastic_d": float(latest['Stoch_D']),
-                "stochastic_signal": stoch_signal,
-                "atr": float(latest['ATR']),
-                "mfi": float(latest['MFI']),
-                "obv": float(latest['OBV']),
-                "vwap": float(latest['VWAP']),
-                "sma_20": float(sma_20),
-                "sma_50": float(sma_50),
-                "fear_greed": float(latest['Fear_Greed'])
-            },
-            "trend_analysis": {
-                "overall_trend": trend,
-                "price_vs_sma20": "above" if close > sma_20 else "below",
-                "price_vs_sma50": "above" if close > sma_50 else "below",
-                "sma20_vs_sma50": "above" if sma_20 > sma_50 else "below"
-            },
-            "momentum_analysis": {
-                "roc": float(latest['ROC']),
-                "volume_trend": "high" if latest['Volume_Norm'] > 1.5 else "low" if latest['Volume_Norm'] < 0.5 else "normal"
-            },
-            "timestamp": latest.name.isoformat() if hasattr(latest.name, 'isoformat') else str(latest.name)
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get technical analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/system/status")
@@ -874,93 +492,18 @@ async def get_system_status():
     try:
         return {
             "api_status": "running",
-            "api_version": "2.0.0",
             "timestamp": datetime.now(),
             "signal_update_errors": signal_update_errors,
             "latest_signal_time": latest_signal.get('timestamp') if latest_signal else None,
             "data_cache_status": "available" if latest_btc_data is not None else "empty",
             "database_status": "connected",
-            "signal_generator_status": "enhanced",
-            "available_indicators": [
-                "RSI", "MACD", "Bollinger Bands", "Stochastic", "ATR", 
-                "OBV", "VWAP", "MFI", "SMA", "Fear & Greed"
-            ]
+            "signal_generator_status": "initialized"
         }
     except Exception as e:
         logger.error(f"Failed to get system status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/config/api-keys")
-async def update_api_keys(config: APIConfig, api_key: Optional[str] = Header(None)):
-    """Update API keys configuration"""
-    global api_config
-    try:
-        # Simple auth check (you can enhance this)
-        if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
-            raise HTTPException(status_code=403, detail="Invalid API key")
-        
-        api_config = config
-        
-        # Pass configuration to signal generator if needed
-        if config.fear_greed_api_key:
-            signal_generator.external_data_cache['api_keys'] = {
-                'fear_greed': config.fear_greed_api_key
-            }
-        
-        # Save config to file for persistence
-        config_path = os.path.join(os.getenv('CONFIG_PATH', '/app/config'), 'api_config.json')
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, 'w') as f:
-            json.dump(config.dict(), f)
-        
-        return {"status": "success", "message": "API keys updated"}
-    except Exception as e:
-        logger.error(f"Failed to update API keys: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/config/api-keys")
-async def get_api_keys(api_key: Optional[str] = Header(None)):
-    """Get current API keys configuration (masked)"""
-    if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
-        raise HTTPException(status_code=403, detail="Invalid API key")
-    
-    # Return masked keys
-    masked_config = {
-        "fear_greed_api_key": "***" + api_config.fear_greed_api_key[-4:] if api_config.fear_greed_api_key else None,
-        "coingecko_api_key": "***" + api_config.coingecko_api_key[-4:] if api_config.coingecko_api_key else None,
-        "additional_api_keys": {k: "***" + v[-4:] for k, v in (api_config.additional_api_keys or {}).items()}
-    }
-    return masked_config
-
-@app.get("/price/current")
-async def get_current_price():
-    """Get current BTC price from multiple sources"""
-    try:
-        price = signal_generator.get_current_btc_price()
-        if price:
-            return {
-                "symbol": "BTC-USD",
-                "price": price,
-                "timestamp": datetime.now(),
-                "source": "live"
-            }
-        else:
-            # Fallback to latest data
-            if latest_btc_data is not None and len(latest_btc_data) > 0:
-                price = float(latest_btc_data['Close'].iloc[-1])
-                return {
-                    "symbol": "BTC-USD",
-                    "price": price,
-                    "timestamp": latest_btc_data.index[-1],
-                    "source": "cached"
-                }
-            else:
-                raise ValueError("No price data available")
-    except Exception as e:
-        logger.error(f"Failed to get current price: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 if __name__ == "__main__":
     import uvicorn
-    logger.info("Starting Enhanced BTC Trading System API server...")
+    logger.info("Starting BTC Trading System API server...")
     uvicorn.run(app, host="0.0.0.0", port=8000)

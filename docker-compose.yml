@@ -23,7 +23,7 @@ services:
       - trading-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -60,3 +60,11 @@ services:
 networks:
   trading-network:
     driver: bridge
+
+volumes:
+  btc_data:
+    driver: local
+  btc_models:
+    driver: local
+  btc_logs:
+    driver: local

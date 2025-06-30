@@ -76,7 +76,7 @@ def create_candlestick_chart(btc_data):
     if df.empty:
         return None
         
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed')
     
     fig = make_subplots(
         rows=4, cols=1,

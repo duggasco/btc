@@ -9,7 +9,6 @@ import time
 import json
 import sys
 from datetime import datetime
-import pandas as pd
 
 # Configuration
 API_BASE_URL = "http://localhost:8080"

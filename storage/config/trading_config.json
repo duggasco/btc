@@ -1,0 +1,19 @@
+{
+    "trading": {
+        "default_symbol": "BTC-USD",
+        "risk_tolerance": 0.02,
+        "max_position_size": 1.0,
+        "stop_loss_percentage": 0.05,
+        "take_profit_percentage": 0.10
+    },
+    "model": {
+        "sequence_length": 60,
+        "update_frequency": 300,
+        "confidence_threshold": 0.7
+    },
+    "api": {
+        "timeout": 30,
+        "retry_attempts": 3,
+        "rate_limit": 100
+    }
+}

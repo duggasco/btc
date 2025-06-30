@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: btc-trading-backend
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./storage/data:/app/data
+      - ./storage/models:/app/models
+      - ./storage/logs/backend:/app/logs
+      - ./storage/config:/app/config
+    environment:
+      - DATABASE_PATH=/app/data/trading_system.db
+      - MODEL_PATH=/app/models
+      - LOG_PATH=/app/logs
+      - CONFIG_PATH=/app/config
+      - PYTHONUNBUFFERED=1
+    networks:
+      - trading-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: btc-trading-frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./storage/logs/frontend:/app/logs
+      - ./storage/config:/app/config
+    environment:
+      - API_BASE_URL=http://backend:8000
+      - LOG_PATH=/app/logs
+      - CONFIG_PATH=/app/config
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - trading-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  trading-network:
+    driver: bridge

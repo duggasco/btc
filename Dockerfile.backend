@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-backend.txt .
+RUN pip install --no-cache-dir -r requirements-backend.txt
+
+COPY database_models.py .
+COPY lstm_model.py .
+COPY backend_api.py .
+
+RUN mkdir -p /app/data /app/models /app/logs /app/config
+
+ENV PYTHONPATH=/app
+ENV DATABASE_PATH=/app/data/trading_system.db
+ENV MODEL_PATH=/app/models
+ENV LOG_PATH=/app/logs
+ENV CONFIG_PATH=/app/config
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/ || exit 1
+
+CMD ["uvicorn", "backend_api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

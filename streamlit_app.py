@@ -346,7 +346,7 @@ def main():
         page = st.selectbox(
             "Select Page",
             ["Dashboard", "Trading", "Portfolio Analytics", "Technical Analysis", 
-             "Signals & Factors", "Trade History", "Risk Management"]
+             "Signals & Factors", "Trade History", "Risk Management", "Configuration"]
         )
         
         st.markdown("---")
@@ -365,12 +365,24 @@ def main():
         st.markdown("---")
         st.subheader("Quick Stats")
         
+        # Get current price from dedicated endpoint
+        try:
+            price_data = fetch_api_data("/price/current")
+            if price_data and price_data.get('price'):
+                current_price = price_data['price']
+                st.metric("BTC Price", format_currency(current_price))
+                st.caption(f"Source: {price_data.get('source', 'live')}")
+            else:
+                # Fallback to metrics endpoint
+                metrics = fetch_api_data("/portfolio/metrics")
+                if metrics and metrics.get('current_btc_price'):
+                    st.metric("BTC Price", format_currency(metrics['current_btc_price']))
+        except:
+            st.metric("BTC Price", "Loading...")
+        
+        # Portfolio P&L
         metrics = fetch_api_data("/portfolio/metrics")
         if metrics:
-            current_price = metrics.get('current_btc_price', 0)
-            if current_price:
-                st.metric("BTC Price", format_currency(current_price))
-            
             total_pnl = metrics.get('total_pnl', 0)
             color = "profit" if total_pnl >= 0 else "loss"
             st.markdown(f"Total P&L: <span class='{color}'>{format_currency(total_pnl)}</span>", 
@@ -391,6 +403,8 @@ def main():
         show_trade_history()
     elif page == "Risk Management":
         show_risk_management()
+    elif page == "Configuration":
+        show_configuration()
 
 def show_dashboard():
     """Enhanced dashboard with comprehensive overview"""
@@ -968,12 +982,19 @@ def show_signals_factors():
             
             with col2:
                 # Average confidence by signal
-                avg_conf = signals_df.groupby('signal')['confidence'].mean()
+                # Fix: Ensure confidence is numeric before aggregation
+                signals_df_copy = signals_df.copy()
+                # Convert confidence to numeric, removing any % signs
+                if signals_df_copy['confidence'].dtype == 'object':
+                    signals_df_copy['confidence'] = signals_df_copy['confidence'].str.rstrip('%').astype(float) / 100
+                
+                avg_conf = signals_df_copy.groupby('signal')['confidence'].mean()
                 
                 fig = go.Figure(data=[go.Bar(
                     x=avg_conf.index,
                     y=avg_conf.values,
-                    marker_color=['green', 'red', 'orange']
+                    marker_color=['green' if x == 'buy' else 'red' if x == 'sell' else 'orange' 
+                                 for x in avg_conf.index]
                 )])
                 fig.update_layout(
                     title="Average Confidence by Signal Type",
@@ -1374,6 +1395,262 @@ def show_risk_management():
         st.dataframe(styled_rec, use_container_width=True)
     else:
         st.success("✅ No significant risk warnings at this time")
+
+def show_configuration():
+    """Configuration page for API keys and settings"""
+    st.header("⚙️ System Configuration")
+    
+    # Initialize session state for API keys
+    if 'api_keys' not in st.session_state:
+        st.session_state.api_keys = {
+            'admin_key': '',
+            'fear_greed_api_key': '',
+            'coingecko_api_key': '',
+            'additional_keys': {}
+        }
+    
+    # API Configuration Section
+    st.subheader("API Keys Configuration")
+    
+    with st.form("api_config_form"):
+        st.info("🔐 Configure API keys for enhanced data sources. Leave blank to use free/default sources.")
+        
+        # Admin API Key (for authentication)
+        admin_key = st.text_input(
+            "Admin API Key",
+            type="password",
+            value=st.session_state.api_keys.get('admin_key', ''),
+            help="Required to save configuration (default: admin123)"
+        )
+        
+        st.markdown("---")
+        
+        # Data Source API Keys
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fear_greed_key = st.text_input(
+                "Fear & Greed API Key (Optional)",
+                type="password",
+                value=st.session_state.api_keys.get('fear_greed_api_key', ''),
+                help="Enhanced Fear & Greed data access"
+            )
+            
+            coingecko_key = st.text_input(
+                "CoinGecko API Key (Optional)",
+                type="password",
+                value=st.session_state.api_keys.get('coingecko_api_key', ''),
+                help="Higher rate limits for price data"
+            )
+        
+        with col2:
+            # Additional API keys
+            st.markdown("### Additional API Keys")
+            
+            # Placeholder for future APIs
+            binance_key = st.text_input(
+                "Binance API Key (Optional)",
+                type="password",
+                help="For real-time order book data"
+            )
+            
+            glassnode_key = st.text_input(
+                "Glassnode API Key (Optional)",
+                type="password",
+                help="For on-chain metrics"
+            )
+        
+        # Submit button
+        submitted = st.form_submit_button("Save Configuration", type="primary")
+        
+        if submitted:
+            # Update session state
+            st.session_state.api_keys = {
+                'admin_key': admin_key,
+                'fear_greed_api_key': fear_greed_key,
+                'coingecko_api_key': coingecko_key,
+                'additional_keys': {
+                    'binance': binance_key,
+                    'glassnode': glassnode_key
+                }
+            }
+            
+            # Send to backend
+            try:
+                headers = {"api-key": admin_key or "admin123"}
+                config_data = {
+                    "fear_greed_api_key": fear_greed_key,
+                    "coingecko_api_key": coingecko_key,
+                    "additional_api_keys": {
+                        k: v for k, v in {
+                            'binance': binance_key,
+                            'glassnode': glassnode_key
+                        }.items() if v
+                    }
+                }
+                
+                response = requests.post(
+                    f"{API_BASE_URL}/config/api-keys",
+                    json=config_data,
+                    headers=headers,
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    st.success("✅ Configuration saved successfully!")
+                else:
+                    st.error(f"❌ Failed to save configuration: {response.text}")
+                    
+            except Exception as e:
+                st.error(f"❌ Error saving configuration: {str(e)}")
+    
+    # Display current configuration status
+    st.subheader("Current Configuration Status")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("API Connection", "Connected" if fetch_api_data("/") else "Disconnected")
+    
+    with col2:
+        # Check current price source
+        try:
+            price_data = fetch_api_data("/price/current")
+            if price_data:
+                st.metric("Price Source", price_data.get('source', 'Unknown').capitalize())
+        except:
+            st.metric("Price Source", "Default")
+    
+    with col3:
+        # Check if API keys are configured
+        configured_keys = sum(1 for v in st.session_state.api_keys.values() 
+                            if v and isinstance(v, str) and v.strip())
+        st.metric("Configured APIs", configured_keys)
+    
+    # Data Sources Information
+    st.subheader("📊 Available Data Sources")
+    
+    data_sources = [
+        {
+            "Source": "Yahoo Finance",
+            "Type": "Price Data",
+            "API Key": "Not Required",
+            "Status": "✅ Active",
+            "Description": "Historical and current BTC price data"
+        },
+        {
+            "Source": "Alternative.me",
+            "Type": "Fear & Greed Index",
+            "API Key": "Optional",
+            "Status": "✅ Active",
+            "Description": "Crypto market sentiment indicator"
+        },
+        {
+            "Source": "CoinGecko",
+            "Type": "Real-time Price",
+            "API Key": "Optional (Higher limits)",
+            "Status": "✅ Active",
+            "Description": "Current BTC price and market data"
+        },
+        {
+            "Source": "Binance",
+            "Type": "Price & Volume",
+            "API Key": "Optional",
+            "Status": "✅ Active",
+            "Description": "Real-time market data and order book"
+        },
+        {
+            "Source": "Glassnode",
+            "Type": "On-chain Metrics",
+            "API Key": "Required",
+            "Status": "⏸️ Inactive",
+            "Description": "Advanced on-chain analytics"
+        }
+    ]
+    
+    df_sources = pd.DataFrame(data_sources)
+    st.dataframe(df_sources, use_container_width=True)
+    
+    # System Settings
+    st.subheader("🔧 System Settings")
+    
+    with st.expander("Advanced Settings"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.number_input(
+                "Signal Update Interval (minutes)",
+                min_value=1,
+                max_value=60,
+                value=5,
+                help="How often to generate new trading signals"
+            )
+            
+            st.number_input(
+                "Data Cache TTL (seconds)",
+                min_value=10,
+                max_value=300,
+                value=60,
+                help="How long to cache API responses"
+            )
+        
+        with col2:
+            st.selectbox(
+                "Default Time Period",
+                ["1d", "7d", "1mo", "3mo", "6mo", "1y"],
+                index=2,
+                help="Default period for price data"
+            )
+            
+            st.selectbox(
+                "Default Interval",
+                ["1m", "5m", "15m", "1h", "4h", "1d"],
+                index=3,
+                help="Default candle interval"
+            )
+        
+        st.warning("⚠️ Advanced settings are for display only in this version")
+    
+    # API Documentation
+    st.subheader("📚 API Documentation")
+    
+    with st.expander("Backend API Endpoints"):
+        st.markdown("""
+        ### Available Endpoints
+        
+        - `GET /` - Health check
+        - `GET /portfolio/metrics` - Portfolio performance metrics
+        - `GET /signals/latest` - Latest trading signal with factors
+        - `GET /market/btc-data` - BTC market data with indicators
+        - `GET /analytics/technical` - Current technical indicators
+        - `POST /trades/` - Execute a trade
+        - `GET /positions/` - Current positions
+        - `GET /price/current` - Real-time BTC price
+        
+        ### Authentication
+        Some endpoints require the `api-key` header for authentication.
+        
+        ### Example Usage
+        ```python
+        import requests
+        
+        # Get current price
+        response = requests.get(f"{API_BASE_URL}/price/current")
+        price_data = response.json()
+        
+        # Update API keys (requires admin key)
+        headers = {"api-key": "admin123"}
+        config = {
+            "fear_greed_api_key": "your-key",
+            "coingecko_api_key": "your-key"
+        }
+        response = requests.post(
+            f"{API_BASE_URL}/config/api-keys",
+            json=config,
+            headers=headers
+        )
+        ```
+        """)
 
 if __name__ == "__main__":
     main()

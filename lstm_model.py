@@ -12,7 +12,7 @@ import requests
 import json
 
 class EnhancedLSTMTradingModel(nn.Module):
-    def __init__(self, input_size: int = 15, hidden_size: int = 100, num_layers: int = 3, output_size: int = 1, dropout: float = 0.3):
+    def __init__(self, input_size: int = 19, hidden_size: int = 100, num_layers: int = 3, output_size: int = 1, dropout: float = 0.3):
         super(EnhancedLSTMTradingModel, self).__init__()
         
         self.hidden_size = hidden_size
@@ -43,18 +43,51 @@ class EnhancedLSTMTradingModel(nn.Module):
 class EnhancedTradingSignalGenerator:
     def __init__(self, model_path: str = None, sequence_length: int = 60):
         self.sequence_length = sequence_length
-        self.model = EnhancedLSTMTradingModel()
+        self.model = None  # Will be initialized after we know feature count
         self.scaler = MinMaxScaler()
         self.is_trained = False
         self.cached_data = None
         self.last_fetch_time = None
         self.external_data_cache = {}
+        self.feature_count = 19  # Track the number of features
+        
+        # Initialize model with correct input size
+        self.model = EnhancedLSTMTradingModel(input_size=self.feature_count)
         
         if model_path:
             self.load_model(model_path)
     
+    def get_current_btc_price(self) -> Optional[float]:
+        """Get current BTC price from multiple sources"""
+        try:
+            # Try CoinGecko API first (no key required)
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                return data['bitcoin']['usd']
+        except:
+            pass
+        
+        try:
+            # Fallback to Binance API
+            url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                return float(data['price'])
+        except:
+            pass
+        
+        # Final fallback to Yahoo Finance
+        try:
+            btc = yf.Ticker("BTC-USD")
+            return btc.info.get('regularMarketPrice', btc.history(period='1d')['Close'].iloc[-1])
+        except:
+            return None
+    
     def fetch_btc_data(self, period: str = "1y", interval: str = "1d", max_retries: int = 3) -> pd.DataFrame:
-        """Fetch BTC data from Yahoo Finance with robust error handling"""
+        """Fetch BTC data from multiple sources with robust error handling"""
         
         # Check if we have recent cached data (within 5 minutes)
         if (self.cached_data is not None and 
@@ -63,10 +96,13 @@ class EnhancedTradingSignalGenerator:
             print("Using cached BTC data")
             return self.cached_data
         
-        # Try to fetch real data with retries
+        # Try multiple data sources
+        data = None
+        
+        # Source 1: Yahoo Finance (primary for historical data)
         for attempt in range(max_retries):
             try:
-                print(f"Attempting to fetch BTC data (attempt {attempt + 1}/{max_retries})...")
+                print(f"Attempting to fetch BTC data from Yahoo Finance (attempt {attempt + 1}/{max_retries})...")
                 
                 if attempt > 0:
                     time.sleep(2 ** attempt)
@@ -74,36 +110,194 @@ class EnhancedTradingSignalGenerator:
                 btc = yf.Ticker("BTC-USD")
                 data = btc.history(period=period, interval=interval)
                 
-                if data is None or data.empty:
-                    print(f"No data returned for BTC-USD on attempt {attempt + 1}")
-                    continue
-                
+                if data is not None and not data.empty and len(data) >= self.sequence_length:
+                    print(f"Successfully fetched {len(data)} periods from Yahoo Finance")
+                    break
+                    
+            except Exception as e:
+                print(f"Yahoo Finance attempt {attempt + 1} failed: {e}")
+                data = None
+        
+        # Source 2: CoinGecko (if Yahoo fails)
+        if data is None or data.empty:
+            try:
+                print("Attempting to fetch BTC data from CoinGecko...")
+                data = self._fetch_coingecko_data(period, interval)
+                if data is not None and not data.empty:
+                    print(f"Successfully fetched {len(data)} periods from CoinGecko")
+            except Exception as e:
+                print(f"CoinGecko fetch failed: {e}")
+                data = None
+        
+        # Source 3: Binance (if both fail)
+        if data is None or data.empty:
+            try:
+                print("Attempting to fetch BTC data from Binance...")
+                data = self._fetch_binance_data(period, interval)
+                if data is not None and not data.empty:
+                    print(f"Successfully fetched {len(data)} periods from Binance")
+            except Exception as e:
+                print(f"Binance fetch failed: {e}")
+                data = None
+        
+        # If we have data from any source, process it
+        if data is not None and not data.empty and len(data) >= self.sequence_length:
+            try:
                 # Add enhanced technical indicators
                 data = self._add_enhanced_technical_indicators(data)
                 
                 # Add external data signals
                 data = self._add_external_signals(data)
                 
-                # Validate final data
-                if len(data) < self.sequence_length:
-                    print(f"Insufficient data points ({len(data)}) on attempt {attempt + 1}")
-                    continue
-                
-                print(f"Successfully fetched {len(data)} periods of BTC data")
+                # Cache the data
                 self.cached_data = data
                 self.last_fetch_time = datetime.now()
+                
                 return data
                 
             except Exception as e:
-                print(f"Error fetching BTC data on attempt {attempt + 1}: {e}")
-                continue
+                print(f"Error processing fetched data: {e}")
         
-        # If all attempts failed, generate dummy data
-        print("All attempts to fetch real data failed. Generating dummy data...")
+        # If all real data sources failed, generate dummy data
+        print("All real data sources failed. Generating dummy data...")
         dummy_data = self.generate_dummy_data()
         self.cached_data = dummy_data
         self.last_fetch_time = datetime.now()
         return dummy_data
+    
+    def _fetch_coingecko_data(self, period: str, interval: str) -> pd.DataFrame:
+        """Fetch historical data from CoinGecko"""
+        try:
+            # Convert period to days
+            period_days = {
+                '1d': 1, '7d': 7, '1mo': 30, '3mo': 90, 
+                '6mo': 180, '1y': 365, '2y': 730
+            }.get(period, 365)
+            
+            # CoinGecko API endpoint for market chart
+            url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
+            params = {
+                'vs_currency': 'usd',
+                'days': period_days,
+                'interval': 'daily' if interval in ['1d', '1w'] else 'hourly'
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Convert to DataFrame
+                prices = data.get('prices', [])
+                volumes = data.get('total_volumes', [])
+                
+                if prices and volumes:
+                    df = pd.DataFrame(prices, columns=['timestamp', 'Close'])
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                    df.set_index('timestamp', inplace=True)
+                    
+                    # Add volume data
+                    volume_df = pd.DataFrame(volumes, columns=['timestamp', 'Volume'])
+                    volume_df['timestamp'] = pd.to_datetime(volume_df['timestamp'], unit='ms')
+                    volume_df.set_index('timestamp', inplace=True)
+                    df['Volume'] = volume_df['Volume']
+                    
+                    # Create OHLC from close prices (approximation)
+                    df['Open'] = df['Close'].shift(1).fillna(df['Close'])
+                    df['High'] = df[['Open', 'Close']].max(axis=1) * 1.002  # Add small variation
+                    df['Low'] = df[['Open', 'Close']].min(axis=1) * 0.998
+                    
+                    # Resample if needed
+                    if interval == '1h' and params['interval'] == 'hourly':
+                        pass  # Already hourly
+                    elif interval == '4h':
+                        df = df.resample('4H').agg({
+                            'Open': 'first',
+                            'High': 'max',
+                            'Low': 'min',
+                            'Close': 'last',
+                            'Volume': 'sum'
+                        })
+                    
+                    return df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
+                    
+        except Exception as e:
+            print(f"CoinGecko API error: {e}")
+            
+        return None
+    
+    def _fetch_binance_data(self, period: str, interval: str) -> pd.DataFrame:
+        """Fetch historical data from Binance"""
+        try:
+            # Convert period and interval to Binance format
+            interval_map = {
+                '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+                '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w'
+            }
+            binance_interval = interval_map.get(interval, '1h')
+            
+            # Calculate start time
+            period_ms = {
+                '1d': 24*60*60*1000, '7d': 7*24*60*60*1000,
+                '1mo': 30*24*60*60*1000, '3mo': 90*24*60*60*1000,
+                '6mo': 180*24*60*60*1000, '1y': 365*24*60*60*1000
+            }.get(period, 30*24*60*60*1000)
+            
+            end_time = int(datetime.now().timestamp() * 1000)
+            start_time = end_time - period_ms
+            
+            # Binance API endpoint
+            url = "https://api.binance.com/api/v3/klines"
+            params = {
+                'symbol': 'BTCUSDT',
+                'interval': binance_interval,
+                'startTime': start_time,
+                'endTime': end_time,
+                'limit': 1000  # Max limit
+            }
+            
+            all_data = []
+            
+            # Fetch data in batches if needed
+            while start_time < end_time:
+                response = requests.get(url, params=params, timeout=10)
+                if response.status_code == 200:
+                    klines = response.json()
+                    if not klines:
+                        break
+                        
+                    all_data.extend(klines)
+                    
+                    # Update start time for next batch
+                    last_timestamp = klines[-1][0]
+                    if last_timestamp >= end_time - 1000:
+                        break
+                    start_time = last_timestamp + 1
+                    params['startTime'] = start_time
+                else:
+                    print(f"Binance API error: {response.status_code}")
+                    break
+            
+            if all_data:
+                # Convert to DataFrame
+                df = pd.DataFrame(all_data, columns=[
+                    'timestamp', 'Open', 'High', 'Low', 'Close', 'Volume',
+                    'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                    'taker_buy_quote', 'ignore'
+                ])
+                
+                # Convert types
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+                
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    df[col] = pd.to_numeric(df[col])
+                
+                return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+                
+        except Exception as e:
+            print(f"Binance API error: {e}")
+            
+        return None
     
     def _add_enhanced_technical_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
         """Add comprehensive technical indicators to the data"""
@@ -329,7 +523,29 @@ class EnhancedTradingSignalGenerator:
             return zeros, zeros
     
     def prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Prepare enhanced features for the model"""
+        """Prepare enhanced features for the model
+        
+        Creates 19 features:
+        1. price - Normalized close price
+        2. returns - Price returns
+        3. log_returns - Log price returns
+        4. volume - Normalized volume
+        5. obv_norm - Normalized OBV
+        6. rsi - RSI normalized to 0-1
+        7. macd_norm - MACD normalized by price
+        8. sma_ratio - Price/SMA20 ratio
+        9. bb_position - Position within Bollinger Bands
+        10. bb_width - Bollinger Band width
+        11. atr_ratio - ATR as ratio of price
+        12. high_low_ratio - Daily range ratio
+        13. stoch_k - Stochastic K normalized to 0-1
+        14. mfi - MFI normalized to 0-1
+        15. roc - Rate of change normalized
+        16. vwap_distance - Distance from VWAP
+        17. close_position - Position within daily range
+        18. fear_greed - Fear & Greed Index normalized to 0-1
+        19. funding_rate - Funding rate proxy
+        """
         try:
             features = pd.DataFrame()
             
@@ -406,6 +622,14 @@ class EnhancedTradingSignalGenerator:
         """Train the enhanced LSTM model"""
         try:
             features = self.prepare_features(data)
+            
+            # Validate feature count matches model input size
+            actual_features = features.shape[1]
+            if actual_features != self.feature_count:
+                print(f"Warning: Feature count mismatch. Expected {self.feature_count}, got {actual_features}")
+                print(f"Reinitializing model with correct input size...")
+                self.feature_count = actual_features
+                self.model = EnhancedLSTMTradingModel(input_size=actual_features)
             
             if len(features) < self.sequence_length + 10:
                 print(f"Warning: Limited data for training ({len(features)} samples)")
@@ -496,6 +720,17 @@ class EnhancedTradingSignalGenerator:
     def predict_signal(self, current_data: pd.DataFrame) -> Tuple[str, float, float, Dict[str, float]]:
         """Generate enhanced trading signal with confidence scores for different factors"""
         try:
+            features = self.prepare_features(current_data)
+            
+            # Validate feature count
+            actual_features = features.shape[1]
+            if actual_features != self.feature_count:
+                print(f"Warning: Feature count mismatch during prediction. Expected {self.feature_count}, got {actual_features}")
+                if not self.is_trained:
+                    print("Adjusting model for correct feature count...")
+                    self.feature_count = actual_features
+                    self.model = EnhancedLSTMTradingModel(input_size=actual_features)
+            
             if not self.is_trained:
                 print("Model not trained, training now...")
                 self.train_model(current_data)
@@ -839,6 +1074,9 @@ class EnhancedTradingSignalGenerator:
         # Create DataFrame
         data = pd.DataFrame(data_dict, index=dates)
         
+        # Mark as dummy data
+        data._dummy_data = True
+        
         # Add enhanced technical indicators
         data = self._add_enhanced_technical_indicators(data)
         
@@ -855,7 +1093,8 @@ class EnhancedTradingSignalGenerator:
                 'model_state_dict': self.model.state_dict(),
                 'scaler': self.scaler,
                 'sequence_length': self.sequence_length,
-                'is_trained': self.is_trained
+                'is_trained': self.is_trained,
+                'feature_count': self.feature_count
             }, path)
             print(f"Model saved to {path}")
         except Exception as e:
@@ -865,10 +1104,16 @@ class EnhancedTradingSignalGenerator:
         """Load a trained model"""
         try:
             checkpoint = torch.load(path)
-            self.model.load_state_dict(checkpoint['model_state_dict'])
             self.scaler = checkpoint['scaler']
             self.sequence_length = checkpoint['sequence_length']
             self.is_trained = checkpoint['is_trained']
+            
+            # Handle feature count for backward compatibility
+            if 'feature_count' in checkpoint:
+                self.feature_count = checkpoint['feature_count']
+                self.model = EnhancedLSTMTradingModel(input_size=self.feature_count)
+            
+            self.model.load_state_dict(checkpoint['model_state_dict'])
             print(f"Model loaded from {path}")
         except FileNotFoundError:
             print(f"Model file not found: {path}")

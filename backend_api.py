@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -9,6 +9,7 @@ import threading
 import time
 import os
 import logging
+import json
 
 from database_models import DatabaseManager
 from lstm_model import EnhancedTradingSignalGenerator
@@ -269,6 +270,18 @@ async def startup_event():
     """Initialize the application"""
     logger.info("Starting Enhanced BTC Trading System API...")
     
+    # Load saved API configuration
+    global api_config
+    try:
+        config_path = os.path.join(os.getenv('CONFIG_PATH', '/app/config'), 'api_config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config_data = json.load(f)
+                api_config = APIConfig(**config_data)
+                logger.info("Loaded saved API configuration")
+    except Exception as e:
+        logger.warning(f"Failed to load API configuration: {e}")
+    
     # Start signal updater
     try:
         signal_updater.start()
@@ -306,7 +319,50 @@ async def startup_event():
             "timestamp": datetime.now()
         }
     
-    logger.info("Enhanced BTC Trading System API startup complete")
+class APIConfig(BaseModel):
+    """API Configuration model"""
+    fear_greed_api_key: Optional[str] = None
+    coingecko_api_key: Optional[str] = None
+    additional_api_keys: Optional[Dict[str, str]] = {}
+
+# Global configuration storage
+api_config = APIConfig()
+
+@app.post("/config/api-keys")
+async def update_api_keys(config: APIConfig, api_key: Optional[str] = Header(None)):
+    """Update API keys configuration"""
+    global api_config
+    try:
+        # Simple auth check (you can enhance this)
+        if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        
+        api_config = config
+        
+        # Pass configuration to signal generator if needed
+        if config.fear_greed_api_key:
+            signal_generator.external_data_cache['api_keys'] = {
+                'fear_greed': config.fear_greed_api_key
+            }
+        
+        return {"status": "success", "message": "API keys updated"}
+    except Exception as e:
+        logger.error(f"Failed to update API keys: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/config/api-keys")
+async def get_api_keys(api_key: Optional[str] = Header(None)):
+    """Get current API keys configuration (masked)"""
+    if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    
+    # Return masked keys
+    masked_config = {
+        "fear_greed_api_key": "***" + api_config.fear_greed_api_key[-4:] if api_config.fear_greed_api_key else None,
+        "coingecko_api_key": "***" + api_config.coingecko_api_key[-4:] if api_config.coingecko_api_key else None,
+        "additional_api_keys": {k: "***" + v[-4:] for k, v in (api_config.additional_api_keys or {}).items()}
+    }
+    return masked_config
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -490,7 +546,16 @@ async def get_portfolio_metrics():
             try:
                 current_price = float(latest_btc_data['Close'].iloc[-1])
             except Exception as e:
-                logger.warning(f"Failed to get current BTC price: {e}")
+                logger.warning(f"Failed to get current BTC price from data: {e}")
+        
+        # Try to get real-time price
+        try:
+            real_time_price = signal_generator.get_current_btc_price()
+            if real_time_price:
+                current_price = real_time_price
+                logger.info(f"Using real-time BTC price: ${current_price:,.2f}")
+        except Exception as e:
+            logger.warning(f"Failed to get real-time price: {e}")
         
         # Calculate comprehensive metrics
         metrics = calculate_portfolio_metrics(trades_df, positions_df, current_price)
@@ -823,6 +888,76 @@ async def get_system_status():
         }
     except Exception as e:
         logger.error(f"Failed to get system status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/config/api-keys")
+async def update_api_keys(config: APIConfig, api_key: Optional[str] = Header(None)):
+    """Update API keys configuration"""
+    global api_config
+    try:
+        # Simple auth check (you can enhance this)
+        if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        
+        api_config = config
+        
+        # Pass configuration to signal generator if needed
+        if config.fear_greed_api_key:
+            signal_generator.external_data_cache['api_keys'] = {
+                'fear_greed': config.fear_greed_api_key
+            }
+        
+        # Save config to file for persistence
+        config_path = os.path.join(os.getenv('CONFIG_PATH', '/app/config'), 'api_config.json')
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        with open(config_path, 'w') as f:
+            json.dump(config.dict(), f)
+        
+        return {"status": "success", "message": "API keys updated"}
+    except Exception as e:
+        logger.error(f"Failed to update API keys: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/config/api-keys")
+async def get_api_keys(api_key: Optional[str] = Header(None)):
+    """Get current API keys configuration (masked)"""
+    if api_key != os.getenv("ADMIN_API_KEY", "admin123"):
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    
+    # Return masked keys
+    masked_config = {
+        "fear_greed_api_key": "***" + api_config.fear_greed_api_key[-4:] if api_config.fear_greed_api_key else None,
+        "coingecko_api_key": "***" + api_config.coingecko_api_key[-4:] if api_config.coingecko_api_key else None,
+        "additional_api_keys": {k: "***" + v[-4:] for k, v in (api_config.additional_api_keys or {}).items()}
+    }
+    return masked_config
+
+@app.get("/price/current")
+async def get_current_price():
+    """Get current BTC price from multiple sources"""
+    try:
+        price = signal_generator.get_current_btc_price()
+        if price:
+            return {
+                "symbol": "BTC-USD",
+                "price": price,
+                "timestamp": datetime.now(),
+                "source": "live"
+            }
+        else:
+            # Fallback to latest data
+            if latest_btc_data is not None and len(latest_btc_data) > 0:
+                price = float(latest_btc_data['Close'].iloc[-1])
+                return {
+                    "symbol": "BTC-USD",
+                    "price": price,
+                    "timestamp": latest_btc_data.index[-1],
+                    "source": "cached"
+                }
+            else:
+                raise ValueError("No price data available")
+    except Exception as e:
+        logger.error(f"Failed to get current price: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

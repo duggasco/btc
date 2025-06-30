@@ -12,13 +12,13 @@ import numpy as np
 
 st.set_page_config(
     page_title="BTC Trading System",
-    page_icon="₿",
+    page_icon="?",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # Use backend service name when running in Docker, fallback to localhost
-API_BASE_URL = os.getenv("API_BASE_URL", "http://backend:8000")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://backend:8080")
 
 # Cache API calls
 @st.cache_data(ttl=60)
@@ -253,7 +253,7 @@ def calculate_portfolio_metrics(trades_df):
     }
 
 def main():
-    st.title("₿ BTC Trading System")
+    st.title("? BTC Trading System")
     st.markdown("---")
     
     with st.sidebar:
@@ -270,12 +270,12 @@ def main():
             api_status = fetch_api_data("/health")
         
         if api_status:
-            st.success("✅ API Connected")
+            st.success("? API Connected")
             if 'components' in api_status:
                 with st.expander("System Status"):
                     st.json(api_status['components'])
         else:
-            st.error("❌ API Disconnected")
+            st.error("? API Disconnected")
         
         # Auto-refresh toggle
         auto_refresh = st.checkbox("Auto-refresh (60s)", value=True)
@@ -301,7 +301,7 @@ def main():
         st.rerun()
 
 def show_dashboard():
-    st.header("📊 Trading Dashboard")
+    st.header("?? Trading Dashboard")
     
     # Key metrics
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -386,11 +386,11 @@ def show_dashboard():
             
             # Signal explanation
             if signal == 'buy':
-                st.success("📈 Model suggests buying - price expected to rise")
+                st.success("?? Model suggests buying - price expected to rise")
             elif signal == 'sell':
-                st.error("📉 Model suggests selling - price expected to fall")
+                st.error("?? Model suggests selling - price expected to fall")
             else:
-                st.info("🔄 Model suggests holding - no clear trend")
+                st.info("?? Model suggests holding - no clear trend")
         
         # Recent trades summary
         st.subheader("Recent Activity")
@@ -401,8 +401,8 @@ def show_dashboard():
                 sell_count = len(trades_df[trades_df['trade_type'] == 'sell'])
                 
                 st.write(f"**Last 10 trades:**")
-                st.write(f"🟢 Buys: {buy_count}")
-                st.write(f"🔴 Sells: {sell_count}")
+                st.write(f"?? Buys: {buy_count}")
+                st.write(f"?? Sells: {sell_count}")
                 
                 # Mini chart of trade distribution
                 fig_pie = px.pie(
@@ -414,7 +414,7 @@ def show_dashboard():
                 st.plotly_chart(fig_pie, use_container_width=True)
 
 def show_trading():
-    st.header("💰 Trading Interface")
+    st.header("?? Trading Interface")
     
     # Get latest market data
     latest_signal = fetch_api_data("/signals/latest")
@@ -485,12 +485,12 @@ def show_trading():
                         result = post_api_data("/trades/", trade_data)
                     
                     if result and result.get('status') == 'success':
-                        st.success(f"✅ Trade executed successfully! Trade ID: {result['trade_id']}")
+                        st.success(f"? Trade executed successfully! Trade ID: {result['trade_id']}")
                         st.balloons()
                         time.sleep(2)
                         st.rerun()
                     else:
-                        st.error("❌ Trade execution failed. Please try again.")
+                        st.error("? Trade execution failed. Please try again.")
     
     with col2:
         st.subheader("Market Information")
@@ -501,13 +501,13 @@ def show_trading():
             signal = latest_signal.get('signal', 'hold')
             confidence = latest_signal.get('confidence', 0.5)
             
-            signal_emoji = {'buy': '🟢', 'sell': '🔴', 'hold': '🟡'}
-            st.write(f"{signal_emoji.get(signal, '🟡')} {signal.upper()} (Confidence: {confidence:.1%})")
+            signal_emoji = {'buy': '??', 'sell': '??', 'hold': '??'}
+            st.write(f"{signal_emoji.get(signal, '??')} {signal.upper()} (Confidence: {confidence:.1%})")
             
             if signal == 'buy' and trade_type != 'buy':
-                st.info("💡 AI suggests buying")
+                st.info("?? AI suggests buying")
             elif signal == 'sell' and trade_type != 'sell':
-                st.info("💡 AI suggests selling")
+                st.info("?? AI suggests selling")
         
         # Quick stats
         st.write("**Quick Stats:**")
@@ -521,11 +521,11 @@ def show_trading():
         recent_trades = fetch_api_data("/trades/?limit=5")
         if recent_trades:
             for trade in recent_trades:
-                trade_emoji = '🟢' if trade['trade_type'] == 'buy' else '🔴'
+                trade_emoji = '??' if trade['trade_type'] == 'buy' else '??'
                 st.write(f"{trade_emoji} {trade['trade_type'].upper()} {trade['size']:.4f} BTC @ ${trade['price']:,.2f}")
 
 def show_portfolio():
-    st.header("📈 Portfolio Overview")
+    st.header("?? Portfolio Overview")
     
     # Get portfolio data
     positions = fetch_api_data("/positions/")
@@ -654,7 +654,7 @@ def show_portfolio():
             st.info("No trades match the selected filters")
 
 def show_signals():
-    st.header("🤖 AI Trading Signals")
+    st.header("?? AI Trading Signals")
     
     # Latest signal
     col1, col2 = st.columns([2, 3])
@@ -670,9 +670,9 @@ def show_signals():
             
             # Enhanced signal display
             signal_colors = {
-                'buy': {'bg': '#1f7a1f', 'text': '#90EE90', 'emoji': '🚀'},
-                'sell': {'bg': '#7a1f1f', 'text': '#FFA07A', 'emoji': '⚠️'},
-                'hold': {'bg': '#7a5f1f', 'text': '#FFD700', 'emoji': '⏸️'}
+                'buy': {'bg': '#1f7a1f', 'text': '#90EE90', 'emoji': '??'},
+                'sell': {'bg': '#7a1f1f', 'text': '#FFA07A', 'emoji': '??'},
+                'hold': {'bg': '#7a5f1f', 'text': '#FFD700', 'emoji': '??'}
             }
             
             colors = signal_colors.get(signal, signal_colors['hold'])
@@ -814,9 +814,298 @@ def show_signals():
             st.plotly_chart(fig_conf, use_container_width=True)
         else:
             st.info("No signal history available")
+    
+    # Comprehensive Trading Signals Table
+    st.subheader("?? Comprehensive Trading Signals")
+    
+    # Fetch BTC data for calculations
+    btc_data = fetch_api_data("/market/btc-data?period=1mo")
+    
+    if btc_data and 'data' in btc_data:
+        df = pd.DataFrame(btc_data['data'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed')
+        df = df.sort_values('timestamp')
+        
+        # Calculate various signals (16 total)
+        signals_data = []
+        
+        # Get latest values
+        latest_price = df['close'].iloc[-1]
+        latest_volume = df['volume'].iloc[-1]
+        latest_rsi = df['rsi'].iloc[-1] if 'rsi' in df.columns else 50
+        latest_macd = df['macd'].iloc[-1] if 'macd' in df.columns else 0
+        sma_20 = df['sma_20'].iloc[-1] if 'sma_20' in df.columns else latest_price
+        sma_50 = df['sma_50'].iloc[-1] if 'sma_50' in df.columns else latest_price
+        
+        # 1. RSI - Relative Strength Index
+        rsi_signal = "Oversold" if latest_rsi < 30 else ("Overbought" if latest_rsi > 70 else "Neutral")
+        rsi_interpretation = "Bullish" if latest_rsi < 30 else ("Bearish" if latest_rsi > 70 else "Neutral")
+        signals_data.append({
+            "Signal": "RSI",
+            "Type": "Momentum",
+            "Value": f"{latest_rsi:.1f}",
+            "Status": rsi_signal,
+            "Interpretation": rsi_interpretation,
+            "Description": "Momentum oscillator (0-100)"
+        })
+        
+        # 2. MACD - Moving Average Convergence Divergence
+        macd_signal = "Positive" if latest_macd > 0 else "Negative"
+        macd_interpretation = "Bullish" if latest_macd > 0 else "Bearish"
+        signals_data.append({
+            "Signal": "MACD",
+            "Type": "Momentum",
+            "Value": f"{latest_macd:.2f}",
+            "Status": macd_signal,
+            "Interpretation": macd_interpretation,
+            "Description": "Trend momentum indicator"
+        })
+        
+        # 3. SMA-20 Position
+        ma20_signal = "Above" if latest_price > sma_20 else "Below"
+        ma20_interpretation = "Bullish" if latest_price > sma_20 else "Bearish"
+        signals_data.append({
+            "Signal": "Price vs SMA-20",
+            "Type": "Trend",
+            "Value": f"{((latest_price/sma_20 - 1) * 100):.1f}%",
+            "Status": ma20_signal,
+            "Interpretation": ma20_interpretation,
+            "Description": "Price relative to 20-day MA"
+        })
+        
+        # 4. SMA-50 Position
+        ma50_signal = "Above" if latest_price > sma_50 else "Below"
+        ma50_interpretation = "Bullish" if latest_price > sma_50 else "Bearish"
+        signals_data.append({
+            "Signal": "Price vs SMA-50",
+            "Type": "Trend",
+            "Value": f"{((latest_price/sma_50 - 1) * 100):.1f}%",
+            "Status": ma50_signal,
+            "Interpretation": ma50_interpretation,
+            "Description": "Price relative to 50-day MA"
+        })
+        
+        # 5. Volume Analysis
+        avg_volume = df['volume'].rolling(20).mean().iloc[-1]
+        volume_ratio = latest_volume / avg_volume if avg_volume > 0 else 1
+        volume_signal = "High" if volume_ratio > 1.5 else ("Low" if volume_ratio < 0.5 else "Normal")
+        volume_interpretation = "Strong Move" if volume_ratio > 1.5 else ("Weak Move" if volume_ratio < 0.5 else "Neutral")
+        signals_data.append({
+            "Signal": "Volume Ratio",
+            "Type": "Volume",
+            "Value": f"{volume_ratio:.2f}x",
+            "Status": volume_signal,
+            "Interpretation": volume_interpretation,
+            "Description": "Volume vs 20-day average"
+        })
+        
+        # 6. Bollinger Band Position
+        bb_middle = sma_20
+        bb_std = df['close'].rolling(20).std().iloc[-1]
+        bb_upper = bb_middle + (2 * bb_std)
+        bb_lower = bb_middle - (2 * bb_std)
+        bb_position = (latest_price - bb_lower) / (bb_upper - bb_lower) if bb_upper > bb_lower else 0.5
+        bb_signal = "Overbought" if bb_position > 0.8 else ("Oversold" if bb_position < 0.2 else "Normal")
+        bb_interpretation = "Bearish" if bb_position > 0.8 else ("Bullish" if bb_position < 0.2 else "Neutral")
+        signals_data.append({
+            "Signal": "Bollinger Bands",
+            "Type": "Volatility",
+            "Value": f"{bb_position*100:.0f}%",
+            "Status": bb_signal,
+            "Interpretation": bb_interpretation,
+            "Description": "Position within bands"
+        })
+        
+        # 7. ATR - Average True Range
+        high_low = df['high'] - df['low']
+        atr = high_low.rolling(14).mean().iloc[-1]
+        atr_pct = (atr / latest_price) * 100
+        atr_signal = "High Vol" if atr_pct > 3 else ("Low Vol" if atr_pct < 1 else "Normal")
+        atr_interpretation = "Volatile" if atr_pct > 3 else ("Stable" if atr_pct < 1 else "Moderate")
+        signals_data.append({
+            "Signal": "ATR",
+            "Type": "Volatility",
+            "Value": f"{atr_pct:.1f}%",
+            "Status": atr_signal,
+            "Interpretation": atr_interpretation,
+            "Description": "14-day average true range"
+        })
+        
+        # 8. Price Change (24h)
+        price_24h_ago = df['close'].iloc[-24] if len(df) >= 24 else latest_price
+        price_change_24h = ((latest_price - price_24h_ago) / price_24h_ago) * 100
+        change_24h_signal = "Rising" if price_change_24h > 2 else ("Falling" if price_change_24h < -2 else "Stable")
+        change_24h_interpretation = "Bullish" if price_change_24h > 2 else ("Bearish" if price_change_24h < -2 else "Neutral")
+        signals_data.append({
+            "Signal": "24h Change",
+            "Type": "Momentum",
+            "Value": f"{price_change_24h:+.1f}%",
+            "Status": change_24h_signal,
+            "Interpretation": change_24h_interpretation,
+            "Description": "Price change last 24 hours"
+        })
+        
+        # 9. Price Change (7d)
+        price_7d_ago = df['close'].iloc[-7*24] if len(df) >= 7*24 else latest_price
+        price_change_7d = ((latest_price - price_7d_ago) / price_7d_ago) * 100
+        change_7d_signal = "Uptrend" if price_change_7d > 5 else ("Downtrend" if price_change_7d < -5 else "Sideways")
+        change_7d_interpretation = "Bullish" if price_change_7d > 5 else ("Bearish" if price_change_7d < -5 else "Neutral")
+        signals_data.append({
+            "Signal": "7d Trend",
+            "Type": "Trend",
+            "Value": f"{price_change_7d:+.1f}%",
+            "Status": change_7d_signal,
+            "Interpretation": change_7d_interpretation,
+            "Description": "Price trend over 7 days"
+        })
+        
+        # 10. Support/Resistance
+        recent_high = df['high'].rolling(20).max().iloc[-1]
+        recent_low = df['low'].rolling(20).min().iloc[-1]
+        price_position = (latest_price - recent_low) / (recent_high - recent_low) if recent_high > recent_low else 0.5
+        sr_signal = "Near Resistance" if price_position > 0.8 else ("Near Support" if price_position < 0.2 else "Mid-Range")
+        sr_interpretation = "Bearish" if price_position > 0.8 else ("Bullish" if price_position < 0.2 else "Neutral")
+        signals_data.append({
+            "Signal": "Support/Resistance",
+            "Type": "Price Action",
+            "Value": f"{price_position*100:.0f}%",
+            "Status": sr_signal,
+            "Interpretation": sr_interpretation,
+            "Description": "Position in 20-day range"
+        })
+        
+        # 11. Stochastic Oscillator
+        low_14 = df['low'].rolling(14).min().iloc[-1]
+        high_14 = df['high'].rolling(14).max().iloc[-1]
+        stoch_k = ((latest_price - low_14) / (high_14 - low_14) * 100) if high_14 > low_14 else 50
+        stoch_signal = "Oversold" if stoch_k < 20 else ("Overbought" if stoch_k > 80 else "Neutral")
+        stoch_interpretation = "Bullish" if stoch_k < 20 else ("Bearish" if stoch_k > 80 else "Neutral")
+        signals_data.append({
+            "Signal": "Stochastic",
+            "Type": "Momentum",
+            "Value": f"{stoch_k:.0f}",
+            "Status": stoch_signal,
+            "Interpretation": stoch_interpretation,
+            "Description": "Stochastic oscillator %K"
+        })
+        
+        # 12. Rate of Change (ROC)
+        price_10_ago = df['close'].iloc[-10] if len(df) >= 10 else latest_price
+        roc = ((latest_price - price_10_ago) / price_10_ago) * 100
+        roc_signal = "Strong Up" if roc > 10 else ("Strong Down" if roc < -10 else "Normal")
+        roc_interpretation = "Bullish" if roc > 10 else ("Bearish" if roc < -10 else "Neutral")
+        signals_data.append({
+            "Signal": "ROC (10)",
+            "Type": "Momentum",
+            "Value": f"{roc:+.1f}%",
+            "Status": roc_signal,
+            "Interpretation": roc_interpretation,
+            "Description": "10-period rate of change"
+        })
+        
+        # 13. Volume Trend
+        vol_sma_5 = df['volume'].rolling(5).mean().iloc[-1]
+        vol_sma_20 = avg_volume
+        vol_trend = "Increasing" if vol_sma_5 > vol_sma_20 * 1.2 else ("Decreasing" if vol_sma_5 < vol_sma_20 * 0.8 else "Stable")
+        vol_trend_interpretation = "Active" if vol_sma_5 > vol_sma_20 * 1.2 else ("Quiet" if vol_sma_5 < vol_sma_20 * 0.8 else "Normal")
+        signals_data.append({
+            "Signal": "Volume Trend",
+            "Type": "Volume",
+            "Value": f"{(vol_sma_5/vol_sma_20):.2f}x",
+            "Status": vol_trend,
+            "Interpretation": vol_trend_interpretation,
+            "Description": "5-day vs 20-day volume"
+        })
+        
+        # 14. Volatility (Historical)
+        returns = df['close'].pct_change()
+        volatility = returns.rolling(20).std().iloc[-1] * np.sqrt(365) * 100  # Annualized
+        vol_signal = "High" if volatility > 80 else ("Low" if volatility < 40 else "Normal")
+        vol_interpretation = "Risky" if volatility > 80 else ("Stable" if volatility < 40 else "Moderate")
+        signals_data.append({
+            "Signal": "Volatility (20d)",
+            "Type": "Risk",
+            "Value": f"{volatility:.1f}%",
+            "Status": vol_signal,
+            "Interpretation": vol_interpretation,
+            "Description": "20-day annualized volatility"
+        })
+        
+        # 15. MA Crossover
+        ma_cross = "Golden Cross" if sma_20 > sma_50 and df['sma_20'].iloc[-2] <= df['sma_50'].iloc[-2] else (
+                   "Death Cross" if sma_20 < sma_50 and df['sma_20'].iloc[-2] >= df['sma_50'].iloc[-2] else 
+                   ("Bullish" if sma_20 > sma_50 else "Bearish"))
+        ma_cross_interpretation = "Bullish" if ma_cross in ["Golden Cross", "Bullish"] else "Bearish"
+        signals_data.append({
+            "Signal": "MA Cross (20/50)",
+            "Type": "Trend",
+            "Value": f"{((sma_20/sma_50 - 1) * 100):.1f}%",
+            "Status": ma_cross,
+            "Interpretation": ma_cross_interpretation,
+            "Description": "Moving average crossover"
+        })
+        
+        # 16. LSTM Model Signal
+        if latest_signal:
+            model_signal = latest_signal.get('signal', 'hold').upper()
+            model_confidence = latest_signal.get('confidence', 0.5)
+            model_interpretation = "Bullish" if model_signal == "BUY" else ("Bearish" if model_signal == "SELL" else "Neutral")
+            signals_data.append({
+                "Signal": "LSTM AI Model",
+                "Type": "AI/ML",
+                "Value": f"{model_confidence:.1%}",
+                "Status": model_signal,
+                "Interpretation": model_interpretation,
+                "Description": "Neural network prediction"
+            })
+        
+        # Create DataFrame and display
+        signals_table_df = pd.DataFrame(signals_data)
+        
+        # Style the table
+        def style_interpretation(val):
+            if val == "Bullish":
+                return 'color: #90EE90'
+            elif val == "Bearish":
+                return 'color: #FFA07A'
+            else:
+                return 'color: #FFD700'
+        
+        styled_table = signals_table_df.style.applymap(style_interpretation, subset=['Interpretation'])
+        
+        st.dataframe(
+            styled_table,
+            use_container_width=True,
+            hide_index=True,
+            height=400
+        )
+        
+        # Summary
+        bullish_count = sum(1 for s in signals_data if s['Interpretation'] == 'Bullish')
+        bearish_count = sum(1 for s in signals_data if s['Interpretation'] == 'Bearish')
+        neutral_count = sum(1 for s in signals_data if s['Interpretation'] == 'Neutral')
+        
+        st.write("**Signal Summary:**")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Bullish Signals", bullish_count, f"{(bullish_count/len(signals_data)*100):.0f}%")
+        with col2:
+            st.metric("Bearish Signals", bearish_count, f"{(bearish_count/len(signals_data)*100):.0f}%")
+        with col3:
+            st.metric("Neutral Signals", neutral_count, f"{(neutral_count/len(signals_data)*100):.0f}%")
+        
+        # Aggregate Signal
+        if bullish_count > bearish_count + 2:
+            st.success("?? **Overall Market Sentiment: BULLISH** - Multiple indicators suggest upward momentum")
+        elif bearish_count > bullish_count + 2:
+            st.error("?? **Overall Market Sentiment: BEARISH** - Multiple indicators suggest downward pressure")
+        else:
+            st.info("?? **Overall Market Sentiment: NEUTRAL** - Mixed signals, exercise caution")
+    else:
+        st.warning("Unable to load BTC data for signal calculations")
 
 def show_limits():
-    st.header("⚡ Trading Limits & Orders")
+    st.header("? Trading Limits & Orders")
     
     # Create new limit order
     col1, col2 = st.columns([1, 1])
@@ -871,11 +1160,11 @@ def show_limits():
                     result = post_api_data("/limits/", limit_data)
                 
                 if result and result.get('status') == 'success':
-                    st.success(f"✅ Limit order created! ID: {result['limit_id']}")
+                    st.success(f"? Limit order created! ID: {result['limit_id']}")
                     time.sleep(2)
                     st.rerun()
                 else:
-                    st.error("❌ Failed to create limit order")
+                    st.error("? Failed to create limit order")
     
     with col2:
         st.subheader("Order Types Explained")
@@ -922,10 +1211,10 @@ def show_limits():
                         # Status
                         if 'stop' in limit['limit_type'] or 'sell' in limit['limit_type']:
                             if current_price <= limit['price']:
-                                st.warning("⚠️ Near trigger!")
+                                st.warning("?? Near trigger!")
                         else:
                             if current_price >= limit['price']:
-                                st.warning("⚠️ Near trigger!")
+                                st.warning("?? Near trigger!")
                     
                     with col4:
                         if st.button(f"Cancel", key=f"cancel_{limit['id']}"):
@@ -953,7 +1242,7 @@ def show_limits():
         st.info("No limit orders found")
 
 def show_analytics():
-    st.header("📊 Advanced Analytics")
+    st.header("?? Advanced Analytics")
     
     # Get analytics data
     trades = fetch_api_data("/trades/")

@@ -49,5 +49,13 @@
         "max_file_size": "10MB",
         "backup_count": 5,
         "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    },
+        "notifications": {
+        "discord_webhook_url": "",
+        "price_alert_threshold": 2.5,
+        "pnl_alert_threshold": 5.0,
+        "enable_trade_notifications": true,
+        "enable_signal_notifications": true,
+        "enable_limit_notifications": true
     }
 }

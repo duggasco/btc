@@ -17,6 +17,7 @@ services:
       - LOG_PATH=/app/logs
       - CONFIG_PATH=/app/config
       - PYTHONUNBUFFERED=1
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
     networks:
       - trading-network
     restart: unless-stopped

@@ -7,12 +7,21 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     curl \
+    locales \
     wget \
     dnsutils \
     iputils-ping \
     net-tools \
     ca-certificates \
+    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
     && rm -rf /var/lib/apt/lists/*
+
+
+# Set locale environment variables
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+ENV PYTHONIOENCODING=utf-8
 
 # Update CA certificates
 RUN update-ca-certificates
@@ -25,6 +34,7 @@ RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.pytho
 COPY database_models.py .
 COPY lstm_model.py .
 COPY backend_api.py .
+COPY discord_notifications.py .
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/models /app/logs /app/config

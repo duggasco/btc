@@ -11,6 +11,7 @@ import logging
 
 from database_models import DatabaseManager
 from lstm_model import TradingSignalGenerator
+from discord_notifications import DiscordNotifier
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -56,11 +57,23 @@ except Exception as e:
     logger.error(f"Failed to initialize signal generator: {e}")
     raise
 
+# Initialize Discord notifier
+discord_notifier = DiscordNotifier()
+logger.info("Discord notifier initialized")
+
 # Global variables for caching
 latest_btc_data = None
 latest_signal = None
 signal_update_errors = 0
 max_signal_errors = 5
+last_pnl = 0
+price_tracker = {
+    'last_price': None,
+    'daily_open': None,
+    'daily_high': None,
+    'daily_low': None,
+    'last_2_5_alert': None  # Track last alert price to avoid spam
+}
 
 class SignalUpdater:
     def __init__(self):
@@ -80,6 +93,60 @@ class SignalUpdater:
             self.thread.join(timeout=5)
         logger.info("Signal updater stopped")
         
+    def check_limit_orders(self, current_price: float):
+        """Check and trigger limit orders based on current price"""
+        try:
+            limits_df = db.get_trading_limits(active_only=True)
+            if limits_df.empty:
+                return
+            
+            for _, limit in limits_df.iterrows():
+                triggered = False
+                
+                if limit['limit_type'] == 'stop_loss' and current_price <= limit['price']:
+                    triggered = True
+                elif limit['limit_type'] == 'take_profit' and current_price >= limit['price']:
+                    triggered = True
+                elif limit['limit_type'] == 'buy_limit' and current_price <= limit['price']:
+                    triggered = True
+                elif limit['limit_type'] == 'sell_limit' and current_price >= limit['price']:
+                    triggered = True
+                
+                if triggered:
+                    logger.info(f"Limit order triggered: {limit['limit_type']} at ${limit['price']}")
+                    
+                    # Send Discord notification
+                    discord_notifier.notify_limit_triggered(
+                        limit_type=limit['limit_type'],
+                        trigger_price=limit['price'],
+                        current_price=current_price,
+                        size=limit.get('size')
+                    )
+                    
+                    # Execute the implied trade
+                    if limit['limit_type'] in ['stop_loss', 'take_profit', 'sell_limit']:
+                        trade_type = 'sell'
+                    else:
+                        trade_type = 'buy'
+                    
+                    # Create trade
+                    trade_id = db.add_trade(
+                        symbol="BTC-USD",
+                        trade_type=trade_type,
+                        price=current_price,
+                        size=limit.get('size', 0.01),
+                        lot_id=limit.get('lot_id')
+                    )
+                    
+                    # Mark limit as inactive
+                    # Note: This would need to be implemented in DatabaseManager
+                    # db.deactivate_limit(limit['id'])
+                    
+                    logger.info(f"Executed trade {trade_id} for triggered limit")
+                    
+        except Exception as e:
+            logger.error(f"Error checking limit orders: {e}")
+    
     def update_signals_loop(self):
         """Continuously update trading signals with error handling"""
         global signal_update_errors
@@ -87,6 +154,12 @@ class SignalUpdater:
         while self.running:
             try:
                 self.update_signals()
+                
+                # Check limit orders with current price
+                if latest_btc_data is not None and not latest_btc_data.empty:
+                    current_price = latest_btc_data['Close'].iloc[-1]
+                    self.check_limit_orders(current_price)
+                
                 signal_update_errors = 0  # Reset error count on success
                 time.sleep(300)  # Update every 5 minutes
             except Exception as e:
@@ -96,13 +169,14 @@ class SignalUpdater:
                 # Exponential backoff with max errors check
                 if signal_update_errors >= max_signal_errors:
                     logger.warning(f"Too many signal update errors ({signal_update_errors}), extending sleep time")
+                    discord_notifier.notify_system_status("warning", f"Signal update errors: {signal_update_errors}")
                     time.sleep(600)  # Wait 10 minutes after too many errors
                 else:
                     time.sleep(60 * signal_update_errors)  # Gradually increase wait time
                 
     def update_signals(self):
         """Update trading signals and store in database"""
-        global latest_btc_data, latest_signal
+        global latest_btc_data, latest_signal, price_tracker
         
         try:
             logger.info("Fetching BTC data for signal update...")
@@ -118,9 +192,39 @@ class SignalUpdater:
             latest_btc_data = btc_data
             logger.info(f"Successfully fetched {len(btc_data)} days of BTC data")
             
+            # Update price tracking for alerts
+            current_price = btc_data['Close'].iloc[-1]
+            daily_open = btc_data['Close'].iloc[-24] if len(btc_data) >= 24 else current_price
+            daily_high = btc_data['High'].rolling(24).max().iloc[-1] if len(btc_data) >= 24 else current_price
+            daily_low = btc_data['Low'].rolling(24).min().iloc[-1] if len(btc_data) >= 24 else current_price
+            
+            # Check for +/- 2.5% price movements
+            if price_tracker['daily_open']:
+                price_change_pct = ((current_price - price_tracker['daily_open']) / price_tracker['daily_open']) * 100
+                
+                # Check if we should send a price alert
+                if abs(price_change_pct) >= 2.5:
+                    last_alert_price = price_tracker.get('last_2_5_alert')
+                    # Only alert if price moved another 1% since last alert to avoid spam
+                    if not last_alert_price or abs((current_price - last_alert_price) / last_alert_price) >= 0.01:
+                        discord_notifier.notify_price_alert(current_price, price_change_pct, price_change_pct > 0)
+                        price_tracker['last_2_5_alert'] = current_price
+            
+            price_tracker.update({
+                'last_price': current_price,
+                'daily_open': daily_open,
+                'daily_high': daily_high,
+                'daily_low': daily_low
+            })
+            
+            discord_notifier.update_daily_stats(daily_open, daily_high, daily_low)
+            
             # Generate signal
             logger.info("Generating trading signal...")
             signal, confidence, predicted_price = signal_generator.predict_signal(btc_data)
+            
+            # Check if signal changed
+            old_signal = latest_signal.get('signal') if latest_signal else None
             
             # Store signal in database
             try:
@@ -137,6 +241,37 @@ class SignalUpdater:
                 "predicted_price": predicted_price,
                 "timestamp": datetime.now()
             }
+            
+            # Send Discord notification for signal update
+            discord_notifier.notify_signal_update(signal, confidence, predicted_price, current_price)
+            
+            # Check for major P&L changes
+            try:
+                metrics = db.get_portfolio_metrics()
+                current_pnl = metrics.get('total_pnl', 0)
+                global last_pnl
+                
+                if last_pnl != 0:
+                    pnl_change_pct = ((current_pnl - last_pnl) / abs(last_pnl)) * 100
+                    # Notify if P&L changed by more than 5%
+                    if abs(pnl_change_pct) >= 5:
+                        trades_today = db.get_trades(limit=100)
+                        if not trades_today.empty:
+                            trades_today['date'] = pd.to_datetime(trades_today['timestamp']).dt.date
+                            today = datetime.now().date()
+                            today_trades = trades_today[trades_today['date'] == today]
+                            daily_pnl = (today_trades['price'] * today_trades['size'] * 
+                                       today_trades['trade_type'].map({'buy': -1, 'sell': 1, 'hold': 0})).sum()
+                        else:
+                            daily_pnl = 0
+                        
+                        discord_notifier.notify_pnl_change(current_pnl, daily_pnl, pnl_change_pct)
+                        last_pnl = current_pnl
+                else:
+                    last_pnl = current_pnl
+                    
+            except Exception as e:
+                logger.warning(f"Failed to check P&L changes: {e}")
             
             logger.info(f"Signal updated: {signal} (confidence: {confidence:.2%}, price: ${predicted_price:.2f})")
             
@@ -162,12 +297,16 @@ async def startup_event():
     """Initialize the application"""
     logger.info("Starting BTC Trading System API...")
     
+    # Send system online notification
+    discord_notifier.notify_system_status("online", "BTC Trading System API is starting up...")
+    
     # Start signal updater
     try:
         signal_updater.start()
         logger.info("Signal updater started successfully")
     except Exception as e:
         logger.error(f"Failed to start signal updater: {e}")
+        discord_notifier.notify_system_status("error", f"Failed to start signal updater: {str(e)}")
     
     # Generate initial signal
     try:
@@ -197,6 +336,7 @@ async def startup_event():
             "timestamp": datetime.now()
         }
     
+    discord_notifier.notify_system_status("online", "BTC Trading System API started successfully! All systems operational.")
     logger.info("BTC Trading System API startup complete")
 
 @app.on_event("shutdown")
@@ -257,6 +397,18 @@ async def create_trade(trade: TradeRequest):
             lot_id=trade.lot_id
         )
         logger.info(f"Trade created: {trade_id}")
+        
+        # Send Discord notification
+        trade_value = trade.price * trade.size
+        discord_notifier.notify_trade_executed(
+            trade_id=trade_id,
+            trade_type=trade.trade_type,
+            price=trade.price,
+            size=trade.size,
+            lot_id=trade.lot_id or "auto",
+            trade_value=trade_value
+        )
+        
         return {"trade_id": trade_id, "status": "success", "message": "Trade created successfully"}
     except Exception as e:
         logger.error(f"Failed to create trade: {e}")

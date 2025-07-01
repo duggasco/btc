@@ -38,6 +38,7 @@ COPY integration.py .
 COPY backtesting_system.py .
 COPY backend_api.py .
 COPY discord_notifications.py .
+COPY paper_trading_persistence.py .
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/models /app/logs /app/config

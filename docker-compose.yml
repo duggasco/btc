@@ -18,6 +18,7 @@ services:
       - ./integration.py:/app/integration.py:ro
       - ./backtesting_system.py:/app/backtesting_system.py:ro
       - ./discord_notifications.py:/app/discord_notifications.py:ro
+      - ./paper_trading_persistence.py:/app/paper_trading_persistence.py:ro
     environment:
       - DATABASE_PATH=/app/data/trading_system.db
       - MODEL_PATH=/app/models

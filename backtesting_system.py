@@ -102,27 +102,36 @@ class WalkForwardBacktester:
         self.results_history = []
         
     def create_walk_forward_splits(self, data: pd.DataFrame) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
-        """Create walk-forward train/test splits with purging"""
+        """Create walk-forward train/test splits with adaptive sizing"""
         splits = []
-        
         total_days = len(data)
+        
+        # Adaptive parameters based on data size
+        if total_days < 200:
+            training_window = max(60, int(total_days * 0.6))
+            test_window = max(20, int(total_days * 0.2))
+        else:
+            training_window = min(self.config.training_window_days, int(total_days * 0.7))
+            test_window = min(self.config.test_window_days, int(total_days * 0.2))
+        
+        # FIXED: Move start_idx and while loop outside the if/else
         start_idx = 0
         
-        while start_idx + self.config.training_window_days + self.config.purge_days + self.config.test_window_days <= total_days:
+        while start_idx + training_window + self.config.purge_days + test_window <= total_days:
             # Training data
-            train_end = start_idx + self.config.training_window_days
+            train_end = start_idx + training_window
             train_data = data.iloc[start_idx:train_end]
             
             # Purge period to prevent information leakage
             test_start = train_end + self.config.purge_days
-            test_end = test_start + self.config.test_window_days
+            test_end = test_start + test_window
             test_data = data.iloc[test_start:test_end]
             
             splits.append((train_data, test_data))
             
             # Move forward by retraining frequency
             start_idx += self.config.retraining_frequency_days
-            
+                
         logger.info(f"Created {len(splits)} walk-forward splits")
         return splits
     
@@ -230,7 +239,7 @@ class WalkForwardBacktester:
         transaction_costs = np.abs(position_changes) * self.config.transaction_cost
         
         # Net returns
-        net_returns = strategy_returns - transaction_costs[:-1]
+        net_returns = strategy_returns - transaction_costs
         
         return net_returns
     
@@ -264,6 +273,23 @@ class WalkForwardBacktester:
     
     def _aggregate_results(self, results: List[Dict]) -> Dict:
         """Aggregate metrics across all splits"""
+        if not results or len(results) == 0:
+            logger.warning("No results to aggregate - insufficient data")
+            return {
+                'sortino_ratio_mean': 0.0,
+                'calmar_ratio_mean': 0.0,
+                'max_drawdown_mean': 0.0,
+                'profit_factor_mean': 0.0,
+                'win_rate_mean': 0.0,
+                'total_return_mean': 0.0,
+                'sharpe_ratio_mean': 0.0,
+                'volatility_mean': 0.0,
+                'composite_score': 0.0,
+                'periods_tested': 0,
+                'success': False,
+                'error_message': 'Insufficient data for backtesting'
+            }
+            
         aggregated = {}
         
         for metric in results[0].keys():

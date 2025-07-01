@@ -11,6 +11,7 @@ import logging
 import json
 import glob
 import asyncio
+import numpy as np
 
 from database_models import DatabaseManager
 from lstm_model import TradingSignalGenerator
@@ -554,27 +555,34 @@ async def run_backtest(config: BacktestConfig):
         
         # Prepare features for the model
         features_df = signal_generator.prepare_features(btc_data)
+        logger.info(f"Features shape: {features_df.shape}")  # Debug log
         
         # Extract just the price series for return calculations
         prices = features_df['price'].values
+        logger.info(f"Prices shape: {prices.shape}")  # Debug log
+        
+        # Ensure prices is 1D
+        if len(prices.shape) > 1:
+            logger.warning(f"Prices array is not 1D: {prices.shape}, flattening...")
+            prices = prices.flatten()
         
         # Initialize backtest results
         results = {
             'trades': [],
-            'equity_curve': [config.initial_capital],
+            'equity_curve': [float(config.initial_capital)],  # Ensure float
             'timestamps': [btc_data.index[signal_generator.sequence_length]],
             'positions': [],
             'signals': []
         }
         
         # Backtest variables
-        capital = config.initial_capital
-        position = 0
-        entry_price = 0
+        capital = float(config.initial_capital)
+        position = 0.0
+        entry_price = 0.0
         
         # Run through historical data
         for i in range(signal_generator.sequence_length, len(features_df)):
-            current_price = prices[i]
+            current_price = float(prices[i])  # Ensure float
             current_time = btc_data.index[i]
             
             # Get model signal using the feature window
@@ -591,9 +599,9 @@ async def run_backtest(config: BacktestConfig):
             results['signals'].append({
                 'timestamp': current_time,
                 'signal': signal,
-                'confidence': confidence,
-                'predicted_price': predicted_price,
-                'actual_price': current_price
+                'confidence': float(confidence),
+                'predicted_price': float(predicted_price),
+                'actual_price': float(current_price)
             })
             
             # Execute trading logic
@@ -607,10 +615,10 @@ async def run_backtest(config: BacktestConfig):
                 results['trades'].append({
                     'timestamp': current_time,
                     'type': 'buy',
-                    'price': current_price,
-                    'size': position,
-                    'value': position_value,
-                    'capital_after': capital
+                    'price': float(current_price),
+                    'size': float(position),
+                    'value': float(position_value),
+                    'capital_after': float(capital)
                 })
                 
             elif position > 0:
@@ -638,13 +646,13 @@ async def run_backtest(config: BacktestConfig):
                     results['trades'].append({
                         'timestamp': current_time,
                         'type': 'sell',
-                        'price': current_price,
-                        'size': position,
-                        'value': current_value,
-                        'pnl': current_value - (position * entry_price),
-                        'pnl_pct': pnl_pct,
+                        'price': float(current_price),
+                        'size': float(position),
+                        'value': float(current_value),
+                        'pnl': float(current_value - (position * entry_price)),
+                        'pnl_pct': float(pnl_pct),
                         'exit_reason': exit_reason,
-                        'capital_after': capital
+                        'capital_after': float(capital)
                     })
                     
                     position = 0
@@ -652,25 +660,55 @@ async def run_backtest(config: BacktestConfig):
             
             # Update equity curve
             total_equity = capital + (position * current_price if position > 0 else 0)
-            results['equity_curve'].append(total_equity)
+            results['equity_curve'].append(float(total_equity))
             results['timestamps'].append(current_time)
-            results['positions'].append(position)
+            results['positions'].append(float(position))
         
         # Calculate final metrics
         final_equity = results['equity_curve'][-1]
         total_return = (final_equity - config.initial_capital) / config.initial_capital
         
-        # Calculate performance metrics
-        equity_array = np.array(results['equity_curve'])
-        returns = np.diff(equity_array) / equity_array[:-1]
+        # Calculate performance metrics with careful array handling
+        equity_array = np.array(results['equity_curve'], dtype=np.float64)
+        logger.info(f"Equity array shape: {equity_array.shape}")  # Debug log
         
-        # Handle any potential NaN or inf values
-        returns = returns[np.isfinite(returns)]
+        # Ensure equity_array is 1D
+        if len(equity_array.shape) > 1:
+            logger.warning(f"Equity array is not 1D: {equity_array.shape}, flattening...")
+            equity_array = equity_array.flatten()
         
-        if len(returns) > 0:
-            sharpe_ratio = np.sqrt(252) * (np.mean(returns) / np.std(returns)) if np.std(returns) > 0 else 0
-            max_drawdown = np.min(equity_array / np.maximum.accumulate(equity_array) - 1)
-            win_rate = sum(1 for t in results['trades'] if t.get('type') == 'sell' and t.get('pnl', 0) > 0) / max(1, sum(1 for t in results['trades'] if t.get('type') == 'sell'))
+        if len(equity_array) > 1:
+            # Calculate returns carefully
+            returns = np.diff(equity_array) / equity_array[:-1]
+            logger.info(f"Returns shape: {returns.shape}")  # Debug log
+            
+            # Ensure returns is 1D
+            if len(returns.shape) > 1:
+                logger.warning(f"Returns array is not 1D: {returns.shape}, flattening...")
+                returns = returns.flatten()
+            
+            # Handle any potential NaN or inf values
+            returns = returns[np.isfinite(returns)]
+            
+            if len(returns) > 0:
+                sharpe_ratio = np.sqrt(252) * (np.mean(returns) / np.std(returns)) if np.std(returns) > 0 else 0
+                
+                # Calculate max drawdown carefully
+                cummax = np.maximum.accumulate(equity_array)
+                drawdown = (equity_array - cummax) / cummax
+                max_drawdown = np.min(drawdown)
+                
+                # Calculate win rate
+                sell_trades = [t for t in results['trades'] if t.get('type') == 'sell']
+                if len(sell_trades) > 0:
+                    winning_trades = [t for t in sell_trades if t.get('pnl', 0) > 0]
+                    win_rate = len(winning_trades) / len(sell_trades)
+                else:
+                    win_rate = 0
+            else:
+                sharpe_ratio = 0
+                max_drawdown = 0
+                win_rate = 0
         else:
             sharpe_ratio = 0
             max_drawdown = 0
@@ -678,77 +716,291 @@ async def run_backtest(config: BacktestConfig):
         
         # Summary statistics
         results['summary'] = {
-            'initial_capital': config.initial_capital,
-            'final_equity': final_equity,
-            'total_return': total_return,
-            'total_return_pct': total_return * 100,
-            'sharpe_ratio': sharpe_ratio,
-            'max_drawdown': max_drawdown,
-            'max_drawdown_pct': max_drawdown * 100,
+            'initial_capital': float(config.initial_capital),
+            'final_equity': float(final_equity),
+            'total_return': float(total_return),
+            'total_return_pct': float(total_return * 100),
+            'sharpe_ratio': float(sharpe_ratio),
+            'max_drawdown': float(max_drawdown),
+            'max_drawdown_pct': float(max_drawdown * 100),
             'total_trades': len([t for t in results['trades'] if t['type'] == 'buy']),
-            'win_rate': win_rate,
-            'avg_trade_return': np.mean([t.get('pnl_pct', 0) for t in results['trades'] if t.get('type') == 'sell' and 'pnl_pct' in t]) if any(t.get('type') == 'sell' for t in results['trades']) else 0
+            'win_rate': float(win_rate),
+            'avg_trade_return': float(np.mean([t.get('pnl_pct', 0) for t in results['trades'] if t.get('type') == 'sell' and 'pnl_pct' in t])) if any(t.get('type') == 'sell' for t in results['trades']) else 0
         }
         
         logger.info(f"Backtest completed: {results['summary']}")
         return results
         
     except Exception as e:
-        logger.error(f"Backtest failed: {e}")
+        logger.error(f"Backtest failed with full traceback: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Backtest failed: {str(e)}")
 
-# Backtesting endpoints
 @app.post("/backtest/run")
-async def run_backtest(
-    period: str = "1y",
-    optimize_weights: bool = True,
-    force: bool = False
-):
-    """Run backtest with specified parameters"""
+async def run_backtest_advanced(request: dict):
+    """Run advanced backtest with IntegratedBacktestingSystem"""
     global backtest_in_progress, latest_backtest_results
+    
+    # Extract parameters from request
+    period = request.get("period", "1y")
+    optimize_weights = request.get("optimize_weights", True)
+    force = request.get("force", False)
     
     # Check if backtest is already running
     if backtest_in_progress and not force:
         return {
             "status": "error",
-            "message": "Backtest already in progress"
+            "message": "Backtest already in progress. Set 'force': true to override."
+        }
+    
+    if not backtest_system:
+        return {
+            "status": "error",
+            "message": "Backtest system not initialized. Please restart the API."
         }
     
     try:
         backtest_in_progress = True
-        logger.info(f"Starting backtest with period={period}, optimize_weights={optimize_weights}")
+        logger.info(f"Starting advanced backtest with period={period}, optimize_weights={optimize_weights}")
+        
+        # Fetch and validate data first
+        try:
+            test_data = signal_generator.fetch_btc_data(period=period)
+            if test_data is None or len(test_data) < signal_generator.sequence_length:
+                raise ValueError(f"Insufficient data for period {period}. Got {len(test_data) if test_data is not None else 0} records, need at least {signal_generator.sequence_length}")
+            
+            # Test feature preparation to catch any shape issues early
+            test_features = signal_generator.prepare_features(test_data)
+            logger.info(f"Test features shape: {test_features.shape}")
+            
+            # Ensure the model is properly initialized
+            if not signal_generator.is_trained:
+                logger.info("Model not trained, training before backtest...")
+                signal_generator.train_model(test_data)
+                
+        except Exception as e:
+            logger.error(f"Data preparation failed: {e}", exc_info=True)
+            raise ValueError(f"Failed to prepare data: {str(e)}")
         
         # Run backtest in background to avoid blocking
         loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(
-            None,
-            backtest_system.run_comprehensive_backtest,
-            period,
-            optimize_weights
-        )
         
+        # Wrap the backtest execution with additional error handling
+        async def run_with_timeout():
+            try:
+                # Set a reasonable timeout (e.g., 30 minutes for comprehensive backtest)
+                return await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        backtest_system.run_comprehensive_backtest,
+                        period,
+                        optimize_weights
+                    ),
+                    timeout=1800  # 30 minutes
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError("Backtest timed out after 30 minutes")
+            except Exception as e:
+                logger.error(f"Backtest execution error: {e}", exc_info=True)
+                raise
+        
+        results = await run_with_timeout()
+        
+        # Validate results structure
+        if not isinstance(results, dict):
+            raise ValueError(f"Invalid results type: {type(results)}")
+        
+        # Store results
         latest_backtest_results = results
+        
+        # Ensure all numeric values are properly formatted
+        summary = {
+            "composite_score": float(results.get('composite_score', 0)),
+            "sortino_ratio": float(results.get('performance_metrics', {}).get('sortino_ratio_mean', 0)),
+            "max_drawdown": float(results.get('performance_metrics', {}).get('max_drawdown_mean', 0)),
+            "total_return": float(results.get('performance_metrics', {}).get('total_return_mean', 0)),
+            "sharpe_ratio": float(results.get('performance_metrics', {}).get('sharpe_ratio_mean', 0)),
+            "win_rate": float(results.get('performance_metrics', {}).get('win_rate_mean', 0)),
+            "total_trades": int(results.get('performance_metrics', {}).get('total_trades', 0)),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Save results to file for persistence
+        try:
+            filename = f"backtest_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(filename, 'w') as f:
+                json.dump({
+                    "timestamp": summary["timestamp"],
+                    "parameters": {
+                        "period": period,
+                        "optimize_weights": optimize_weights
+                    },
+                    "performance_metrics": results.get('performance_metrics', {}),
+                    "optimal_weights": results.get('optimal_weights', {}),
+                    "risk_assessment": results.get('risk_assessment', {}),
+                    "recommendations": results.get('recommendations', []),
+                    "summary": summary
+                }, f, indent=2)
+            logger.info(f"Backtest results saved to {filename}")
+        except Exception as e:
+            logger.error(f"Failed to save backtest results: {e}")
         
         return {
             "status": "success",
             "message": "Backtest completed successfully",
-            "summary": {
-                "composite_score": results.get('composite_score', 0),
-                "sortino_ratio": results.get('sortino_ratio_mean', 0),
-                "max_drawdown": results.get('max_drawdown_mean', 0),
-                "total_return": results.get('total_return_mean', 0),
-                "timestamp": datetime.now().isoformat()
+            "summary": summary,
+            "details": {
+                "risk_assessment": results.get('risk_assessment', {}),
+                "recommendations": results.get('recommendations', []),
+                "optimal_weights": results.get('optimal_weights', {}) if optimize_weights else None
             }
         }
         
-    except Exception as e:
-        logger.error(f"Backtest failed: {e}")
+    except TimeoutError as e:
+        logger.error(f"Backtest timeout: {e}")
         return {
             "status": "error",
-            "message": f"Backtest failed: {str(e)}"
+            "message": str(e),
+            "suggestion": "Try with a shorter period or disable weight optimization"
+        }
+    except ValueError as e:
+        logger.error(f"Backtest validation error: {e}")
+        return {
+            "status": "error", 
+            "message": f"Validation error: {str(e)}"
+        }
+    except Exception as e:
+        logger.error(f"Backtest failed with unexpected error: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Backtest failed: {str(e)}",
+            "error_type": type(e).__name__
         }
     finally:
         backtest_in_progress = False
+        logger.info("Backtest process completed (success or failure)")
+
+# Also update the Streamlit interface to use the correct endpoint
+# In streamlit_app.py, update the show_run_backtest() function to pass data correctly:
+
+def show_run_backtest():
+    """Interface to run new backtests"""
+    st.subheader("🚀 Run New Backtest")
+    
+    # Check if backtest is in progress
+    status = fetch_api_data("/backtest/status")
+    
+    if status and status.get('in_progress'):
+        st.warning("⏳ Backtest is currently in progress. Please wait...")
+        
+        # Add a progress bar
+        progress_bar = st.progress(0)
+        placeholder = st.empty()
+        
+        # Poll for completion
+        for i in range(100):
+            time.sleep(3)  # Check every 3 seconds
+            new_status = fetch_api_data("/backtest/status")
+            if not new_status.get('in_progress'):
+                progress_bar.progress(100)
+                placeholder.success("✅ Backtest completed!")
+                st.rerun()
+                break
+            progress_bar.progress(min(i + 1, 99))
+    else:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### Backtest Parameters")
+            
+            period = st.selectbox(
+                "Data Period",
+                ["1mo", "3mo", "6mo", "1y", "2y", "3y"],
+                index=3,
+                help="Historical data period for backtesting"
+            )
+            
+            optimize_weights = st.checkbox(
+                "Optimize Signal Weights",
+                value=True,
+                help="Use Bayesian optimization to find optimal feature weights"
+            )
+            
+            # Advanced settings in expander
+            with st.expander("Advanced Settings"):
+                force_run = st.checkbox(
+                    "Force Run",
+                    value=False,
+                    help="Force backtest even if one is in progress"
+                )
+        
+        with col2:
+            st.markdown("### Expected Outcomes")
+            st.info("""
+            **What the backtest will do:**
+            
+            1. **Walk-Forward Analysis**
+               - Train on historical windows
+               - Test on future data
+               - Prevent look-ahead bias
+            
+            2. **Optimization** (if enabled)
+               - Find optimal signal weights
+               - Balance risk vs return
+               - ~50 optimization trials
+            
+            3. **Performance Evaluation**
+               - Calculate Sortino ratio
+               - Measure maximum drawdown
+               - Generate recommendations
+            
+            ⏱️ **Estimated time**: 5-15 minutes
+            """)
+        
+        # Run backtest button
+        if st.button("🎯 Run Backtest", type="primary", use_container_width=True):
+            with st.spinner("Initializing backtest..."):
+                # Use the correct data structure for the request
+                request_data = {
+                    "period": period,
+                    "optimize_weights": optimize_weights,
+                    "force": force_run if 'force_run' in locals() else False
+                }
+                
+                result = post_api_data("/backtest/run", request_data)
+                
+                if result:
+                    if result.get('status') == 'success':
+                        st.success("✅ Backtest completed successfully!")
+                        st.balloons()
+                        
+                        # Display summary
+                        summary = result.get('summary', {})
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("Composite Score", f"{summary.get('composite_score', 0):.3f}")
+                        with col2:
+                            st.metric("Sortino Ratio", f"{summary.get('sortino_ratio', 0):.2f}")
+                        with col3:
+                            st.metric("Max Drawdown", f"{summary.get('max_drawdown', 0):.2%}")
+                        
+                        # Show additional details if available
+                        details = result.get('details', {})
+                        if details.get('recommendations'):
+                            st.markdown("### 💡 Recommendations")
+                            for rec in details['recommendations']:
+                                st.info(f"• {rec}")
+                        
+                        st.info("View detailed results in the 'Backtest Results' tab")
+                    else:
+                        error_msg = result.get('message', 'Unknown error')
+                        st.error(f"❌ Backtest failed: {error_msg}")
+                        
+                        # Show suggestion if available
+                        if result.get('suggestion'):
+                            st.warning(f"💡 Suggestion: {result['suggestion']}")
+                else:
+                    st.error("❌ Failed to connect to backtest service")
 
 @app.get("/backtest/status")
 async def get_backtest_status():

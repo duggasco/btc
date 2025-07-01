@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -14,6 +14,9 @@ import asyncio
 import numpy as np
 import traceback
 import sqlite3
+from contextlib import asynccontextmanager
+import uuid
+from collections import deque
 
 from database_models import DatabaseManager
 from lstm_model import TradingSignalGenerator
@@ -40,6 +43,144 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ============= NEW ENHANCED FEATURES =============
+
+# WebSocket connection manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.signal_subscribers: List[WebSocket] = []
+        self.price_subscribers: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+        if websocket in self.signal_subscribers:
+            self.signal_subscribers.remove(websocket)
+        if websocket in self.price_subscribers:
+            self.price_subscribers.remove(websocket)
+
+    async def send_personal_message(self, message: str, websocket: WebSocket):
+        await websocket.send_text(message)
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except:
+                pass
+
+    async def broadcast_signal_update(self, signal_data: dict):
+        message = json.dumps({"type": "signal_update", "data": signal_data})
+        for connection in self.signal_subscribers:
+            try:
+                await connection.send_text(message)
+            except:
+                pass
+
+    async def broadcast_price_update(self, price_data: dict):
+        message = json.dumps({"type": "price_update", "data": price_data})
+        for connection in self.price_subscribers:
+            try:
+                await connection.send_text(message)
+            except:
+                pass
+
+manager = ConnectionManager()
+
+# Enhanced rate limiter
+class RateLimiter:
+    def __init__(self, max_requests: int = 100, window_seconds: int = 60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = deque()
+    
+    def check_rate_limit(self, client_id: str = "default") -> bool:
+        now = time.time()
+        # Remove old requests
+        while self.requests and self.requests[0][0] < now - self.window_seconds:
+            self.requests.popleft()
+        
+        if len(self.requests) >= self.max_requests:
+            return False
+        
+        self.requests.append((now, client_id))
+        return True
+
+rate_limiter = RateLimiter()
+
+# Paper trading state
+paper_trading_enabled = False
+paper_portfolio = {
+    'btc_balance': 0.0,
+    'usd_balance': 10000.0,
+    'trades': [],
+    'total_pnl': 0.0
+}
+
+def execute_paper_trade(signal: str, confidence: float):
+    """Execute paper trades based on signals"""
+    global paper_portfolio
+    
+    if not latest_btc_data or len(latest_btc_data) == 0:
+        return
+    
+    current_price = float(latest_btc_data['Close'].iloc[-1])
+    
+    # Determine position size based on confidence
+    position_size = min(0.1 * confidence, 0.05)  # Max 5% of portfolio
+    
+    if signal == "buy" and confidence > trading_rules['buy_threshold']:
+        # Calculate BTC amount to buy
+        usd_amount = paper_portfolio['usd_balance'] * position_size
+        btc_amount = usd_amount / current_price
+        
+        if usd_amount > 0:
+            paper_portfolio['btc_balance'] += btc_amount
+            paper_portfolio['usd_balance'] -= usd_amount
+            
+            trade = {
+                'id': str(uuid.uuid4()),
+                'timestamp': datetime.now().isoformat(),
+                'type': 'buy',
+                'price': current_price,
+                'amount': btc_amount,
+                'value': usd_amount
+            }
+            paper_portfolio['trades'].append(trade)
+            logger.info(f"Paper trade executed: BUY {btc_amount:.6f} BTC at ${current_price:.2f}")
+    
+    elif signal == "sell" and confidence > trading_rules['sell_threshold']:
+        # Calculate BTC amount to sell
+        btc_amount = paper_portfolio['btc_balance'] * position_size
+        usd_amount = btc_amount * current_price
+        
+        if btc_amount > 0:
+            paper_portfolio['btc_balance'] -= btc_amount
+            paper_portfolio['usd_balance'] += usd_amount
+            
+            trade = {
+                'id': str(uuid.uuid4()),
+                'timestamp': datetime.now().isoformat(),
+                'type': 'sell',
+                'price': current_price,
+                'amount': btc_amount,
+                'value': usd_amount
+            }
+            paper_portfolio['trades'].append(trade)
+            logger.info(f"Paper trade executed: SELL {btc_amount:.6f} BTC at ${current_price:.2f}")
+    
+    # Update total P&L
+    total_value = paper_portfolio['usd_balance'] + (paper_portfolio['btc_balance'] * current_price)
+    paper_portfolio['total_pnl'] = total_value - 10000.0  # Initial balance was $10,000
+
+# ============= END NEW ENHANCED FEATURES =============
+
+# ============= ORIGINAL CODE WITH ENHANCEMENTS =============
+
 class TradeRequest(BaseModel):
     symbol: str
     trade_type: str
@@ -64,16 +205,6 @@ class EnhancedBacktestRequest(BaseModel):
     n_optimization_trials: int = 20
     force: bool = False
     settings: Optional[Dict[str, Any]] = None
-
-app = FastAPI(title="BTC Trading System API", version="2.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Initialize components with error handling
 try:
@@ -161,6 +292,10 @@ class SignalUpdater:
             try:
                 self.update_signals()
                 signal_update_errors = 0  # Reset error count on success
+                
+                # Broadcast updates via WebSocket (NEW)
+                asyncio.run(self.broadcast_updates())
+                
                 time.sleep(300)  # Update every 5 minutes
             except Exception as e:
                 signal_update_errors += 1
@@ -172,6 +307,18 @@ class SignalUpdater:
                     time.sleep(600)  # Wait 10 minutes after too many errors
                 else:
                     time.sleep(60 * signal_update_errors)  # Gradually increase wait time
+    
+    async def broadcast_updates(self):
+        """Broadcast signal and price updates via WebSocket (NEW)"""
+        if latest_signal:
+            await manager.broadcast_signal_update(latest_signal)
+        
+        if latest_btc_data is not None and len(latest_btc_data) > 0:
+            price_data = {
+                "price": float(latest_btc_data['Close'].iloc[-1]),
+                "timestamp": datetime.now().isoformat()
+            }
+            await manager.broadcast_price_update(price_data)
                 
     def update_signals(self):
         """Update trading signals and store in database"""
@@ -246,6 +393,10 @@ class SignalUpdater:
             if discord_notifier and hasattr(discord_notifier, 'last_signal') and discord_notifier.last_signal != signal:
                 discord_notifier.notify_signal_update(signal, confidence, predicted_price, btc_data['Close'].iloc[-1])
             
+            # Execute paper trades if enabled (NEW)
+            if paper_trading_enabled:
+                execute_paper_trade(signal, confidence)
+                
         except Exception as e:
             logger.error(f"Error in update_signals: {e}")
             # Don't re-raise, let the loop continue
@@ -282,9 +433,10 @@ def load_latest_backtest_results():
     except Exception as e:
         logger.error(f"Failed to load backtest results: {e}")
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the application"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Enhanced lifespan management with better initialization"""
+    # Startup
     logger.info("Starting Enhanced BTC Trading System API...")
     
     # Start signal updater
@@ -351,10 +503,10 @@ async def startup_event():
         discord_notifier.notify_system_status("online", "BTC Trading System API started successfully")
     
     logger.info("Enhanced BTC Trading System API startup complete")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
+    
+    yield
+    
+    # Shutdown
     logger.info("Shutting down Enhanced BTC Trading System API...")
     signal_updater.stop()
     
@@ -363,17 +515,56 @@ async def shutdown_event():
     
     logger.info("API shutdown complete")
 
+app = FastAPI(
+    title="BTC Trading System API", 
+    version="2.1.0",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============= NEW WEBSOCKET ENDPOINT =============
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            if message.get("action") == "subscribe_signals":
+                manager.signal_subscribers.append(websocket)
+                await websocket.send_text(json.dumps({"status": "subscribed to signals"}))
+            
+            elif message.get("action") == "subscribe_prices":
+                manager.price_subscribers.append(websocket)
+                await websocket.send_text(json.dumps({"status": "subscribed to prices"}))
+            
+            elif message.get("action") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+                
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+# ============= ORIGINAL ENDPOINTS WITH ENHANCEMENTS =============
+
 # Core endpoints
 @app.get("/")
 async def root():
     """Health check endpoint"""
     return {
         "message": "Enhanced BTC Trading System API is running", 
-        "version": "2.0.0",
+        "version": "2.1.0",
         "timestamp": datetime.now(),
         "status": "healthy",
         "signal_errors": signal_update_errors,
-        "features": ["enhanced_signals", "comprehensive_backtesting", "50+_indicators"]
+        "features": ["enhanced_signals", "comprehensive_backtesting", "50+_indicators", "websocket_support", "paper_trading"]
     }
 
 @app.get("/health")
@@ -400,14 +591,19 @@ async def health_check():
                 "signal_generator": signal_status,
                 "enhanced_signals": enhanced_status,
                 "signal_update_errors": signal_update_errors,
-                "comprehensive_signals": "active" if latest_comprehensive_signals is not None else "inactive"
+                "comprehensive_signals": "active" if latest_comprehensive_signals is not None else "inactive",
+                "paper_trading": "enabled" if paper_trading_enabled else "disabled",  # NEW
+                "websocket_connections": len(manager.active_connections)  # NEW
             },
             "latest_signal": latest_signal,
             "enhanced_features": {
                 "macro_indicators": True,
                 "sentiment_analysis": True,
                 "on_chain_proxies": True,
-                "50_plus_signals": True
+                "50_plus_signals": True,
+                "websocket_streaming": True,  # NEW
+                "paper_trading": True,  # NEW
+                "rate_limiting": True  # NEW
             }
         }
     except Exception as e:
@@ -419,6 +615,9 @@ async def health_check():
 async def get_enhanced_latest_signal():
     """Get the latest enhanced trading signal with full analysis"""
     global latest_enhanced_signal
+    
+    if not rate_limiter.check_rate_limit():  # NEW rate limiting
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
     
     try:
         if latest_enhanced_signal is None:
@@ -610,7 +809,7 @@ async def create_trade(trade: TradeRequest):
                 trade.lot_id, trade_value
             )
         
-        return {"trade_id": trade_id, "status": "success", "pnl": pnl}
+        return {"trade_id": trade_id, "status": "success", "message": "Trade created successfully", "pnl": pnl}
     except Exception as e:
         logger.error(f"Failed to create trade: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -1578,7 +1777,7 @@ async def get_system_status():
     try:
         return {
             "api_status": "running",
-            "api_version": "2.0.0",
+            "api_version": "2.1.0",
             "timestamp": datetime.now(),
             "signal_update_errors": signal_update_errors,
             "latest_signal_time": latest_signal.get('timestamp') if latest_signal else None,
@@ -1596,7 +1795,14 @@ async def get_system_status():
                 "enhanced_backtesting": True,
                 "bayesian_optimization": True,
                 "feature_importance": True,
-                "confidence_intervals": True
+                "confidence_intervals": True,
+                "websocket_support": True,  # NEW
+                "paper_trading": True,  # NEW
+                "monte_carlo": True  # NEW
+            },
+            "paper_trading_status": {  # NEW
+                "enabled": paper_trading_enabled,
+                "portfolio_value": paper_portfolio['usd_balance'] + (paper_portfolio['btc_balance'] * latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 0)
             }
         }
     except Exception as e:
@@ -1707,20 +1913,24 @@ async def export_database():
 async def get_trading_status():
     """Get trading status"""
     return {
-        "is_active": False,  # Placeholder - implement auto trading if needed
-        "mode": "manual",
-        "last_trade_time": None
+        "is_active": paper_trading_enabled,  # Enhanced with paper trading
+        "mode": "paper" if paper_trading_enabled else "manual",
+        "last_trade_time": paper_portfolio['trades'][-1]['timestamp'] if paper_portfolio['trades'] else None
     }
 
 @app.post("/trading/start")
 async def start_trading():
     """Start automated trading"""
-    return {"status": "success", "message": "Trading started (manual mode only)"}
+    global paper_trading_enabled
+    paper_trading_enabled = True
+    return {"status": "success", "message": "Paper trading started"}
 
 @app.post("/trading/stop")
 async def stop_trading():
     """Stop automated trading"""
-    return {"status": "success", "message": "Trading stopped"}
+    global paper_trading_enabled
+    paper_trading_enabled = False
+    return {"status": "success", "message": "Paper trading stopped"}
 
 # Trade execution endpoint
 @app.post("/trades/execute")
@@ -1751,6 +1961,132 @@ async def get_recent_trades(limit: int = 10):
 async def get_portfolio_positions():
     """Get portfolio positions"""
     return await get_positions()
+
+# ============= NEW ENHANCED ENDPOINTS =============
+
+# Paper trading endpoints
+@app.get("/paper-trading/status")
+async def get_paper_trading_status():
+    """Get paper trading status and portfolio"""
+    return {
+        "enabled": paper_trading_enabled,
+        "portfolio": paper_portfolio,
+        "timestamp": datetime.now()
+    }
+
+@app.post("/paper-trading/toggle")
+async def toggle_paper_trading():
+    """Toggle paper trading on/off"""
+    global paper_trading_enabled
+    paper_trading_enabled = not paper_trading_enabled
+    
+    if paper_trading_enabled:
+        logger.info("Paper trading enabled")
+    else:
+        logger.info("Paper trading disabled")
+    
+    return {
+        "enabled": paper_trading_enabled,
+        "message": f"Paper trading {'enabled' if paper_trading_enabled else 'disabled'}"
+    }
+
+@app.post("/paper-trading/reset")
+async def reset_paper_trading():
+    """Reset paper trading portfolio"""
+    global paper_portfolio
+    paper_portfolio = {
+        'btc_balance': 0.0,
+        'usd_balance': 10000.0,
+        'trades': [],
+        'total_pnl': 0.0
+    }
+    logger.info("Paper trading portfolio reset")
+    return {"status": "success", "message": "Paper trading portfolio reset"}
+
+# Monte Carlo simulation endpoint
+@app.post("/analytics/monte-carlo")
+async def run_monte_carlo_simulation(
+    num_simulations: int = 1000,
+    time_horizon_days: int = 30
+):
+    """Run Monte Carlo simulation for risk assessment"""
+    if not latest_btc_data or len(latest_btc_data) < 30:
+        raise HTTPException(status_code=400, detail="Insufficient data for simulation")
+    
+    try:
+        # Calculate historical returns
+        returns = latest_btc_data['Close'].pct_change().dropna()
+        mean_return = returns.mean()
+        std_return = returns.std()
+        
+        # Run simulations
+        simulations = []
+        for _ in range(num_simulations):
+            daily_returns = np.random.normal(mean_return, std_return, time_horizon_days)
+            price_path = [latest_btc_data['Close'].iloc[-1]]
+            
+            for ret in daily_returns:
+                price_path.append(price_path[-1] * (1 + ret))
+            
+            simulations.append(price_path[-1])
+        
+        # Calculate statistics
+        simulations = np.array(simulations)
+        percentiles = np.percentile(simulations, [5, 25, 50, 75, 95])
+        
+        return {
+            "current_price": float(latest_btc_data['Close'].iloc[-1]),
+            "simulations": num_simulations,
+            "time_horizon_days": time_horizon_days,
+            "statistics": {
+                "mean": float(np.mean(simulations)),
+                "std": float(np.std(simulations)),
+                "min": float(np.min(simulations)),
+                "max": float(np.max(simulations)),
+                "percentiles": {
+                    "5%": float(percentiles[0]),
+                    "25%": float(percentiles[1]),
+                    "50%": float(percentiles[2]),
+                    "75%": float(percentiles[3]),
+                    "95%": float(percentiles[4])
+                }
+            },
+            "probability_profit": float((simulations > latest_btc_data['Close'].iloc[-1]).mean())
+        }
+        
+    except Exception as e:
+        logger.error(f"Monte Carlo simulation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Multi-model ensemble endpoint
+@app.get("/models/ensemble/predict")
+async def get_ensemble_prediction():
+    """Get prediction from multiple models (placeholder for future implementation)"""
+    # This is a placeholder for future multi-model implementation
+    # Would include Random Forest, XGBoost, etc.
+    
+    if not latest_enhanced_signal:
+        raise HTTPException(status_code=404, detail="No signal available")
+    
+    return {
+        "models": {
+            "lstm": {
+                "signal": latest_enhanced_signal.get("signal"),
+                "confidence": latest_enhanced_signal.get("confidence")
+            },
+            "random_forest": {
+                "signal": "placeholder",
+                "confidence": 0.0
+            },
+            "xgboost": {
+                "signal": "placeholder", 
+                "confidence": 0.0
+            }
+        },
+        "ensemble_signal": latest_enhanced_signal.get("signal"),
+        "ensemble_confidence": latest_enhanced_signal.get("confidence"),
+        "timestamp": datetime.now()
+    }
 
 # Helper functions
 def calculate_var(returns: np.ndarray, confidence: float) -> float:

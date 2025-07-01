@@ -11,6 +11,13 @@ services:
       - ./storage/models:/app/models
       - ./storage/logs/backend:/app/logs
       - ./storage/config:/app/config
+      # Mount the Python files for hot reloading
+      - ./backend_api.py:/app/backend_api.py:ro
+      - ./database_models.py:/app/database_models.py:ro
+      - ./lstm_model.py:/app/lstm_model.py:ro
+      - ./integration.py:/app/integration.py:ro
+      - ./backtesting_system.py:/app/backtesting_system.py:ro
+      - ./discord_notifications.py:/app/discord_notifications.py:ro
     environment:
       - DATABASE_PATH=/app/data/trading_system.db
       - MODEL_PATH=/app/models
@@ -18,12 +25,17 @@ services:
       - CONFIG_PATH=/app/config
       - PYTHONUNBUFFERED=1
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      # Add proxy settings for yfinance
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - NO_PROXY=localhost,127.0.0.1
     networks:
       - trading-network
     restart: unless-stopped
     dns:
       - 8.8.8.8
       - 8.8.4.4
+      - 1.1.1.1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -32,6 +44,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     build:
@@ -43,11 +60,15 @@ services:
     volumes:
       - ./storage/logs/frontend:/app/logs
       - ./storage/config:/app/config
+      # Mount streamlit app for hot reloading
+      - ./streamlit_app.py:/app/streamlit_app.py:ro
     environment:
       - API_BASE_URL=http://backend:8000
       - LOG_PATH=/app/logs
       - CONFIG_PATH=/app/config
       - PYTHONUNBUFFERED=1
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
     depends_on:
       backend:
         condition: service_healthy
@@ -63,6 +84,31 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional Redis cache for performance
+  redis:
+    image: redis:7-alpine
+    container_name: btc-trading-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - trading-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - cache
 
 networks:
   trading-network:
@@ -78,4 +124,6 @@ volumes:
   btc_models:
     driver: local
   btc_logs:
+    driver: local
+  redis_data:
     driver: local

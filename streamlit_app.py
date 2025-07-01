@@ -253,7 +253,7 @@ def calculate_portfolio_metrics(trades_df):
     }
 
 def main():
-    st.title("? BTC Trading System")
+    st.title("BTC Trading System")
     st.markdown("---")
     
     with st.sidebar:
@@ -270,12 +270,12 @@ def main():
             api_status = fetch_api_data("/health")
         
         if api_status:
-            st.success("? API Connected")
+            st.success("[OK] API Connected")
             if 'components' in api_status:
                 with st.expander("System Status"):
                     st.json(api_status['components'])
         else:
-            st.error("? API Disconnected")
+            st.error("[X] API Disconnected")
         
         # Auto-refresh toggle
         auto_refresh = st.checkbox("Auto-refresh (60s)", value=True)
@@ -301,7 +301,7 @@ def main():
         st.rerun()
 
 def show_dashboard():
-    st.header("?? Trading Dashboard")
+    st.header("Trading Dashboard")
     
     # Key metrics
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -386,11 +386,11 @@ def show_dashboard():
             
             # Signal explanation
             if signal == 'buy':
-                st.success("?? Model suggests buying - price expected to rise")
+                st.success("Model suggests buying - price expected to rise")
             elif signal == 'sell':
-                st.error("?? Model suggests selling - price expected to fall")
+                st.error("Model suggests selling - price expected to fall")
             else:
-                st.info("?? Model suggests holding - no clear trend")
+                st.info("Model suggests holding - no clear trend")
         
         # Recent trades summary
         st.subheader("Recent Activity")
@@ -401,8 +401,8 @@ def show_dashboard():
                 sell_count = len(trades_df[trades_df['trade_type'] == 'sell'])
                 
                 st.write(f"**Last 10 trades:**")
-                st.write(f"?? Buys: {buy_count}")
-                st.write(f"?? Sells: {sell_count}")
+                st.write(f"Buys: {buy_count}")
+                st.write(f"Sells: {sell_count}")
                 
                 # Mini chart of trade distribution
                 fig_pie = px.pie(
@@ -414,7 +414,7 @@ def show_dashboard():
                 st.plotly_chart(fig_pie, use_container_width=True)
 
 def show_trading():
-    st.header("?? Trading Interface")
+    st.header("Trading Interface")
     
     # Get latest market data
     latest_signal = fetch_api_data("/signals/latest")
@@ -485,12 +485,12 @@ def show_trading():
                         result = post_api_data("/trades/", trade_data)
                     
                     if result and result.get('status') == 'success':
-                        st.success(f"? Trade executed successfully! Trade ID: {result['trade_id']}")
+                        st.success(f"[OK] Trade executed successfully! Trade ID: {result['trade_id']}")
                         st.balloons()
                         time.sleep(2)
                         st.rerun()
                     else:
-                        st.error("? Trade execution failed. Please try again.")
+                        st.error("[X] Trade execution failed. Please try again.")
     
     with col2:
         st.subheader("Market Information")
@@ -501,13 +501,13 @@ def show_trading():
             signal = latest_signal.get('signal', 'hold')
             confidence = latest_signal.get('confidence', 0.5)
             
-            signal_emoji = {'buy': '??', 'sell': '??', 'hold': '??'}
-            st.write(f"{signal_emoji.get(signal, '??')} {signal.upper()} (Confidence: {confidence:.1%})")
+            signal_emoji = {'buy': '[BUY]', 'sell': '[SELL]', 'hold': '[HOLD]'}
+            st.write(f"{signal_emoji.get(signal, '[?]')} {signal.upper()} (Confidence: {confidence:.1%})")
             
             if signal == 'buy' and trade_type != 'buy':
-                st.info("?? AI suggests buying")
+                st.info("AI suggests buying")
             elif signal == 'sell' and trade_type != 'sell':
-                st.info("?? AI suggests selling")
+                st.info("AI suggests selling")
         
         # Quick stats
         st.write("**Quick Stats:**")
@@ -521,11 +521,11 @@ def show_trading():
         recent_trades = fetch_api_data("/trades/?limit=5")
         if recent_trades:
             for trade in recent_trades:
-                trade_emoji = '??' if trade['trade_type'] == 'buy' else '??'
+                trade_emoji = '[BUY]' if trade['trade_type'] == 'buy' else '[SELL]'
                 st.write(f"{trade_emoji} {trade['trade_type'].upper()} {trade['size']:.4f} BTC @ ${trade['price']:,.2f}")
 
 def show_portfolio():
-    st.header("?? Portfolio Overview")
+    st.header("Portfolio Overview")
     
     # Get portfolio data
     positions = fetch_api_data("/positions/")
@@ -603,7 +603,7 @@ def show_portfolio():
     st.subheader("Trade History")
     if trades:
         trades_df = pd.DataFrame(trades)
-        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
+        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'], errors='coerce')
         trades_df = trades_df.sort_values('timestamp', ascending=False)
         
         # Add filters
@@ -654,7 +654,7 @@ def show_portfolio():
             st.info("No trades match the selected filters")
 
 def show_signals():
-    st.header("?? AI Trading Signals")
+    st.header("AI Trading Signals")
     
     # Latest signal
     col1, col2 = st.columns([2, 3])
@@ -670,9 +670,9 @@ def show_signals():
             
             # Enhanced signal display
             signal_colors = {
-                'buy': {'bg': '#1f7a1f', 'text': '#90EE90', 'emoji': '??'},
-                'sell': {'bg': '#7a1f1f', 'text': '#FFA07A', 'emoji': '??'},
-                'hold': {'bg': '#7a5f1f', 'text': '#FFD700', 'emoji': '??'}
+                'buy': {'bg': '#1f7a1f', 'text': '#90EE90', 'emoji': '[BUY]'},
+                'sell': {'bg': '#7a1f1f', 'text': '#FFA07A', 'emoji': '[SELL]'},
+                'hold': {'bg': '#7a5f1f', 'text': '#FFD700', 'emoji': '[HOLD]'}
             }
             
             colors = signal_colors.get(signal, signal_colors['hold'])
@@ -724,7 +724,7 @@ def show_signals():
         
         if signals_history:
             signals_df = pd.DataFrame(signals_history)
-            signals_df['timestamp'] = pd.to_datetime(signals_df['timestamp'])
+            signals_df['timestamp'] = pd.to_datetime(signals_df['timestamp'], errors='coerce')
             
             # Signal accuracy chart
             fig = go.Figure()
@@ -816,14 +816,14 @@ def show_signals():
             st.info("No signal history available")
     
     # Comprehensive Trading Signals Table
-    st.subheader("?? Comprehensive Trading Signals")
+    st.subheader("Comprehensive Trading Signals")
     
     # Fetch BTC data for calculations
     btc_data = fetch_api_data("/market/btc-data?period=1mo")
     
     if btc_data and 'data' in btc_data:
         df = pd.DataFrame(btc_data['data'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
         df = df.sort_values('timestamp')
         
         # Calculate various signals (16 total)
@@ -1096,16 +1096,16 @@ def show_signals():
         
         # Aggregate Signal
         if bullish_count > bearish_count + 2:
-            st.success("?? **Overall Market Sentiment: BULLISH** - Multiple indicators suggest upward momentum")
+            st.success("**Overall Market Sentiment: BULLISH** - Multiple indicators suggest upward momentum")
         elif bearish_count > bullish_count + 2:
-            st.error("?? **Overall Market Sentiment: BEARISH** - Multiple indicators suggest downward pressure")
+            st.error("**Overall Market Sentiment: BEARISH** - Multiple indicators suggest downward pressure")
         else:
-            st.info("?? **Overall Market Sentiment: NEUTRAL** - Mixed signals, exercise caution")
+            st.info("**Overall Market Sentiment: NEUTRAL** - Mixed signals, exercise caution")
     else:
         st.warning("Unable to load BTC data for signal calculations")
 
 def show_limits():
-    st.header("? Trading Limits & Orders")
+    st.header("Trading Limits & Orders")
     
     # Create new limit order
     col1, col2 = st.columns([1, 1])
@@ -1160,11 +1160,11 @@ def show_limits():
                     result = post_api_data("/limits/", limit_data)
                 
                 if result and result.get('status') == 'success':
-                    st.success(f"? Limit order created! ID: {result['limit_id']}")
+                    st.success(f"[OK] Limit order created! ID: {result['limit_id']}")
                     time.sleep(2)
                     st.rerun()
                 else:
-                    st.error("? Failed to create limit order")
+                    st.error("[X] Failed to create limit order")
     
     with col2:
         st.subheader("Order Types Explained")
@@ -1211,10 +1211,10 @@ def show_limits():
                         # Status
                         if 'stop' in limit['limit_type'] or 'sell' in limit['limit_type']:
                             if current_price <= limit['price']:
-                                st.warning("?? Near trigger!")
+                                st.warning("[!] Near trigger!")
                         else:
                             if current_price >= limit['price']:
-                                st.warning("?? Near trigger!")
+                                st.warning("[!] Near trigger!")
                     
                     with col4:
                         if st.button(f"Cancel", key=f"cancel_{limit['id']}"):
@@ -1242,7 +1242,7 @@ def show_limits():
         st.info("No limit orders found")
 
 def show_analytics():
-    st.header("?? Advanced Analytics")
+    st.header("Advanced Analytics")
     
     # Get analytics data
     trades = fetch_api_data("/trades/")
@@ -1331,7 +1331,7 @@ def show_analytics():
         st.subheader("Performance Metrics")
         
         trades_df = pd.DataFrame(trades)
-        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
+        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'], errors='coerce')
         
         # Calculate advanced metrics
         metrics = calculate_portfolio_metrics(trades_df)
@@ -1394,7 +1394,7 @@ def show_analytics():
         
         if btc_data and btc_data.get('data'):
             price_df = pd.DataFrame(btc_data['data'])
-            price_df['timestamp'] = pd.to_datetime(price_df['timestamp'])
+            price_df['timestamp'] = pd.to_datetime(price_df['timestamp'], errors='coerce')
             
             # Calculate returns
             price_df['returns'] = price_df['close'].pct_change()
@@ -1453,7 +1453,7 @@ def show_analytics():
         st.subheader("Trade Analysis")
         
         trades_df = pd.DataFrame(trades)
-        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
+        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'], errors='coerce')
         
         # Trade distribution by type
         col1, col2 = st.columns(2)

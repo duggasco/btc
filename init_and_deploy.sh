@@ -12,10 +12,10 @@ NC='\033[0m'
 # Discord webhook configuration
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
 
-print_status() { echo -e "${GREEN}? $1${NC}"; }
-print_warning() { echo -e "${YELLOW}??  $1${NC}"; }
-print_error() { echo -e "${RED}? $1${NC}"; exit 1; }
-print_info() { echo -e "${BLUE}??  $1${NC}"; }
+print_status() { echo -e "${GREEN}✅ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+print_error() { echo -e "${RED}❌ $1${NC}"; exit 1; }
+print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
 
 # Discord notification functions
 send_discord_notification() {
@@ -29,10 +29,10 @@ send_discord_notification() {
     fi
 }
 
-discord_info() { send_discord_notification "?? $1" 3447003; }      # Blue
-discord_success() { send_discord_notification "? $1" 3066993; }   # Green
-discord_error() { send_discord_notification "? $1" 15158332; }    # Red
-discord_warning() { send_discord_notification "?? $1" 16776960; }  # Yellow
+discord_info() { send_discord_notification "ℹ️ $1" 3447003; }      # Blue
+discord_success() { send_discord_notification "✅ $1" 3066993; }   # Green
+discord_error() { send_discord_notification "❌ $1" 15158332; }    # Red
+discord_warning() { send_discord_notification "⚠️ $1" 16776960; }  # Yellow
 
 check_dependencies() {
     print_info "Checking dependencies..."
@@ -70,7 +70,16 @@ create_config() {
     print_info "Creating configuration files..."
     discord_info "Creating configuration files..."
     
-    cat > .env << 'EOL'
+    # Check if .env exists and has Discord webhook, preserve it
+    local existing_webhook=""
+    if [ -f .env ]; then
+        existing_webhook=$(grep "^DISCORD_WEBHOOK_URL=" .env | cut -d'=' -f2- || true)
+    fi
+    
+    # Use existing webhook or environment variable
+    local webhook_to_use="${DISCORD_WEBHOOK_URL:-$existing_webhook}"
+    
+    cat > .env << EOL
 DATABASE_PATH=/app/data/trading_system.db
 MODEL_PATH=/app/models
 LOG_PATH=/app/logs
@@ -79,7 +88,16 @@ API_HOST=0.0.0.0
 API_PORT=8000
 STREAMLIT_HOST=0.0.0.0
 STREAMLIT_PORT=8501
+DISCORD_WEBHOOK_URL=${webhook_to_use}
 EOL
+
+    if [ -n "$webhook_to_use" ]; then
+        print_status "Discord webhook URL configured"
+        discord_info "Discord notifications enabled"
+    else
+        print_warning "Discord webhook URL not set - notifications disabled"
+        print_info "To enable Discord notifications, set DISCORD_WEBHOOK_URL in .env file"
+    fi
 
     if [ ! -f storage/config/trading_config.json ]; then
         cat > storage/config/trading_config.json << 'EOL'
@@ -180,48 +198,57 @@ run_tests() {
 }
 
 send_system_status() {
-    local backend_status="? Down"
-    local frontend_status="? Down"
+    local backend_status="❌ Down"
+    local frontend_status="❌ Down"
     
     if curl -f http://localhost:8080/health >/dev/null 2>&1; then
-        backend_status="? Running"
+        backend_status="✅ Running"
     fi
     
     if curl -f http://localhost:8501/_stcore/health >/dev/null 2>&1; then
-        frontend_status="? Running"
+        frontend_status="✅ Running"
     fi
     
     local status_message="**BTC Trading System Status**\n\n"
     status_message+="Backend API: $backend_status\n"
     status_message+="Frontend UI: $frontend_status\n"
     status_message+="\n**Access URLs:**\n"
-    status_message+="� Backend: http://localhost:8080\n"
-    status_message+="� Frontend: http://localhost:8501\n"
-    status_message+="� API Docs: http://localhost:8080/docs"
+    status_message+="• Backend: http://localhost:8080\n"
+    status_message+="• Frontend: http://localhost:8501\n"
+    status_message+="• API Docs: http://localhost:8080/docs"
     
     send_discord_notification "$status_message" 3447003
 }
 
 show_status() {
     echo ""
-    echo -e "${GREEN}?? BTC Trading System is running!${NC}"
+    echo -e "${GREEN}🎉 BTC Trading System is running!${NC}"
     echo ""
-    echo -e "${BLUE}?? Services:${NC}"
+    echo -e "${BLUE}📊 Services:${NC}"
     echo "  Backend API:     http://localhost:8080"
     echo "  Frontend UI:     http://localhost:8501"
     echo "  API Docs:        http://localhost:8080/docs"
     echo ""
-    echo -e "${BLUE}?? Management Commands:${NC}"
+    echo -e "${BLUE}📝 Management Commands:${NC}"
     echo "  View logs:       docker compose logs -f"
     echo "  Stop services:   docker compose down"
     echo "  Restart:         docker compose restart"
     echo "  Run tests:       python3 test_system.py"
     echo ""
-    echo -e "${BLUE}?? Storage:${NC}"
+    echo -e "${BLUE}📁 Storage:${NC}"
     echo "  Data:            ./storage/data/"
     echo "  Models:          ./storage/models/"
     echo "  Logs:            ./storage/logs/"
     echo "  Config:          ./storage/config/"
+    echo ""
+    
+    # Check Discord status
+    if [ -f .env ] && grep -q "DISCORD_WEBHOOK_URL=." .env; then
+        echo -e "${GREEN}🔔 Discord notifications: ENABLED${NC}"
+    else
+        echo -e "${YELLOW}🔕 Discord notifications: DISABLED${NC}"
+        echo "  To enable: Add DISCORD_WEBHOOK_URL to .env file"
+    fi
     echo ""
     
     if [ -n "$DISCORD_WEBHOOK_URL" ]; then
@@ -241,14 +268,14 @@ trap 'handle_error $LINENO' ERR
 
 case "${1:-deploy}" in
     "deploy"|"init")
-        discord_info "?? Starting BTC Trading System deployment..."
+        discord_info "🚀 Starting BTC Trading System deployment..."
         check_dependencies
         create_storage
         create_config
         build_and_start
         run_tests
         show_status
-        discord_success "?? BTC Trading System deployed successfully!"
+        discord_success "🎉 BTC Trading System deployed successfully!"
         ;;
     "start")
         discord_info "Starting BTC Trading System..."

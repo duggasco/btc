@@ -12,11 +12,16 @@ numpy==1.24.3
 
 # Data fetching
 requests==2.31.0
+yfinance==0.2.33  # Added missing dependency
 
 # Utilities
 python-dateutil==2.8.2
 python-multipart==0.0.6
 
-# backtesting packages
+# Backtesting packages
 optuna==3.5.0
 optuna-dashboard==0.14.0  # Optional for visualization
+
+# Additional dependencies for enhanced features
+ta==0.10.2  # Technical analysis library
+scipy==1.11.4  # For advanced calculations

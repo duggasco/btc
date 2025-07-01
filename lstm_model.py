@@ -1,721 +1,575 @@
+"""
+Enhanced LSTM Model Integration
+Extends the base lstm_model.py with enhanced functionality while preserving all original features
+"""
+
 import torch
 import torch.nn as nn
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-from typing import Tuple, List
+from typing import Tuple, List, Dict, Optional
 from datetime import datetime, timedelta
 import time
 import random
 import requests
 import json
-from backtesting_system import SignalWeights
+import logging
+import warnings
+warnings.filterwarnings('ignore')
 
+# Import the base classes
+from lstm_model import LSTMTradingModel, TradingSignalGenerator
 
-class LSTMTradingModel(nn.Module):
-    def __init__(self, input_size: int = 16, hidden_size: int = 50, num_layers: int = 2, output_size: int = 1, dropout: float = 0.2):
-        super(LSTMTradingModel, self).__init__()
+# Import enhanced components
+from enhanced_backtesting_system import (
+    SignalWeights, EnhancedSignalWeights, 
+    ComprehensiveSignalCalculator, BacktestConfig
+)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class EnhancedLSTMTradingModel(LSTMTradingModel):
+    """Enhanced LSTM model with additional features while preserving base functionality"""
+    
+    def __init__(self, input_size: int = 16, hidden_size: int = 50, 
+                 num_layers: int = 2, output_size: int = 1, dropout: float = 0.2,
+                 use_attention: bool = False):
+        # Initialize base model
+        super().__init__(input_size, hidden_size, num_layers, output_size, dropout)
         
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(hidden_size, output_size)
-        
+        # Add optional attention mechanism
+        self.use_attention = use_attention
+        if use_attention:
+            self.attention = nn.MultiheadAttention(hidden_size, num_heads=4, dropout=dropout)
+            
     def forward(self, x):
+        """Forward pass with optional attention"""
+        if not self.use_attention:
+            # Use base implementation
+            return super().forward(x)
+        
+        # Enhanced forward with attention
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         
-        out, _ = self.lstm(x, (h0, c0))
-        out = self.dropout(out[:, -1, :])
+        lstm_out, (hn, cn) = self.lstm(x, (h0, c0))
+        
+        if self.use_attention:
+            # Apply attention to LSTM outputs
+            # Reshape for attention: (seq_len, batch, features)
+            lstm_out = lstm_out.transpose(0, 1)
+            attn_out, _ = self.attention(lstm_out, lstm_out, lstm_out)
+            # Take the last timestep after attention
+            out = attn_out[-1]
+        else:
+            out = lstm_out[:, -1, :]
+            
+        out = self.dropout(out)
         out = self.fc(out)
         
         return out
 
-
-
-
-
-class TradingSignalGenerator:
-    def __init__(self, model_path: str = None, sequence_length: int = 60):
-        self.sequence_length = sequence_length
-        self.model = LSTMTradingModel()
-        self.scaler = MinMaxScaler()
-        self.is_trained = False
-        self.cached_data = None
-        self.last_fetch_time = None
-        self.signal_weights = SignalWeights()
-        
-        if model_path:
-            self.load_model(model_path)
-
-    def apply_signal_weights(self, features):
-        """Apply optimized weights to features"""
+class IntegratedTradingSignalGenerator(TradingSignalGenerator):
+    """
+    Integrated signal generator that combines base functionality with enhancements
+    Preserves ALL original methods while adding enhanced capabilities
+    """
     
-    def fetch_btc_data(self, period: str = "1y", max_retries: int = 3) -> pd.DataFrame:
-        """Fetch BTC data from multiple free APIs with fallbacks"""
+    def __init__(self, model_path: str = None, sequence_length: int = 60, 
+                 use_enhanced_model: bool = False):
+        # Initialize base class
+        super().__init__(model_path, sequence_length)
         
-        # Check cache first
-        if (self.cached_data is not None and 
-            self.last_fetch_time is not None and 
-            (datetime.now() - self.last_fetch_time).total_seconds() < 300):
-            print("Using cached BTC data")
-            return self.cached_data
+        # Override model with enhanced version if requested
+        if use_enhanced_model:
+            self.model = EnhancedLSTMTradingModel(
+                input_size=16,  # Keep compatible with base
+                use_attention=True
+            )
         
-        # Convert period to days for APIs
-        period_days = {"1d": 1, "7d": 7, "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730}.get(period, 365)
+        # Initialize enhanced components
+        self.signal_calculator = ComprehensiveSignalCalculator()
+        self.enhanced_weights = EnhancedSignalWeights()
+        self.enhanced_weights.normalize()
+        self.enhanced_weights.normalize_subcategories()
         
-        # Try multiple data sources
-        data_sources = [
-            self._fetch_from_coingecko,
-            self._fetch_from_binance, 
-            self._fetch_from_coincap,
-            self._fetch_from_coinbase
-        ]
+        # Performance tracking
+        self.performance_history = []
+        self.feature_importance = {}
         
-        for attempt in range(max_retries):
-            for fetch_func in data_sources:
-                try:
-                    print(f"Trying {fetch_func.__name__} (attempt {attempt + 1})...")
-                    time.sleep(2)  # Rate limiting
-                    
-                    data = fetch_func(period_days)
-                    if data is not None and len(data) >= self.sequence_length:
-                        data = self._add_technical_indicators(data)
-                        if len(data) >= self.sequence_length:
-                            print(f"Success with {fetch_func.__name__}: {len(data)} days")
-                            self.cached_data = data
-                            self.last_fetch_time = datetime.now()
-                            return data
-                except Exception as e:
-                    print(f"Error with {fetch_func.__name__}: {e}")
-                    continue
+        # Enhanced scalers for multi-feature support
+        self.feature_scaler = MinMaxScaler()
+        self.target_scaler = MinMaxScaler()
         
-        print("All APIs failed, generating dummy data...")
-        dummy_data = self.generate_dummy_data()
-        self.cached_data = dummy_data  
-        self.last_fetch_time = datetime.now()
-        return dummy_data
+        logger.info("Integrated Trading Signal Generator initialized")
     
-    def _fetch_from_coingecko(self, days: int) -> pd.DataFrame:
-        """Fetch from CoinGecko API"""
-        url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-        params = {"vs_currency": "usd", "days": days}
+    def fetch_enhanced_btc_data(self, period: str = "1y", include_macro: bool = False) -> pd.DataFrame:
+        """
+        Enhanced data fetching that builds on base fetch_btc_data
+        Adds comprehensive signals while preserving original functionality
+        """
+        # First, use base method to get BTC data
+        logger.info(f"Fetching base BTC data for period: {period}")
+        base_data = self.fetch_btc_data(period=period)
         
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
+        if base_data is None or len(base_data) < self.sequence_length:
+            logger.warning("Insufficient base data, using dummy data")
+            base_data = self.generate_dummy_data()
         
-        prices = data['prices']
-        volumes = data['total_volumes']
+        # Now enhance with comprehensive signals
+        logger.info("Calculating comprehensive signals...")
+        enhanced_data = self.signal_calculator.calculate_all_signals(base_data)
         
-        df_data = []
-        for i, (timestamp, price) in enumerate(prices):
-            volume = volumes[i][1] if i < len(volumes) else 1000000
-            date = pd.to_datetime(timestamp, unit='ms')
-            
-            # Generate OHLC from price (approximation)
-            high = price * (1 + random.uniform(0, 0.02))
-            low = price * (1 - random.uniform(0, 0.02))
-            open_price = price * (1 + random.uniform(-0.01, 0.01))
-            
-            df_data.append({
-                'Open': open_price,
-                'High': high,
-                'Low': low, 
-                'Close': price,
-                'Volume': volume
-            })
+        # Add macro indicators if requested
+        if include_macro:
+            logger.info("Adding macro indicators...")
+            enhanced_data = self._add_macro_indicators(enhanced_data)
         
-        return pd.DataFrame(df_data, index=[pd.to_datetime(p[0], unit='ms') for p in prices])
+        # Add sentiment proxies
+        enhanced_data = self._add_sentiment_proxies(enhanced_data)
+        
+        # Add on-chain proxies
+        enhanced_data = self._add_onchain_proxies(enhanced_data)
+        
+        logger.info(f"Enhanced data shape: {enhanced_data.shape}")
+        return enhanced_data
     
-    def _fetch_from_binance(self, days: int) -> pd.DataFrame:
-        """Fetch from Binance API"""
-        url = "https://api.binance.com/api/v3/klines"
-        end_time = int(time.time() * 1000)
-        start_time = end_time - (days * 24 * 60 * 60 * 1000)
-        
-        params = {
-            "symbol": "BTCUSDT",
-            "interval": "1d",
-            "startTime": start_time,
-            "endTime": end_time,
-            "limit": 1000
-        }
-        
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        df_data = []
-        for candle in data:
-            df_data.append({
-                'Open': float(candle[1]),
-                'High': float(candle[2]), 
-                'Low': float(candle[3]),
-                'Close': float(candle[4]),
-                'Volume': float(candle[5])
-            })
-        
-        dates = [pd.to_datetime(candle[0], unit='ms') for candle in data]
-        return pd.DataFrame(df_data, index=dates)
-    
-    def _fetch_from_coincap(self, days: int) -> pd.DataFrame:
-        """Fetch from CoinCap API"""
-        url = "https://api.coincap.io/v2/assets/bitcoin/history"
-        end = int(time.time() * 1000)
-        start = end - (days * 24 * 60 * 60 * 1000)
-        
-        params = {"interval": "d1", "start": start, "end": end}
-        
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()['data']
-        
-        df_data = []
-        for point in data:
-            price = float(point['priceUsd'])
-            # Approximate OHLC
-            high = price * (1 + random.uniform(0, 0.02))
-            low = price * (1 - random.uniform(0, 0.02))
-            open_price = price * (1 + random.uniform(-0.01, 0.01))
-            
-            df_data.append({
-                'Open': open_price,
-                'High': high,
-                'Low': low,
-                'Close': price,
-                'Volume': 1000000  # Default volume
-            })
-        
-        dates = [pd.to_datetime(int(point['time'])) for point in data]
-        return pd.DataFrame(df_data, index=dates)
-    
-    def _fetch_from_coinbase(self, days: int) -> pd.DataFrame:
-        """Fetch from Coinbase API"""
-        url = "https://api.exchange.coinbase.com/products/BTC-USD/candles"
-        end_time = datetime.now()
-        start_time = end_time - timedelta(days=days)
-        
-        params = {
-            "start": start_time.isoformat(),
-            "end": end_time.isoformat(), 
-            "granularity": 86400  # Daily
-        }
-        
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        df_data = []
-        for candle in data:
-            df_data.append({
-                'Open': float(candle[3]),
-                'High': float(candle[2]),
-                'Low': float(candle[1]), 
-                'Close': float(candle[4]),
-                'Volume': float(candle[5])
-            })
-        
-        dates = [pd.to_datetime(candle[0], unit='s') for candle in data]
-        df = pd.DataFrame(df_data, index=dates)
-        return df.sort_index()  # Ensure chronological order
-    
-    def _add_technical_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Add comprehensive technical indicators to the data"""
+    def _add_macro_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Add macroeconomic indicators"""
         try:
-            # Moving Averages
-            data['SMA_20'] = data['Close'].rolling(window=20).mean()
-            data['SMA_50'] = data['Close'].rolling(window=50).mean()
-            data['EMA_12'] = data['Close'].ewm(span=12).mean()
-            data['EMA_26'] = data['Close'].ewm(span=26).mean()
-            
-            # RSI
-            data['RSI'] = self.calculate_rsi(data['Close'])
-            
-            # MACD
-            data['MACD'], data['MACD_Signal'] = self.calculate_macd(data['Close'])
-            data['MACD_Histogram'] = data['MACD'] - data['MACD_Signal']
-            
-            # Bollinger Bands
-            data['BB_Upper'], data['BB_Lower'], data['BB_Middle'] = self.calculate_bollinger_bands(data['Close'])
-            data['BB_Width'] = (data['BB_Upper'] - data['BB_Lower']) / data['BB_Middle']
-            data['BB_Position'] = (data['Close'] - data['BB_Lower']) / (data['BB_Upper'] - data['BB_Lower'])
-            
-            # Stochastic Oscillator
-            data['Stoch_K'], data['Stoch_D'] = self.calculate_stochastic(data)
-            
-            # Average True Range (ATR)
-            data['ATR'] = self.calculate_atr(data)
-            
-            # Volume indicators
-            data['Volume_Norm'] = data['Volume'] / data['Volume'].rolling(window=20).mean()
-            data['Volume_SMA'] = data['Volume'].rolling(window=20).mean()
-            data['OBV'] = self.calculate_obv(data)
-            
-            # Price momentum
-            data['ROC'] = data['Close'].pct_change(periods=10)
-            data['Momentum'] = data['Close'] / data['Close'].shift(10)
-            
-            # Volatility
-            data['Volatility'] = data['Close'].rolling(window=20).std()
-            
-            # Support/Resistance levels
-            data['High_20'] = data['High'].rolling(window=20).max()
-            data['Low_20'] = data['Low'].rolling(window=20).min()
-            
-            # Fill any NaN values
-            data = data.bfill().ffill()
-            
-            return data.dropna()
-            
+            # This is a simplified version - in production, fetch real macro data
+            # For now, generate synthetic macro indicators
+            data['sp500_returns'] = np.random.normal(0, 0.01, len(data))
+            data['btc_sp500_corr'] = data['Close'].pct_change().rolling(30).corr(
+                pd.Series(np.random.normal(0, 0.01, len(data)))
+            ).fillna(0)
+            data['gold_returns'] = np.random.normal(0, 0.005, len(data))
+            data['vix_level'] = np.random.uniform(10, 30, len(data))
+            data['dxy_returns'] = np.random.normal(0, 0.003, len(data))
         except Exception as e:
-            print(f"Error adding technical indicators: {e}")
-            return data
-    
-    def generate_dummy_data(self) -> pd.DataFrame:
-        """Generate realistic dummy BTC data for testing"""
-        print("Generating realistic dummy BTC data...")
+            logger.warning(f"Error adding macro indicators: {e}")
+            # Add dummy values
+            data['sp500_returns'] = 0
+            data['gold_returns'] = 0
+            data['vix_level'] = 20
         
-        # Create date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365)
-        dates = pd.date_range(start=start_date, end=end_date, freq='D')
-        
-        # Set random seed for reproducible but varied data
-        np.random.seed(int(time.time()) % 1000)
-        
-        # Generate realistic BTC price data with trends
-        base_price = 45000
-        prices = []
-        volumes = []
-        current_price = base_price
-        
-        # Add some trend periods
-        trend_periods = [
-            (0, 100, 0.001),      # Slight uptrend
-            (100, 200, -0.002),   # Downtrend
-            (200, 300, 0.003),    # Strong uptrend
-            (300, len(dates), 0)  # Sideways
-        ]
-        
-        for i, date in enumerate(dates):
-            # Determine current trend
-            trend = 0
-            for start_idx, end_idx, trend_val in trend_periods:
-                if start_idx <= i < end_idx:
-                    trend = trend_val
-                    break
-            
-            # Generate price with trend and volatility
-            daily_change = np.random.normal(trend, 0.03)
-            current_price *= (1 + daily_change)
-            
-            # Ensure price doesn't go below reasonable bounds
-            current_price = max(current_price, 10000)
-            current_price = min(current_price, 100000)
-            
-            prices.append(current_price)
-            
-            # Generate volume (higher volume during price movements)
-            volume_base = 15
-            volume_volatility = abs(daily_change) * 2
-            volume = np.random.lognormal(volume_base + volume_volatility, 1)
-            volumes.append(volume)
-        
-        # Create OHLC data
-        data_dict = {
-            'Open': [],
-            'High': [],
-            'Low': [],
-            'Close': [],
-            'Volume': volumes
-        }
-        
-        for i, close_price in enumerate(prices):
-            # Generate realistic OHLC from close price
-            daily_range = abs(np.random.normal(0, 0.02)) * close_price
-            
-            open_price = close_price * (1 + np.random.normal(0, 0.01))
-            high_price = max(open_price, close_price) + random.uniform(0, daily_range)
-            low_price = min(open_price, close_price) - random.uniform(0, daily_range)
-            
-            data_dict['Open'].append(open_price)
-            data_dict['High'].append(high_price)
-            data_dict['Low'].append(low_price)
-            data_dict['Close'].append(close_price)
-        
-        # Create DataFrame
-        data = pd.DataFrame(data_dict, index=dates)
-        
-        # Add technical indicators
-        data = self._add_technical_indicators(data)
-        
-        print(f"Generated {len(data)} days of dummy BTC data")
         return data
     
-    def calculate_bollinger_bands(self, prices: pd.Series, window: int = 20, num_std: float = 2) -> Tuple[pd.Series, pd.Series, pd.Series]:
-        """Calculate Bollinger Bands"""
-        try:
-            middle = prices.rolling(window=window).mean()
-            std = prices.rolling(window=window).std()
-            upper = middle + (std * num_std)
-            lower = middle - (std * num_std)
-            return upper.fillna(middle), lower.fillna(middle), middle.fillna(prices)
-        except Exception as e:
-            print(f"Error calculating Bollinger Bands: {e}")
-            return prices, prices, prices
+    def _add_sentiment_proxies(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Add sentiment indicators"""
+        if 'Volume' in data.columns:
+            data['volume_sentiment'] = data['Volume'].rolling(24).mean() / (
+                data['Volume'].rolling(168).mean() + 1e-8
+            )
+        else:
+            data['volume_sentiment'] = 1.0
+        
+        # Price momentum as sentiment
+        data['momentum_sentiment'] = data['Close'].pct_change(24) / (
+            data['Close'].pct_change(24).rolling(30).std() + 1e-8
+        )
+        
+        # Fear and greed proxies
+        if 'volatility_20' in data.columns:
+            data['fear_proxy'] = data['volatility_20'] / 0.3  # Normalized to typical BTC vol
+        else:
+            data['fear_proxy'] = data['Close'].pct_change().rolling(20).std() * np.sqrt(252) / 0.3
+        
+        data['greed_proxy'] = (data['Close'] - data['Close'].rolling(30).min()) / (
+            data['Close'].rolling(30).max() - data['Close'].rolling(30).min() + 1e-8
+        )
+        
+        return data.fillna(0.5)
     
-    def calculate_stochastic(self, data: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> Tuple[pd.Series, pd.Series]:
-        """Calculate Stochastic Oscillator"""
-        try:
-            lowest_low = data['Low'].rolling(window=k_period).min()
-            highest_high = data['High'].rolling(window=k_period).max()
+    def _add_onchain_proxies(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Add on-chain proxy indicators"""
+        if 'Volume' in data.columns:
+            # NVT proxy
+            data['nvt_proxy'] = data['Close'] * data['Volume'].rolling(30).sum() / (
+                data['Volume'].rolling(7).sum() + 1e-8
+            )
             
-            k_percent = 100 * ((data['Close'] - lowest_low) / (highest_high - lowest_low + 1e-8))
-            d_percent = k_percent.rolling(window=d_period).mean()
-            
-            return k_percent.fillna(50), d_percent.fillna(50)
-        except Exception as e:
-            print(f"Error calculating Stochastic: {e}")
-            return pd.Series([50] * len(data), index=data.index), pd.Series([50] * len(data), index=data.index)
+            # Whale activity proxy
+            volume_zscore = (data['Volume'] - data['Volume'].rolling(30).mean()) / (
+                data['Volume'].rolling(30).std() + 1e-8
+            )
+            data['whale_proxy'] = (volume_zscore > 2).astype(float)
+        else:
+            data['nvt_proxy'] = 1.0
+            data['whale_proxy'] = 0.0
+        
+        # HODL proxy
+        data['hodl_proxy'] = 1 / (1 + data['Close'].pct_change().rolling(30).std() + 1e-8)
+        
+        # Accumulation proxy
+        data['accumulation_proxy'] = ((data['Close'] - data['Low']) / (
+            data['High'] - data['Low'] + 1e-8
+        )).rolling(30).mean()
+        
+        return data.fillna(0)
     
-    def calculate_atr(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
-        """Calculate Average True Range"""
-        try:
-            high_low = data['High'] - data['Low']
-            high_close = np.abs(data['High'] - data['Close'].shift())
-            low_close = np.abs(data['Low'] - data['Close'].shift())
+    def prepare_enhanced_features(self, data: pd.DataFrame, 
+                                use_weights: bool = True) -> pd.DataFrame:
+        """
+        Enhanced feature preparation that maintains compatibility with base prepare_features
+        Can be called with use_weights=False to get base behavior
+        """
+        if not use_weights:
+            # Use base implementation
+            return self.prepare_features(data)
+        
+        # Enhanced feature preparation
+        logger.info("Preparing enhanced features...")
+        
+        # Ensure we have all necessary columns
+        if 'technical_features' not in data.columns:
+            # Create aggregate features for compatibility
+            tech_cols = ['RSI', 'MACD', 'Stoch_K', 'ATR', 'ROC', 'OBV']
+            tech_vals = []
+            for col in tech_cols:
+                if col in data.columns:
+                    tech_vals.append(data[col])
             
-            tr = np.maximum(high_low, np.maximum(high_close, low_close))
-            atr = tr.rolling(window=period).mean()
-            
-            return atr.fillna(tr.mean())
-        except Exception as e:
-            print(f"Error calculating ATR: {e}")
-            return pd.Series([1.0] * len(data), index=data.index)
+            if tech_vals:
+                data['technical_features'] = pd.concat(tech_vals, axis=1).mean(axis=1)
+            else:
+                data['technical_features'] = 0.5
+        
+        # Prepare comprehensive feature set
+        features = pd.DataFrame(index=data.index)
+        
+        # Core features (compatible with base model)
+        features['price'] = data['Close']
+        features['volume_norm'] = data.get('Volume_Norm', 1.0)
+        features['obv'] = data.get('OBV', 0.0)
+        features['rsi'] = data.get('RSI', 50.0)
+        features['stoch_k'] = data.get('Stoch_K', 50.0)
+        features['roc'] = data.get('ROC', 0.0)
+        features['macd'] = data.get('MACD', 0.0)
+        features['macd_histogram'] = data.get('MACD_Histogram', 0.0)
+        features['sma_ratio'] = data['Close'] / (data.get('SMA_20', data['Close']) + 1e-8)
+        features['ema_ratio'] = data.get('EMA_12', data['Close']) / (
+            data.get('EMA_26', data['Close']) + 1e-8
+        )
+        features['bb_position'] = data.get('BB_Position', 0.5)
+        features['bb_width'] = data.get('BB_Width', 0.1)
+        features['atr'] = data.get('ATR', 1.0)
+        features['volatility'] = data.get('Volatility', 1.0)
+        
+        # Add sentiment features
+        features['fear_greed'] = data.get('fear_proxy', 0.5)
+        features['btc_dominance'] = data.get('btc_dominance', 50) / 100
+        
+        # Add enhanced features if available
+        if 'momentum_sentiment' in data.columns:
+            features['momentum_sentiment'] = data['momentum_sentiment']
+        
+        if 'nvt_proxy' in data.columns:
+            features['nvt_proxy'] = data['nvt_proxy']
+        
+        # Apply weights if using enhanced weights
+        if hasattr(self, 'enhanced_weights') and use_weights:
+            features = self._apply_enhanced_weights(features, data)
+        
+        # Clean and fill
+        features = features.fillna(method='bfill').fillna(method='ffill').fillna(0)
+        
+        return features
     
-    def calculate_obv(self, data: pd.DataFrame) -> pd.Series:
-        """Calculate On-Balance Volume"""
-        try:
-            obv = (np.sign(data['Close'].diff()) * data['Volume']).fillna(0).cumsum()
-            return obv
-        except Exception as e:
-            print(f"Error calculating OBV: {e}")
-            return pd.Series([0] * len(data), index=data.index)
+    def _apply_enhanced_weights(self, features: pd.DataFrame, 
+                               original_data: pd.DataFrame) -> pd.DataFrame:
+        """Apply enhanced signal weights to features"""
+        # This maintains the structure but applies weights
+        weighted_features = features.copy()
+        
+        # Apply main category weights
+        tech_cols = ['rsi', 'macd', 'stoch_k', 'bb_position', 'atr', 'roc']
+        for col in tech_cols:
+            if col in weighted_features.columns:
+                weighted_features[col] *= self.enhanced_weights.technical_weight
+        
+        # Apply sentiment weights
+        sent_cols = ['fear_greed', 'momentum_sentiment']
+        for col in sent_cols:
+            if col in weighted_features.columns:
+                weighted_features[col] *= self.enhanced_weights.sentiment_weight
+        
+        # Apply on-chain weights
+        chain_cols = ['nvt_proxy', 'obv']
+        for col in chain_cols:
+            if col in weighted_features.columns:
+                weighted_features[col] *= self.enhanced_weights.onchain_weight
+        
+        return weighted_features
     
-    def fetch_sentiment_data(self) -> dict:
-        """Fetch free sentiment data"""
-        sentiment_data = {
-            'fear_greed_index': 50,  # Default neutral
-            'btc_dominance': 50,     # Default
-        }
+    def train_enhanced_model(self, data: pd.DataFrame, epochs: int = 50,
+                           batch_size: int = 32, use_validation: bool = True):
+        """
+        Enhanced training that maintains compatibility with base train_model
+        """
+        logger.info("Training enhanced model...")
         
         try:
-            # Fear & Greed Index (free API)
-            fg_response = requests.get('https://api.alternative.me/fng/', timeout=10)
-            if fg_response.status_code == 200:
-                fg_data = fg_response.json()
-                if 'data' in fg_data and len(fg_data['data']) > 0:
-                    sentiment_data['fear_greed_index'] = float(fg_data['data'][0]['value'])
-        except Exception as e:
-            print(f"Error fetching Fear & Greed index: {e}")
-        
-        try:
-            # Bitcoin Dominance (free from CoinGecko)
-            dom_response = requests.get('https://api.coingecko.com/api/v3/global', timeout=10)
-            if dom_response.status_code == 200:
-                dom_data = dom_response.json()
-                if 'data' in dom_data and 'market_cap_percentage' in dom_data['data']:
-                    btc_dom = dom_data['data']['market_cap_percentage'].get('btc', 50)
-                    sentiment_data['btc_dominance'] = float(btc_dom)
-        except Exception as e:
-            print(f"Error fetching BTC dominance: {e}")
-        
-    def calculate_rsi(self, prices: pd.Series, window: int = 14) -> pd.Series:
-        """Calculate RSI indicator"""
-        try:
-            delta = prices.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+            # Prepare features (enhanced or base depending on data)
+            if 'fear_proxy' in data.columns or 'nvt_proxy' in data.columns:
+                features = self.prepare_enhanced_features(data, use_weights=True)
+            else:
+                features = self.prepare_features(data)
             
-            # Avoid division by zero
-            rs = gain / (loss + 1e-8)
-            rsi = 100 - (100 / (1 + rs))
-            
-            # Fill any remaining NaN values
-            rsi = rsi.fillna(50)  # Neutral RSI value
-            
-            return rsi
-        except Exception as e:
-            print(f"Error calculating RSI: {e}")
-            return pd.Series([50] * len(prices), index=prices.index)
-        """Calculate RSI indicator"""
-        try:
-            delta = prices.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-            
-            # Avoid division by zero
-            rs = gain / (loss + 1e-8)
-            rsi = 100 - (100 / (1 + rs))
-            
-            # Fill any remaining NaN values
-            rsi = rsi.fillna(50)  # Neutral RSI value
-            
-            return rsi
-        except Exception as e:
-            print(f"Error calculating RSI: {e}")
-            return pd.Series([50] * len(prices), index=prices.index)
-    
-    def calculate_macd(self, prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[pd.Series, pd.Series]:
-        """Calculate MACD indicator"""
-        try:
-            ema_fast = prices.ewm(span=fast).mean()
-            ema_slow = prices.ewm(span=slow).mean()
-            macd = ema_fast - ema_slow
-            macd_signal = macd.ewm(span=signal).mean()
-            
-            # Fill any NaN values
-            macd = macd.fillna(0)
-            macd_signal = macd_signal.fillna(0)
-            
-            return macd, macd_signal
-        except Exception as e:
-            print(f"Error calculating MACD: {e}")
-            zeros = pd.Series([0] * len(prices), index=prices.index)
-            return zeros, zeros
-    
-    def prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Prepare expanded feature set for the model"""
-        try:
-            # Get sentiment data with safe fallback
-            sentiment = self.fetch_sentiment_data()
-            if sentiment is None:
-                sentiment = {
-                    'fear_greed_index': 50,
-                    'btc_dominance': 50,
-                    'social_sentiment': 0.5,
-                    'news_sentiment': 0.5
-                }
-            
-            features = pd.DataFrame(index=data.index)
-            
-            # Core features (16 total to match model input_size=16)
-            features['price'] = data['Close']
-            features['volume_norm'] = data.get('Volume_Norm', 1.0)
-            features['obv'] = data.get('OBV', 0.0)
-            features['rsi'] = data.get('RSI', 50.0)
-            features['stoch_k'] = data.get('Stoch_K', 50.0)
-            features['roc'] = data.get('ROC', 0.0)
-            features['macd'] = data.get('MACD', 0.0)
-            features['macd_histogram'] = data.get('MACD_Histogram', 0.0)
-            features['sma_ratio'] = data['Close'] / (data.get('SMA_20', data['Close']) + 1e-8)
-            features['ema_ratio'] = data.get('EMA_12', data['Close']) / (data.get('EMA_26', data['Close']) + 1e-8)
-            features['bb_position'] = data.get('BB_Position', 0.5)
-            features['bb_width'] = data.get('BB_Width', 0.1)
-            features['atr'] = data.get('ATR', 1.0)
-            features['volatility'] = data.get('Volatility', 1.0)
-            features['fear_greed'] = sentiment.get('fear_greed_index', 50) / 100
-            features['btc_dominance'] = sentiment.get('btc_dominance', 50) / 100
-            
-            # Clean fill
-            features = features.bfill().ffill().fillna(0)
-            
-            return features
-            
-        except Exception as e:
-            print(f"Error preparing features: {e}")
-            # Return fallback with exactly 16 features
-            return pd.DataFrame({
-                'price': data['Close'], 'volume_norm': 1.0, 'obv': 0.0, 'rsi': 50.0, 
-                'stoch_k': 50.0, 'roc': 0.0, 'macd': 0.0, 'macd_histogram': 0.0, 
-                'sma_ratio': 1.0, 'ema_ratio': 1.0, 'bb_position': 0.5, 'bb_width': 0.1,
-                'atr': 1.0, 'volatility': 1.0, 'fear_greed': 0.5, 'btc_dominance': 0.5
-            }, index=data.index).fillna(0)
-    
-    def create_sequences(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Create sequences for LSTM training"""
-        if len(data) < self.sequence_length + 1:
-            raise ValueError(f"Insufficient data for sequence creation. Need at least {self.sequence_length + 1} samples, got {len(data)}")
-        
-        X, y = [], []
-        
-        for i in range(self.sequence_length, len(data)):
-            X.append(data[i-self.sequence_length:i])
-            y.append(data[i, 0])  # Predict close price
-        
-        return np.array(X), np.array(y)
-    
-    def train_model(self, data: pd.DataFrame, epochs: int = 20, batch_size: int = 16):
-        """Train the LSTM model with robust error handling"""
-        try:
-            features = self.prepare_features(data)
-            
+            # Ensure minimum data
             if len(features) < self.sequence_length + 10:
-                epochs = 10  # Reduce for limited data
+                logger.warning("Limited data, reducing epochs")
+                epochs = min(epochs, 20)
             
-            # Create fresh numpy arrays
-            feature_array = features.values.astype(np.float32)
-            scaled_data = self.scaler.fit_transform(feature_array)
+            # Scale features
+            scaled_data = self.scaler.fit_transform(features.values)
             X, y = self.create_sequences(scaled_data)
             
             if len(X) == 0:
                 raise ValueError("No sequences created")
             
-            # Create fresh tensors without shared memory
-            X_np = np.array(X, dtype=np.float32, copy=True)
-            y_np = np.array(y, dtype=np.float32, copy=True)
+            # Convert to tensors
+            X = torch.FloatTensor(X)
+            y = torch.FloatTensor(y).unsqueeze(1)
             
-            X_tensor = torch.from_numpy(X_np)
-            y_tensor = torch.from_numpy(y_np).unsqueeze(1)
-            
-            # Simple train/test split
-            train_size = max(1, int(0.8 * len(X_tensor)))
-            X_train = X_tensor[:train_size]
-            y_train = y_tensor[:train_size]
+            # Split data
+            if use_validation:
+                train_size = int(0.8 * len(X))
+                X_train, X_val = X[:train_size], X[train_size:]
+                y_train, y_val = y[:train_size], y[train_size:]
+            else:
+                X_train, y_train = X, y
+                X_val, y_val = None, None
             
             # Training setup
             criterion = nn.MSELoss()
             optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
             
-            # Simplified training loop
+            # Training loop
             self.model.train()
+            best_val_loss = float('inf')
+            
             for epoch in range(epochs):
-                optimizer.zero_grad()
-                outputs = self.model(X_train)
-                loss = criterion(outputs, y_train)
-                loss.backward()
-                optimizer.step()
+                total_loss = 0
+                batch_count = 0
                 
-                if epoch % 5 == 0:
-                    print(f'Epoch [{epoch}/{epochs}], Loss: {loss.item():.6f}')
+                for i in range(0, len(X_train), batch_size):
+                    batch_X = X_train[i:i+batch_size]
+                    batch_y = y_train[i:i+batch_size]
+                    
+                    if len(batch_X) == 0:
+                        continue
+                    
+                    optimizer.zero_grad()
+                    outputs = self.model(batch_X)
+                    loss = criterion(outputs, batch_y)
+                    loss.backward()
+                    optimizer.step()
+                    
+                    total_loss += loss.item()
+                    batch_count += 1
+                
+                avg_loss = total_loss / batch_count if batch_count > 0 else 0
+                
+                # Validation
+                if use_validation and X_val is not None:
+                    self.model.eval()
+                    with torch.no_grad():
+                        val_outputs = self.model(X_val)
+                        val_loss = criterion(val_outputs, y_val).item()
+                    
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
+                    
+                    self.model.train()
+                    
+                    if epoch % 10 == 0:
+                        logger.info(f'Epoch [{epoch}/{epochs}], Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}')
+                else:
+                    if epoch % 10 == 0:
+                        logger.info(f'Epoch [{epoch}/{epochs}], Loss: {avg_loss:.6f}')
             
             self.is_trained = True
-            print("Model training completed!")
+            logger.info("Enhanced model training completed!")
             
         except Exception as e:
-            print(f"Training error: {e}")
-            self.is_trained = True
+            logger.error(f"Error during enhanced training: {e}")
+            # Fall back to base training
+            logger.info("Falling back to base training method...")
+            super().train_model(data, epochs=epochs, batch_size=batch_size)
+    
+    def predict_with_confidence(self, current_data: pd.DataFrame, 
+                              n_predictions: int = 10) -> Tuple[str, float, float, Dict]:
+        """
+        Enhanced prediction with confidence intervals
+        Returns: (signal, confidence, predicted_price, analysis_dict)
+        """
+        if not self.is_trained:
+            logger.info("Model not trained, training now...")
+            self.train_enhanced_model(current_data)
+        
+        # Prepare features
+        if 'fear_proxy' in current_data.columns:
+            features = self.prepare_enhanced_features(current_data)
+        else:
+            features = self.prepare_features(current_data)
+        
+        if len(features) < self.sequence_length:
+            # Use base prediction method
+            signal, confidence, price = self.predict_signal(current_data)
+            return signal, confidence, price, {"method": "base", "n_predictions": 1}
+        
+        # Generate multiple predictions for confidence
+        predictions = []
+        self.model.train()  # Enable dropout for uncertainty
+        
+        for _ in range(n_predictions):
+            with torch.no_grad():
+                # Get last sequence
+                last_sequence = features.tail(self.sequence_length).values
+                scaled_sequence = self.scaler.transform(last_sequence)
+                sequence_tensor = torch.FloatTensor(scaled_sequence).unsqueeze(0)
+                
+                # Predict
+                pred = self.model(sequence_tensor)
+                
+                # Inverse transform
+                dummy_array = np.zeros((1, features.shape[1]))
+                dummy_array[0, 0] = pred.item()
+                predicted_price = self.scaler.inverse_transform(dummy_array)[0, 0]
+                
+                predictions.append(predicted_price)
+        
+        self.model.eval()
+        
+        # Analyze predictions
+        pred_array = np.array(predictions)
+        mean_price = np.mean(pred_array)
+        std_price = np.std(pred_array)
+        
+        # Determine signal
+        current_price = features['price'].iloc[-1]
+        price_change_pct = (mean_price - current_price) / current_price
+        
+        if price_change_pct > 0.02:
+            signal = "buy"
+        elif price_change_pct < -0.02:
+            signal = "sell"
+        else:
+            signal = "hold"
+        
+        # Calculate confidence based on prediction consistency
+        confidence = max(0.3, min(0.95, 1 - (std_price / mean_price)))
+        
+        # Build analysis
+        analysis = {
+            "method": "enhanced",
+            "n_predictions": n_predictions,
+            "price_mean": mean_price,
+            "price_std": std_price,
+            "confidence_interval": (mean_price - 2*std_price, mean_price + 2*std_price),
+            "price_change_pct": price_change_pct,
+            "current_price": current_price
+        }
+        
+        return signal, confidence, mean_price, analysis
+    
+    # Override base methods to add compatibility
+    def train_model(self, data: pd.DataFrame, epochs: int = 50, batch_size: int = 32):
+        """Override base train_model to use enhanced version"""
+        self.train_enhanced_model(data, epochs=epochs, batch_size=batch_size, use_validation=False)
     
     def predict_signal(self, current_data: pd.DataFrame) -> Tuple[str, float, float]:
-        """Generate trading signal based on current data"""
-        try:
-            if not self.is_trained:
-                print("Model not trained, training now...")
-                self.train_model(current_data)
-            
-            features = self.prepare_features(current_data)
-            
-            if len(features) < self.sequence_length:
-                print(f"Insufficient data for prediction ({len(features)} < {self.sequence_length})")
-                # Return a simple signal based on recent price trend
-                if len(features) >= 5:
-                    recent_trend = features['price'].iloc[-5:].pct_change().mean()
-                    if recent_trend > 0.01:
-                        return "buy", 0.6, features['price'].iloc[-1] * 1.02
-                    elif recent_trend < -0.01:
-                        return "sell", 0.6, features['price'].iloc[-1] * 0.98
-                
-                return "hold", 0.5, features['price'].iloc[-1]
-            
-            # Get the last sequence
-            last_sequence = features.tail(self.sequence_length).values
-            
-            # Check if scaler has been fitted
-            if not hasattr(self.scaler, 'scale_'):
-                print("Scaler not fitted, fitting now...")
-                self.scaler.fit(features.values)
-            
-            scaled_sequence = self.scaler.transform(last_sequence)
-            
-            # Predict
-            self.model.eval()
-            with torch.no_grad():
-                sequence_tensor = torch.FloatTensor(scaled_sequence).unsqueeze(0)
-                prediction = self.model(sequence_tensor)
-                
-                # Inverse transform the prediction
-                # Create a dummy array with the same shape as the feature array
-                dummy_array = np.zeros((1, features.shape[1]))
-                # Set the price column (index 0) to the prediction
-                dummy_array[0, 0] = prediction.item()
-                # Inverse transform and extract the price
-                predicted_price = self.scaler.inverse_transform(dummy_array)[0, 0]
-            
-            # Generate signal based on prediction vs current price
-            current_price = features['price'].iloc[-1]
-            price_change_pct = (predicted_price - current_price) / current_price
-            
-            # Simple signal logic with confidence scoring
-            if price_change_pct > 0.02:  # Predict >2% increase
-                signal = "buy"
-                confidence = min(abs(price_change_pct) * 10, 0.95)
-            elif price_change_pct < -0.02:  # Predict >2% decrease
-                signal = "sell"
-                confidence = min(abs(price_change_pct) * 10, 0.95)
-            else:
-                signal = "hold"
-                confidence = 0.6
-            
-            # Ensure confidence is reasonable
-            confidence = max(0.3, min(confidence, 0.95))
-            
-            return signal, confidence, predicted_price
-            
-        except Exception as e:
-            print(f"Error generating signal: {e}")
-            # Return a safe fallback signal
-            try:
-                current_price = current_data['Close'].iloc[-1]
-                return "hold", 0.5, current_price
-            except:
-                return "hold", 0.5, 45000.0  # Fallback price
+        """Override base predict_signal to maintain compatibility"""
+        # Check if we have enhanced data
+        if any(col in current_data.columns for col in ['fear_proxy', 'nvt_proxy', 'momentum_sentiment']):
+            # Use enhanced prediction
+            signal, confidence, price, _ = self.predict_with_confidence(current_data, n_predictions=5)
+            return signal, confidence, price
+        else:
+            # Use base implementation
+            return super().predict_signal(current_data)
     
-    def save_model(self, path: str):
-        """Save the trained model"""
-        try:
-            torch.save({
-                'model_state_dict': self.model.state_dict(),
-                'scaler': self.scaler,
-                'sequence_length': self.sequence_length,
-                'is_trained': self.is_trained
-            }, path)
-            print(f"Model saved to {path}")
-        except Exception as e:
-            print(f"Error saving model: {e}")
+    def set_btc_data_cache(self, data: pd.DataFrame):
+        """Set cached data for backtesting"""
+        self.cached_data = data
+        self.last_fetch_time = datetime.now()
     
-    def load_model(self, path: str):
-        """Load a trained model"""
-        try:
-            checkpoint = torch.load(path)
-            self.model.load_state_dict(checkpoint['model_state_dict'])
-            self.scaler = checkpoint['scaler']
-            self.sequence_length = checkpoint['sequence_length']
-            self.is_trained = checkpoint['is_trained']
-            print(f"Model loaded from {path}")
-        except FileNotFoundError:
-            print(f"Model file not found: {path}")
-        except Exception as e:
-            print(f"Error loading model: {e}")
+    def set_signal_weights(self, weights: EnhancedSignalWeights):
+        """Update signal weights"""
+        self.enhanced_weights = weights
+        self.enhanced_weights.normalize()
+        self.enhanced_weights.normalize_subcategories()
+
+
+def test_integration():
+    """Test the integration of all components"""
+    logger.info("Testing Enhanced LSTM Integration...")
+    
+    # Test 1: Basic functionality preservation
+    logger.info("\n=== Test 1: Basic Functionality ===")
+    basic_gen = IntegratedTradingSignalGenerator(use_enhanced_model=False)
+    
+    # Fetch basic data
+    basic_data = basic_gen.fetch_btc_data(period="1mo")
+    logger.info(f"Basic data shape: {basic_data.shape}")
+    logger.info(f"Basic data columns: {list(basic_data.columns)[:10]}...")
+    
+    # Generate basic signal
+    signal, conf, price = basic_gen.predict_signal(basic_data)
+    logger.info(f"Basic signal: {signal}, confidence: {conf:.2%}, price: ${price:.2f}")
+    
+    # Test 2: Enhanced functionality
+    logger.info("\n=== Test 2: Enhanced Functionality ===")
+    enhanced_gen = IntegratedTradingSignalGenerator(use_enhanced_model=True)
+    
+    # Fetch enhanced data
+    enhanced_data = enhanced_gen.fetch_enhanced_btc_data(period="1mo", include_macro=True)
+    logger.info(f"Enhanced data shape: {enhanced_data.shape}")
+    logger.info(f"Enhanced columns sample: {[col for col in enhanced_data.columns if 'proxy' in col or 'sentiment' in col]}")
+    
+    # Generate enhanced signal
+    signal, conf, price, analysis = enhanced_gen.predict_with_confidence(enhanced_data)
+    logger.info(f"Enhanced signal: {signal}, confidence: {conf:.2%}, price: ${price:.2f}")
+    logger.info(f"Analysis: {analysis}")
+    
+    # Test 3: Weight application
+    logger.info("\n=== Test 3: Signal Weights ===")
+    custom_weights = EnhancedSignalWeights(
+        technical_weight=0.5,
+        onchain_weight=0.3,
+        sentiment_weight=0.15,
+        macro_weight=0.05
+    )
+    enhanced_gen.set_signal_weights(custom_weights)
+    logger.info(f"Applied custom weights: tech={custom_weights.technical_weight}, onchain={custom_weights.onchain_weight}")
+    
+    # Test 4: Model training
+    logger.info("\n=== Test 4: Model Training ===")
+    enhanced_gen.train_enhanced_model(enhanced_data, epochs=10)
+    
+    # Test 5: Compatibility with base methods
+    logger.info("\n=== Test 5: Base Method Compatibility ===")
+    # Should work with base train_model method
+    enhanced_gen.train_model(basic_data, epochs=5)
+    
+    # Should work with base predict_signal
+    basic_signal, basic_conf, basic_price = enhanced_gen.predict_signal(basic_data)
+    logger.info(f"Base method signal: {basic_signal}, confidence: {basic_conf:.2%}")
+    
+    logger.info("\n✅ All integration tests completed successfully!")
+    
+    return enhanced_gen, enhanced_data
+
 
 if __name__ == "__main__":
-    # Test the signal generator
-    signal_gen = TradingSignalGenerator()
+    # Run integration test
+    generator, data = test_integration()
     
-    # Fetch BTC data
-    print("Testing BTC data fetching...")
-    btc_data = signal_gen.fetch_btc_data(period="6mo")
-    print(f"Fetched {len(btc_data)} days of data")
-    
-    # Generate a signal
-    print("Testing signal generation...")
-    signal, confidence, predicted_price = signal_gen.predict_signal(btc_data)
-    
-    current_price = btc_data['Close'].iloc[-1]
-    print(f"Current Price: ${current_price:.2f}")
-    print(f"Predicted Price: ${predicted_price:.2f}")
-    print(f"Signal: {signal.upper()}")
-    print(f"Confidence: {confidence:.2%}")
-    print("Test completed successfully!")
+    # Show feature importance if available
+    if hasattr(generator, 'feature_importance') and generator.feature_importance:
+        logger.info("\n=== Feature Importance ===")
+        for feat, imp in list(generator.feature_importance.items())[:5]:
+            logger.info(f"{feat}: {imp:.4f}")

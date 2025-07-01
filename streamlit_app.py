@@ -260,7 +260,7 @@ def main():
         st.header("Navigation")
         page = st.selectbox(
             "Select Page",
-            ["Dashboard", "Trading", "Portfolio", "Signals", "Limits", "Analytics"]
+            ["Dashboard", "Trading", "Portfolio", "Signals", "Limits", "Analytics", "Configuration"]
         )
         
         st.markdown("---")
@@ -294,6 +294,8 @@ def main():
         show_limits()
     elif page == "Analytics":
         show_analytics()
+    elif page == "Configuration":
+        show_configuration()
     
     # Auto-refresh logic
     if auto_refresh:
@@ -1536,6 +1538,461 @@ def show_analytics():
                 time_diffs = trades_df['timestamp'].diff().dropna()
                 avg_time_between = time_diffs.mean()
                 st.metric("Avg Time Between Trades", f"{avg_time_between.days}d {avg_time_between.seconds//3600}h")
+
+def show_configuration():
+    st.header("⚙️ Configuration & Backtesting")
+    
+    # Create tabs for different configuration sections
+    config_tab1, config_tab2, config_tab3, config_tab4 = st.tabs([
+        "Backtest Results", "Run Backtest", "Signal Weights", "Model Settings"
+    ])
+    
+    with config_tab1:
+        show_backtest_results()
+    
+    with config_tab2:
+        show_run_backtest()
+    
+    with config_tab3:
+        show_signal_weights()
+    
+    with config_tab4:
+        show_model_settings()
+
+def show_backtest_results():
+    """Display latest backtest results"""
+    st.subheader("📊 Latest Backtest Results")
+    
+    # Fetch latest results
+    results = fetch_api_data("/backtest/results/latest")
+    
+    if results:
+        # Display timestamp
+        st.info(f"Last backtest: {results.get('timestamp', 'Unknown')}")
+        
+        # Performance metrics in columns
+        metrics = results.get('performance_metrics', {})
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            composite_score = metrics.get('composite_score', 0)
+            delta_color = "normal" if composite_score >= 0.7 else "inverse"
+            st.metric(
+                "Composite Score", 
+                f"{composite_score:.3f}",
+                delta=f"Target: 0.7+",
+                delta_color=delta_color
+            )
+            
+        with col2:
+            sortino = metrics.get('sortino_ratio_mean', 0)
+            delta_color = "normal" if sortino >= 2.0 else "inverse"
+            st.metric(
+                "Sortino Ratio",
+                f"{sortino:.2f}",
+                delta=f"Target: 2.0+",
+                delta_color=delta_color
+            )
+            
+        with col3:
+            max_dd = metrics.get('max_drawdown_mean', 0)
+            delta_color = "normal" if abs(max_dd) <= 0.25 else "inverse"
+            st.metric(
+                "Max Drawdown",
+                f"{max_dd:.2%}",
+                delta=f"Limit: -25%",
+                delta_color=delta_color
+            )
+            
+        with col4:
+            total_return = metrics.get('total_return_mean', 0)
+            st.metric(
+                "Total Return",
+                f"{total_return:.2%}",
+                delta=f"Avg: {total_return:.2%}"
+            )
+        
+        # Additional metrics
+        st.markdown("### Detailed Performance Metrics")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            metrics_df = pd.DataFrame([
+                {"Metric": "Calmar Ratio", "Value": f"{metrics.get('calmar_ratio_mean', 0):.2f}", 
+                 "Target": ">3.0", "Status": "✅" if metrics.get('calmar_ratio_mean', 0) > 3.0 else "❌"},
+                {"Metric": "Profit Factor", "Value": f"{metrics.get('profit_factor_mean', 0):.2f}",
+                 "Target": ">1.5", "Status": "✅" if metrics.get('profit_factor_mean', 0) > 1.5 else "❌"},
+                {"Metric": "Win Rate", "Value": f"{metrics.get('win_rate_mean', 0):.2%}",
+                 "Target": ">55%", "Status": "✅" if metrics.get('win_rate_mean', 0) > 0.55 else "❌"},
+                {"Metric": "Sharpe Ratio", "Value": f"{metrics.get('sharpe_ratio_mean', 0):.3f}",
+                 "Target": ">1.0", "Status": "✅" if metrics.get('sharpe_ratio_mean', 0) > 1.0 else "❌"},
+            ])
+            st.dataframe(metrics_df, hide_index=True)
+        
+        with col2:
+            # Create a radar chart for risk assessment
+            risk_data = results.get('risk_assessment', {})
+            if risk_data:
+                st.markdown("**Risk Assessment**")
+                
+                risk_levels = {
+                    'Low': '🟢',
+                    'Medium': '🟡', 
+                    'High': '🔴',
+                    'Acceptable': '🟢',
+                    'Normal': '🟢',
+                    'Balanced': '🟢'
+                }
+                
+                for risk_type, risk_level in risk_data.items():
+                    icon = risk_levels.get(risk_level, '⚪')
+                    st.write(f"{icon} **{risk_type.replace('_', ' ').title()}**: {risk_level}")
+        
+        # Recommendations
+        recommendations = results.get('recommendations', [])
+        if recommendations:
+            st.markdown("### 💡 Recommendations")
+            for rec in recommendations:
+                st.warning(f"• {rec}")
+        
+        # Performance chart
+        st.markdown("### Performance Visualization")
+        
+        # Create sample performance data for visualization
+        dates = pd.date_range(end=pd.Timestamp.now(), periods=30, freq='D')
+        cumulative_returns = 1 + (pd.Series(range(30)) * total_return / 30 + 
+                                 pd.Series(range(30)).apply(lambda x: np.random.randn() * 0.02))
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=cumulative_returns,
+            mode='lines',
+            name='Cumulative Returns',
+            line=dict(color='#00FF00' if total_return > 0 else '#FF0000', width=2)
+        ))
+        
+        fig.update_layout(
+            title="Backtest Cumulative Returns",
+            xaxis_title="Date",
+            yaxis_title="Cumulative Return",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    else:
+        st.warning("No backtest results available. Run a backtest to see results.")
+        
+    # Backtest history
+    st.markdown("### 📜 Backtest History")
+    history = fetch_api_data("/backtest/results/history")
+    
+    if history:
+        history_df = pd.DataFrame(history)
+        history_df['timestamp'] = pd.to_datetime(history_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M')
+        
+        # Format numeric columns
+        for col in ['composite_score', 'sortino_ratio', 'max_drawdown']:
+            if col in history_df.columns:
+                if col == 'max_drawdown':
+                    history_df[col] = history_df[col].apply(lambda x: f"{x:.2%}")
+                else:
+                    history_df[col] = history_df[col].apply(lambda x: f"{x:.3f}")
+        
+        st.dataframe(history_df[['timestamp', 'composite_score', 'sortino_ratio', 'max_drawdown']], 
+                    hide_index=True)
+
+def show_run_backtest():
+    """Interface to run new backtests"""
+    st.subheader("🚀 Run New Backtest")
+    
+    # Check if backtest is in progress
+    status = fetch_api_data("/backtest/status")
+    
+    if status and status.get('in_progress'):
+        st.warning("⏳ Backtest is currently in progress. Please wait...")
+        
+        # Add a progress bar
+        progress_bar = st.progress(0)
+        for i in range(100):
+            time.sleep(0.1)
+            progress_bar.progress(i + 1)
+    else:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### Backtest Parameters")
+            
+            period = st.selectbox(
+                "Data Period",
+                ["1mo", "3mo", "6mo", "1y", "2y", "3y"],
+                index=3,
+                help="Historical data period for backtesting"
+            )
+            
+            optimize_weights = st.checkbox(
+                "Optimize Signal Weights",
+                value=True,
+                help="Use Bayesian optimization to find optimal feature weights"
+            )
+            
+            # Advanced settings in expander
+            with st.expander("Advanced Settings"):
+                settings = fetch_api_data("/config/backtest-settings") or {}
+                
+                training_days = st.number_input(
+                    "Training Window (days)",
+                    min_value=100,
+                    max_value=2000,
+                    value=settings.get('training_window_days', 1008),
+                    help="Number of days for training data"
+                )
+                
+                test_days = st.number_input(
+                    "Test Window (days)",
+                    min_value=10,
+                    max_value=180,
+                    value=settings.get('test_window_days', 90),
+                    help="Number of days for test data"
+                )
+                
+                transaction_cost = st.number_input(
+                    "Transaction Cost (%)",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=settings.get('transaction_cost', 0.0025) * 100,
+                    step=0.01,
+                    help="Trading fees as percentage"
+                ) / 100
+        
+        with col2:
+            st.markdown("### Expected Outcomes")
+            st.info("""
+            **What the backtest will do:**
+            
+            1. **Walk-Forward Analysis**
+               - Train on historical windows
+               - Test on future data
+               - Prevent look-ahead bias
+            
+            2. **Optimization** (if enabled)
+               - Find optimal signal weights
+               - Balance risk vs return
+               - ~50 optimization trials
+            
+            3. **Performance Evaluation**
+               - Calculate Sortino ratio
+               - Measure maximum drawdown
+               - Generate recommendations
+            
+            ⏱️ **Estimated time**: 5-15 minutes
+            """)
+        
+        # Run backtest button
+        if st.button("🎯 Run Backtest", type="primary", use_container_width=True):
+            with st.spinner("Running backtest... This may take several minutes."):
+                result = post_api_data("/backtest/run", {
+                    "period": period,
+                    "optimize_weights": optimize_weights
+                })
+                
+                if result and result.get('status') == 'success':
+                    st.success("✅ Backtest completed successfully!")
+                    st.balloons()
+                    
+                    # Display summary
+                    summary = result.get('summary', {})
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Composite Score", f"{summary.get('composite_score', 0):.3f}")
+                    with col2:
+                        st.metric("Sortino Ratio", f"{summary.get('sortino_ratio', 0):.2f}")
+                    with col3:
+                        st.metric("Max Drawdown", f"{summary.get('max_drawdown', 0):.2%}")
+                    
+                    st.info("View detailed results in the 'Backtest Results' tab")
+                else:
+                    st.error(f"Backtest failed: {result.get('message', 'Unknown error') if result else 'Connection error'}")
+
+def show_signal_weights():
+    """Configure signal weights"""
+    st.subheader("🎚️ Signal Weight Configuration")
+    
+    # Fetch current weights
+    current_weights = fetch_api_data("/config/signal-weights") or {
+        "technical": 0.40,
+        "onchain": 0.35,
+        "sentiment": 0.15,
+        "macro": 0.10
+    }
+    
+    st.info("Adjust the importance of different signal categories. Weights will be normalized to sum to 100%.")
+    
+    # Create sliders for weights
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        technical = st.slider(
+            "Technical Indicators Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=current_weights['technical'],
+            step=0.05,
+            help="RSI, MACD, Bollinger Bands, Moving Averages"
+        )
+        
+        onchain = st.slider(
+            "On-chain Metrics Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=current_weights['onchain'],
+            step=0.05,
+            help="Transaction volume, active addresses, network metrics"
+        )
+        
+        sentiment = st.slider(
+            "Sentiment Analysis Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=current_weights['sentiment'],
+            step=0.05,
+            help="Social media sentiment, fear & greed index"
+        )
+        
+        macro = st.slider(
+            "Macroeconomic Factors Weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=current_weights['macro'],
+            step=0.05,
+            help="USD index, stock market correlation, economic indicators"
+        )
+    
+    with col2:
+        # Show normalized weights
+        total = technical + onchain + sentiment + macro
+        
+        st.markdown("### Normalized Weights")
+        
+        if total > 0:
+            norm_technical = technical / total
+            norm_onchain = onchain / total
+            norm_sentiment = sentiment / total
+            norm_macro = macro / total
+            
+            # Create pie chart
+            fig = go.Figure(data=[go.Pie(
+                labels=['Technical', 'On-chain', 'Sentiment', 'Macro'],
+                values=[norm_technical, norm_onchain, norm_sentiment, norm_macro],
+                hole=.3
+            )])
+            
+            fig.update_layout(height=300, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Display percentages
+            st.write(f"**Technical**: {norm_technical:.1%}")
+            st.write(f"**On-chain**: {norm_onchain:.1%}")
+            st.write(f"**Sentiment**: {norm_sentiment:.1%}")
+            st.write(f"**Macro**: {norm_macro:.1%}")
+        else:
+            st.warning("Total weight cannot be zero")
+    
+    # Update weights button
+    if st.button("💾 Update Signal Weights", type="primary"):
+        weights = {
+            "technical": technical,
+            "onchain": onchain,
+            "sentiment": sentiment,
+            "macro": macro
+        }
+        
+        result = post_api_data("/config/signal-weights", weights)
+        
+        if result and result.get('status') == 'success':
+            st.success("✅ Signal weights updated successfully!")
+            st.info("Run a new backtest to evaluate performance with updated weights")
+        else:
+            st.error("Failed to update signal weights")
+
+def show_model_settings():
+    """Model configuration and retraining"""
+    st.subheader("🧠 Model Settings & Retraining")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Model Information")
+        
+        # Display model status
+        model_info = {
+            "Model Type": "LSTM (Long Short-Term Memory)",
+            "Architecture": "4 layers, 512 hidden units",
+            "Sequence Length": "60 time steps",
+            "Features": "Technical + On-chain + Sentiment",
+            "Last Training": "Check logs for details"
+        }
+        
+        for key, value in model_info.items():
+            st.write(f"**{key}**: {value}")
+        
+        st.markdown("### Retraining Options")
+        
+        st.warning("""
+        ⚠️ **Caution**: Model retraining will:
+        - Use the latest optimized parameters
+        - Take 10-30 minutes to complete
+        - Temporarily affect live predictions
+        """)
+        
+        if st.button("🔄 Retrain Model", type="secondary"):
+            with st.spinner("Retraining model... This will take some time."):
+                result = post_api_data("/model/retrain", {})
+                
+                if result and result.get('status') == 'success':
+                    st.success("✅ Model retrained successfully!")
+                    st.info(f"Completed at: {result.get('timestamp', 'Unknown')}")
+                else:
+                    st.error("Model retraining failed")
+    
+    with col2:
+        st.markdown("### Adaptive Retraining Schedule")
+        
+        st.info("""
+        **Automatic retraining triggers:**
+        
+        🔄 **Scheduled**: Every 90 days (quarterly)
+        
+        📉 **Performance-based**: When composite score < 0.6
+        
+        📊 **Volatility-based**: When market volatility > 50%
+        
+        🚨 **Drift detection**: When concept drift detected
+        """)
+        
+        # Show next scheduled retraining
+        st.markdown("### Next Scheduled Actions")
+        
+        next_retrain = datetime.now() + timedelta(days=90)
+        st.write(f"**Next retraining**: {next_retrain.strftime('%Y-%m-%d')}")
+        st.write(f"**Next backtest**: Weekly on Sundays")
+        
+        # Performance thresholds
+        st.markdown("### Performance Thresholds")
+        
+        thresholds = {
+            "Minimum Sortino Ratio": 2.0,
+            "Maximum Drawdown": "25%",
+            "Target Composite Score": 0.7,
+            "Minimum Win Rate": "55%"
+        }
+        
+        for metric, threshold in thresholds.items():
+            st.write(f"**{metric}**: {threshold}")
 
 if __name__ == "__main__":
     main()

@@ -9,6 +9,8 @@ import time
 import random
 import requests
 import json
+from backtesting_system import SignalWeights
+
 
 class LSTMTradingModel(nn.Module):
     def __init__(self, input_size: int = 16, hidden_size: int = 50, num_layers: int = 2, output_size: int = 1, dropout: float = 0.2):
@@ -31,6 +33,10 @@ class LSTMTradingModel(nn.Module):
         
         return out
 
+
+
+
+
 class TradingSignalGenerator:
     def __init__(self, model_path: str = None, sequence_length: int = 60):
         self.sequence_length = sequence_length
@@ -39,9 +45,13 @@ class TradingSignalGenerator:
         self.is_trained = False
         self.cached_data = None
         self.last_fetch_time = None
+        self.signal_weights = SignalWeights()
         
         if model_path:
             self.load_model(model_path)
+
+    def apply_signal_weights(self, features):
+        """Apply optimized weights to features"""
     
     def fetch_btc_data(self, period: str = "1y", max_retries: int = 3) -> pd.DataFrame:
         """Fetch BTC data from multiple free APIs with fallbacks"""

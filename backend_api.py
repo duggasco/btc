@@ -8,10 +8,14 @@ import threading
 import time
 import os
 import logging
+import json
+import glob
+import asyncio
 
 from database_models import DatabaseManager
 from lstm_model import TradingSignalGenerator
-from discord_notifications import DiscordNotifier
+from integration import IntegratedBacktestingSystem
+from backtesting_system import BacktestConfig, SignalWeights
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -57,23 +61,16 @@ except Exception as e:
     logger.error(f"Failed to initialize signal generator: {e}")
     raise
 
-# Initialize Discord notifier
-discord_notifier = DiscordNotifier()
-logger.info("Discord notifier initialized")
-
 # Global variables for caching
 latest_btc_data = None
 latest_signal = None
 signal_update_errors = 0
 max_signal_errors = 5
-last_pnl = 0
-price_tracker = {
-    'last_price': None,
-    'daily_open': None,
-    'daily_high': None,
-    'daily_low': None,
-    'last_2_5_alert': None  # Track last alert price to avoid spam
-}
+
+# Backtesting global variables
+backtest_system = None
+backtest_in_progress = False
+latest_backtest_results = None
 
 class SignalUpdater:
     def __init__(self):
@@ -93,60 +90,6 @@ class SignalUpdater:
             self.thread.join(timeout=5)
         logger.info("Signal updater stopped")
         
-    def check_limit_orders(self, current_price: float):
-        """Check and trigger limit orders based on current price"""
-        try:
-            limits_df = db.get_trading_limits(active_only=True)
-            if limits_df.empty:
-                return
-            
-            for _, limit in limits_df.iterrows():
-                triggered = False
-                
-                if limit['limit_type'] == 'stop_loss' and current_price <= limit['price']:
-                    triggered = True
-                elif limit['limit_type'] == 'take_profit' and current_price >= limit['price']:
-                    triggered = True
-                elif limit['limit_type'] == 'buy_limit' and current_price <= limit['price']:
-                    triggered = True
-                elif limit['limit_type'] == 'sell_limit' and current_price >= limit['price']:
-                    triggered = True
-                
-                if triggered:
-                    logger.info(f"Limit order triggered: {limit['limit_type']} at ${limit['price']}")
-                    
-                    # Send Discord notification
-                    discord_notifier.notify_limit_triggered(
-                        limit_type=limit['limit_type'],
-                        trigger_price=limit['price'],
-                        current_price=current_price,
-                        size=limit.get('size')
-                    )
-                    
-                    # Execute the implied trade
-                    if limit['limit_type'] in ['stop_loss', 'take_profit', 'sell_limit']:
-                        trade_type = 'sell'
-                    else:
-                        trade_type = 'buy'
-                    
-                    # Create trade
-                    trade_id = db.add_trade(
-                        symbol="BTC-USD",
-                        trade_type=trade_type,
-                        price=current_price,
-                        size=limit.get('size', 0.01),
-                        lot_id=limit.get('lot_id')
-                    )
-                    
-                    # Mark limit as inactive
-                    # Note: This would need to be implemented in DatabaseManager
-                    # db.deactivate_limit(limit['id'])
-                    
-                    logger.info(f"Executed trade {trade_id} for triggered limit")
-                    
-        except Exception as e:
-            logger.error(f"Error checking limit orders: {e}")
-    
     def update_signals_loop(self):
         """Continuously update trading signals with error handling"""
         global signal_update_errors
@@ -154,12 +97,6 @@ class SignalUpdater:
         while self.running:
             try:
                 self.update_signals()
-                
-                # Check limit orders with current price
-                if latest_btc_data is not None and not latest_btc_data.empty:
-                    current_price = latest_btc_data['Close'].iloc[-1]
-                    self.check_limit_orders(current_price)
-                
                 signal_update_errors = 0  # Reset error count on success
                 time.sleep(300)  # Update every 5 minutes
             except Exception as e:
@@ -169,14 +106,13 @@ class SignalUpdater:
                 # Exponential backoff with max errors check
                 if signal_update_errors >= max_signal_errors:
                     logger.warning(f"Too many signal update errors ({signal_update_errors}), extending sleep time")
-                    discord_notifier.notify_system_status("warning", f"Signal update errors: {signal_update_errors}")
                     time.sleep(600)  # Wait 10 minutes after too many errors
                 else:
                     time.sleep(60 * signal_update_errors)  # Gradually increase wait time
                 
     def update_signals(self):
         """Update trading signals and store in database"""
-        global latest_btc_data, latest_signal, price_tracker
+        global latest_btc_data, latest_signal
         
         try:
             logger.info("Fetching BTC data for signal update...")
@@ -192,39 +128,9 @@ class SignalUpdater:
             latest_btc_data = btc_data
             logger.info(f"Successfully fetched {len(btc_data)} days of BTC data")
             
-            # Update price tracking for alerts
-            current_price = btc_data['Close'].iloc[-1]
-            daily_open = btc_data['Close'].iloc[-24] if len(btc_data) >= 24 else current_price
-            daily_high = btc_data['High'].rolling(24).max().iloc[-1] if len(btc_data) >= 24 else current_price
-            daily_low = btc_data['Low'].rolling(24).min().iloc[-1] if len(btc_data) >= 24 else current_price
-            
-            # Check for +/- 2.5% price movements
-            if price_tracker['daily_open']:
-                price_change_pct = ((current_price - price_tracker['daily_open']) / price_tracker['daily_open']) * 100
-                
-                # Check if we should send a price alert
-                if abs(price_change_pct) >= 2.5:
-                    last_alert_price = price_tracker.get('last_2_5_alert')
-                    # Only alert if price moved another 1% since last alert to avoid spam
-                    if not last_alert_price or abs((current_price - last_alert_price) / last_alert_price) >= 0.01:
-                        discord_notifier.notify_price_alert(current_price, price_change_pct, price_change_pct > 0)
-                        price_tracker['last_2_5_alert'] = current_price
-            
-            price_tracker.update({
-                'last_price': current_price,
-                'daily_open': daily_open,
-                'daily_high': daily_high,
-                'daily_low': daily_low
-            })
-            
-            discord_notifier.update_daily_stats(daily_open, daily_high, daily_low)
-            
             # Generate signal
             logger.info("Generating trading signal...")
             signal, confidence, predicted_price = signal_generator.predict_signal(btc_data)
-            
-            # Check if signal changed
-            old_signal = latest_signal.get('signal') if latest_signal else None
             
             # Store signal in database
             try:
@@ -241,37 +147,6 @@ class SignalUpdater:
                 "predicted_price": predicted_price,
                 "timestamp": datetime.now()
             }
-            
-            # Send Discord notification for signal update
-            discord_notifier.notify_signal_update(signal, confidence, predicted_price, current_price)
-            
-            # Check for major P&L changes
-            try:
-                metrics = db.get_portfolio_metrics()
-                current_pnl = metrics.get('total_pnl', 0)
-                global last_pnl
-                
-                if last_pnl != 0:
-                    pnl_change_pct = ((current_pnl - last_pnl) / abs(last_pnl)) * 100
-                    # Notify if P&L changed by more than 5%
-                    if abs(pnl_change_pct) >= 5:
-                        trades_today = db.get_trades(limit=100)
-                        if not trades_today.empty:
-                            trades_today['date'] = pd.to_datetime(trades_today['timestamp']).dt.date
-                            today = datetime.now().date()
-                            today_trades = trades_today[trades_today['date'] == today]
-                            daily_pnl = (today_trades['price'] * today_trades['size'] * 
-                                       today_trades['trade_type'].map({'buy': -1, 'sell': 1, 'hold': 0})).sum()
-                        else:
-                            daily_pnl = 0
-                        
-                        discord_notifier.notify_pnl_change(current_pnl, daily_pnl, pnl_change_pct)
-                        last_pnl = current_pnl
-                else:
-                    last_pnl = current_pnl
-                    
-            except Exception as e:
-                logger.warning(f"Failed to check P&L changes: {e}")
             
             logger.info(f"Signal updated: {signal} (confidence: {confidence:.2%}, price: ${predicted_price:.2f})")
             
@@ -292,13 +167,24 @@ class SignalUpdater:
 
 signal_updater = SignalUpdater()
 
+def load_latest_backtest_results():
+    """Load the most recent backtest results from file"""
+    global latest_backtest_results
+    try:
+        # Find the most recent backtest results file
+        result_files = glob.glob('backtest_results_*.json')
+        if result_files:
+            latest_file = max(result_files, key=os.path.getctime)
+            with open(latest_file, 'r') as f:
+                latest_backtest_results = json.load(f)
+                logger.info(f"Loaded backtest results from {latest_file}")
+    except Exception as e:
+        logger.error(f"Failed to load backtest results: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application"""
     logger.info("Starting BTC Trading System API...")
-    
-    # Send system online notification
-    discord_notifier.notify_system_status("online", "BTC Trading System API is starting up...")
     
     # Start signal updater
     try:
@@ -306,7 +192,6 @@ async def startup_event():
         logger.info("Signal updater started successfully")
     except Exception as e:
         logger.error(f"Failed to start signal updater: {e}")
-        discord_notifier.notify_system_status("error", f"Failed to start signal updater: {str(e)}")
     
     # Generate initial signal
     try:
@@ -336,7 +221,20 @@ async def startup_event():
             "timestamp": datetime.now()
         }
     
-    discord_notifier.notify_system_status("online", "BTC Trading System API started successfully! All systems operational.")
+    # Initialize backtest system
+    global backtest_system
+    try:
+        backtest_system = IntegratedBacktestingSystem(
+            db_path=db_path,
+            model_path='models/lstm_btc_model.pth'
+        )
+        logger.info("Backtest system initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize backtest system: {e}")
+    
+    # Load latest backtest results if available
+    load_latest_backtest_results()
+    
     logger.info("BTC Trading System API startup complete")
 
 @app.on_event("shutdown")
@@ -397,18 +295,6 @@ async def create_trade(trade: TradeRequest):
             lot_id=trade.lot_id
         )
         logger.info(f"Trade created: {trade_id}")
-        
-        # Send Discord notification
-        trade_value = trade.price * trade.size
-        discord_notifier.notify_trade_executed(
-            trade_id=trade_id,
-            trade_type=trade.trade_type,
-            price=trade.price,
-            size=trade.size,
-            lot_id=trade.lot_id or "auto",
-            trade_value=trade_value
-        )
-        
         return {"trade_id": trade_id, "status": "success", "message": "Trade created successfully"}
     except Exception as e:
         logger.error(f"Failed to create trade: {e}")
@@ -653,6 +539,215 @@ async def get_system_status():
         }
     except Exception as e:
         logger.error(f"Failed to get system status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Backtesting endpoints
+@app.post("/backtest/run")
+async def run_backtest(
+    period: str = "1y",
+    optimize_weights: bool = True,
+    force: bool = False
+):
+    """Run backtest with specified parameters"""
+    global backtest_in_progress, latest_backtest_results
+    
+    # Check if backtest is already running
+    if backtest_in_progress and not force:
+        return {
+            "status": "error",
+            "message": "Backtest already in progress"
+        }
+    
+    try:
+        backtest_in_progress = True
+        logger.info(f"Starting backtest with period={period}, optimize_weights={optimize_weights}")
+        
+        # Run backtest in background to avoid blocking
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(
+            None,
+            backtest_system.run_comprehensive_backtest,
+            period,
+            optimize_weights
+        )
+        
+        latest_backtest_results = results
+        
+        return {
+            "status": "success",
+            "message": "Backtest completed successfully",
+            "summary": {
+                "composite_score": results.get('composite_score', 0),
+                "sortino_ratio": results.get('sortino_ratio_mean', 0),
+                "max_drawdown": results.get('max_drawdown_mean', 0),
+                "total_return": results.get('total_return_mean', 0),
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}")
+        return {
+            "status": "error",
+            "message": f"Backtest failed: {str(e)}"
+        }
+    finally:
+        backtest_in_progress = False
+
+@app.get("/backtest/status")
+async def get_backtest_status():
+    """Get current backtest status"""
+    return {
+        "in_progress": backtest_in_progress,
+        "has_results": latest_backtest_results is not None,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/backtest/results/latest")
+async def get_latest_backtest_results():
+    """Get the most recent backtest results"""
+    if latest_backtest_results is None:
+        load_latest_backtest_results()
+    
+    if latest_backtest_results is None:
+        raise HTTPException(status_code=404, detail="No backtest results available")
+    
+    # Format results for frontend
+    results = {
+        "timestamp": latest_backtest_results.get('timestamp', 'Unknown'),
+        "performance_metrics": latest_backtest_results.get('performance_metrics', {}),
+        "optimal_weights": latest_backtest_results.get('optimal_weights', {}),
+        "risk_assessment": latest_backtest_results.get('risk_assessment', {}),
+        "recommendations": latest_backtest_results.get('recommendations', [])
+    }
+    
+    return results
+
+@app.get("/backtest/results/history")
+async def get_backtest_history(limit: int = 10):
+    """Get historical backtest results"""
+    try:
+        # Find all backtest result files
+        result_files = glob.glob('backtest_results_*.json')
+        result_files.sort(key=os.path.getctime, reverse=True)
+        
+        history = []
+        for file_path in result_files[:limit]:
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                    history.append({
+                        "filename": os.path.basename(file_path),
+                        "timestamp": data.get('timestamp', 'Unknown'),
+                        "composite_score": data.get('performance_metrics', {}).get('composite_score', 0),
+                        "sortino_ratio": data.get('performance_metrics', {}).get('sortino_ratio_mean', 0),
+                        "max_drawdown": data.get('performance_metrics', {}).get('max_drawdown_mean', 0)
+                    })
+            except Exception as e:
+                logger.error(f"Failed to load {file_path}: {e}")
+                
+        return history
+        
+    except Exception as e:
+        logger.error(f"Failed to get backtest history: {e}")
+        return []
+
+@app.get("/config/signal-weights")
+async def get_signal_weights():
+    """Get current signal weights"""
+    try:
+        if backtest_system and hasattr(backtest_system.signal_generator, 'signal_weights'):
+            weights = backtest_system.signal_generator.signal_weights
+            return {
+                "technical": weights.technical_weight,
+                "onchain": weights.onchain_weight,
+                "sentiment": weights.sentiment_weight,
+                "macro": weights.macro_weight
+            }
+        else:
+            # Return default weights
+            return {
+                "technical": 0.40,
+                "onchain": 0.35,
+                "sentiment": 0.15,
+                "macro": 0.10
+            }
+    except Exception as e:
+        logger.error(f"Failed to get signal weights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/config/signal-weights")
+async def update_signal_weights(weights: Dict[str, float]):
+    """Manually update signal weights"""
+    try:
+        if backtest_system:
+            sw = SignalWeights(
+                technical_weight=weights.get('technical', 0.40),
+                onchain_weight=weights.get('onchain', 0.35),
+                sentiment_weight=weights.get('sentiment', 0.15),
+                macro_weight=weights.get('macro', 0.10)
+            )
+            sw.normalize()
+            backtest_system.signal_generator.signal_weights = sw
+            
+            logger.info(f"Signal weights updated: {weights}")
+            return {"status": "success", "message": "Signal weights updated"}
+        else:
+            raise HTTPException(status_code=500, detail="Backtest system not initialized")
+            
+    except Exception as e:
+        logger.error(f"Failed to update signal weights: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/model/retrain")
+async def trigger_model_retrain():
+    """Manually trigger model retraining"""
+    try:
+        if not backtest_system:
+            raise HTTPException(status_code=500, detail="Backtest system not initialized")
+            
+        # Run retraining in background
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, backtest_system.retrain_model)
+        
+        return {
+            "status": "success",
+            "message": "Model retraining completed",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Model retraining failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/backtest-settings")
+async def get_backtest_settings():
+    """Get current backtest configuration"""
+    try:
+        if backtest_system:
+            config = backtest_system.config
+            return {
+                "training_window_days": config.training_window_days,
+                "test_window_days": config.test_window_days,
+                "purge_days": config.purge_days,
+                "retraining_frequency_days": config.retraining_frequency_days,
+                "transaction_cost": config.transaction_cost,
+                "max_drawdown_threshold": config.max_drawdown_threshold,
+                "target_sortino_ratio": config.target_sortino_ratio
+            }
+        else:
+            # Return defaults
+            return {
+                "training_window_days": 1008,
+                "test_window_days": 90,
+                "purge_days": 2,
+                "retraining_frequency_days": 90,
+                "transaction_cost": 0.0025,
+                "max_drawdown_threshold": 0.25,
+                "target_sortino_ratio": 2.0
+            }
+    except Exception as e:
+        logger.error(f"Failed to get backtest settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

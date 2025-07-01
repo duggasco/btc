@@ -16,3 +16,7 @@ requests==2.31.0
 # Utilities
 python-dateutil==2.8.2
 python-multipart==0.0.6
+
+# backtesting packages
+optuna==3.5.0
+optuna-dashboard==0.14.0  # Optional for visualization

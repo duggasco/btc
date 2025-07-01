@@ -17,7 +17,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 import uuid
 from collections import deque
-
+from paper_trading_persistence import PersistentPaperTrading
 from database_models import DatabaseManager
 from lstm_model import TradingSignalGenerator
 
@@ -38,7 +38,7 @@ try:
 except ImportError:
     discord_notifier = None
     logging.warning("Discord notifications not available")
-from paper_trading_persistence import PersistentPaperTrading
+
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

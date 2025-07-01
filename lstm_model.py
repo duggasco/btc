@@ -18,17 +18,414 @@ import logging
 import warnings
 warnings.filterwarnings('ignore')
 
-# Import the base classes
-from lstm_model import LSTMTradingModel, TradingSignalGenerator
-
-# Import enhanced components
-from enhanced_backtesting_system import (
+# Import enhanced components from backtesting_system (not enhanced_backtesting_system)
+from backtesting_system import (
     SignalWeights, EnhancedSignalWeights, 
     ComprehensiveSignalCalculator, BacktestConfig
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ========== ORIGINAL LSTM MODEL (PRESERVED) ==========
+
+class LSTMTradingModel(nn.Module):
+    def __init__(self, input_size: int = 16, hidden_size: int = 50, 
+                 num_layers: int = 2, output_size: int = 1, dropout: float = 0.2):
+        super(LSTMTradingModel, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, 
+                           batch_first=True, dropout=dropout)
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_size, output_size)
+        
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        
+        out, (hn, cn) = self.lstm(x, (h0, c0))
+        out = self.dropout(out[:, -1, :])
+        out = self.fc(out)
+        
+        return out
+
+# ========== ORIGINAL TRADING SIGNAL GENERATOR (PRESERVED) ==========
+
+class TradingSignalGenerator:
+    def __init__(self, model_path: str = None, sequence_length: int = 60):
+        self.sequence_length = sequence_length
+        self.model = LSTMTradingModel()
+        self.scaler = MinMaxScaler()
+        self.is_trained = False
+        self.cached_data = None
+        self.last_fetch_time = None
+        
+        if model_path:
+            self.load_model(model_path)
+    
+    def fetch_btc_data(self, period: str = "3mo") -> pd.DataFrame:
+        """Fetch BTC price data from Yahoo Finance"""
+        try:
+            logger.info(f"Fetching BTC data for period: {period}")
+            import yfinance as yf
+            
+            btc = yf.Ticker("BTC-USD")
+            df = btc.history(period=period)
+            
+            if df.empty:
+                logger.warning("Empty dataframe received from yfinance")
+                return self.generate_dummy_data()
+            
+            # Add technical indicators
+            df = self.add_technical_indicators(df)
+            
+            logger.info(f"Fetched {len(df)} days of BTC data")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error fetching BTC data: {e}")
+            return self.generate_dummy_data()
+    
+    def generate_dummy_data(self) -> pd.DataFrame:
+        """Generate dummy data for testing"""
+        dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
+        
+        # Generate realistic-looking price data
+        np.random.seed(42)
+        base_price = 40000
+        price_changes = np.random.randn(100) * 0.02
+        prices = base_price * (1 + price_changes).cumprod()
+        
+        df = pd.DataFrame({
+            'Open': prices * (1 + np.random.randn(100) * 0.001),
+            'High': prices * (1 + abs(np.random.randn(100)) * 0.005),
+            'Low': prices * (1 - abs(np.random.randn(100)) * 0.005),
+            'Close': prices,
+            'Volume': np.random.randint(1000000, 10000000, 100)
+        }, index=dates)
+        
+        # Add technical indicators
+        df = self.add_technical_indicators(df)
+        
+        return df
+    
+    def add_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add technical indicators to dataframe"""
+        # Simple Moving Averages
+        df['SMA_20'] = df['Close'].rolling(window=20).mean()
+        df['SMA_50'] = df['Close'].rolling(window=50).mean()
+        
+        # Exponential Moving Averages
+        df['EMA_12'] = df['Close'].ewm(span=12).mean()
+        df['EMA_26'] = df['Close'].ewm(span=26).mean()
+        
+        # RSI
+        df['RSI'] = self.calculate_rsi(df['Close'])
+        
+        # MACD
+        df['MACD'] = df['EMA_12'] - df['EMA_26']
+        df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
+        df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
+        
+        # Bollinger Bands
+        bb_window = 20
+        bb_std = 2
+        df['BB_Middle'] = df['Close'].rolling(window=bb_window).mean()
+        bb_std_dev = df['Close'].rolling(window=bb_window).std()
+        df['BB_Upper'] = df['BB_Middle'] + (bb_std * bb_std_dev)
+        df['BB_Lower'] = df['BB_Middle'] - (bb_std * bb_std_dev)
+        df['BB_Width'] = df['BB_Upper'] - df['BB_Lower']
+        df['BB_Position'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
+        
+        # Volume indicators
+        df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
+        df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA']
+        df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+        
+        # Volatility
+        df['Volatility'] = df['Close'].pct_change().rolling(window=20).std() * np.sqrt(252)
+        
+        # Additional indicators
+        df['High_Low_Ratio'] = df['High'] / df['Low']
+        df['Close_Open_Ratio'] = df['Close'] / df['Open']
+        
+        # Price position
+        df['Price_Position'] = (df['Close'] - df['Low'].rolling(20).min()) / \
+                              (df['High'].rolling(20).max() - df['Low'].rolling(20).min())
+        
+        # Momentum
+        df['ROC'] = df['Close'].pct_change(periods=10) * 100
+        
+        # ATR
+        df['ATR'] = self.calculate_atr(df)
+        
+        # Stochastic
+        df['Stoch_K'] = self.calculate_stochastic(df)
+        df['Stoch_D'] = df['Stoch_K'].rolling(window=3).mean()
+        
+        # Normalize volume
+        df['Volume_Norm'] = df['Volume'] / df['Volume'].rolling(window=50).mean()
+        
+        # Fill NaN values
+        df = df.fillna(method='bfill')
+        
+        return df
+    
+    def calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
+        """Calculate RSI indicator"""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        return rsi
+    
+    def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate Average True Range"""
+        high_low = df['High'] - df['Low']
+        high_close = np.abs(df['High'] - df['Close'].shift())
+        low_close = np.abs(df['Low'] - df['Close'].shift())
+        
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = np.max(ranges, axis=1)
+        
+        return true_range.rolling(period).mean()
+    
+    def calculate_stochastic(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate Stochastic Oscillator"""
+        low_min = df['Low'].rolling(window=period).min()
+        high_max = df['High'].rolling(window=period).max()
+        
+        k_percent = 100 * ((df['Close'] - low_min) / (high_max - low_min))
+        
+        return k_percent
+    
+    def prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Prepare features for model input"""
+        feature_columns = [
+            'Close', 'Volume_Norm', 'RSI', 'MACD', 'MACD_Histogram',
+            'BB_Position', 'BB_Width', 'Volume_Ratio', 'OBV',
+            'Volatility', 'High_Low_Ratio', 'Close_Open_Ratio',
+            'Price_Position', 'ROC', 'ATR', 'Stoch_K'
+        ]
+        
+        # Select available features
+        available_features = [col for col in feature_columns if col in data.columns]
+        features = data[available_features].copy()
+        
+        # Add price change as target
+        features['Price_Change'] = features['Close'].pct_change()
+        
+        # Remove NaN values
+        features = features.dropna()
+        
+        return features
+    
+    def create_sequences(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Create sequences for LSTM input"""
+        X, y = [], []
+        
+        for i in range(self.sequence_length, len(data)):
+            X.append(data[i-self.sequence_length:i])
+            y.append(data[i, 0])  # Predict next price
+        
+        return np.array(X), np.array(y)
+    
+    def train_model(self, data: pd.DataFrame, epochs: int = 50, batch_size: int = 32):
+        """Train the LSTM model"""
+        logger.info("Training LSTM model...")
+        
+        # Prepare features
+        features = self.prepare_features(data)
+        
+        if len(features) < self.sequence_length:
+            logger.error("Insufficient data for training")
+            return
+        
+        # Scale data
+        scaled_data = self.scaler.fit_transform(features.values)
+        
+        # Create sequences
+        X, y = self.create_sequences(scaled_data)
+        
+        if len(X) == 0:
+            logger.error("No sequences created")
+            return
+        
+        # Convert to tensors
+        X = torch.FloatTensor(X)
+        y = torch.FloatTensor(y).unsqueeze(1)
+        
+        # Train-test split
+        train_size = int(0.8 * len(X))
+        X_train, X_test = X[:train_size], X[train_size:]
+        y_train, y_test = y[:train_size], y[train_size:]
+        
+        # Training loop
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        
+        self.model.train()
+        for epoch in range(epochs):
+            total_loss = 0
+            
+            # Mini-batch training
+            for i in range(0, len(X_train), batch_size):
+                batch_X = X_train[i:i+batch_size]
+                batch_y = y_train[i:i+batch_size]
+                
+                optimizer.zero_grad()
+                outputs = self.model(batch_X)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+            
+            if epoch % 10 == 0:
+                avg_loss = total_loss / (len(X_train) / batch_size)
+                logger.info(f'Epoch [{epoch}/{epochs}], Loss: {avg_loss:.6f}')
+        
+        # Evaluate on test set
+        self.model.eval()
+        with torch.no_grad():
+            test_outputs = self.model(X_test)
+            test_loss = criterion(test_outputs, y_test)
+            logger.info(f'Test Loss: {test_loss.item():.6f}')
+        
+        self.is_trained = True
+        logger.info("Model training completed!")
+    
+    def predict_signal(self, current_data: pd.DataFrame) -> Tuple[str, float, float]:
+        """Generate trading signal based on current data"""
+        if not self.is_trained:
+            logger.warning("Model not trained, using rule-based signals")
+            return self.generate_rule_based_signal(current_data)
+        
+        # Prepare features
+        features = self.prepare_features(current_data)
+        
+        if len(features) < self.sequence_length:
+            logger.warning("Insufficient data for prediction")
+            return "hold", 0.5, current_data['Close'].iloc[-1]
+        
+        # Get last sequence
+        last_sequence = features.tail(self.sequence_length).values
+        scaled_sequence = self.scaler.transform(last_sequence)
+        
+        # Reshape for LSTM
+        sequence_tensor = torch.FloatTensor(scaled_sequence).unsqueeze(0)
+        
+        # Predict
+        self.model.eval()
+        with torch.no_grad():
+            prediction = self.model(sequence_tensor)
+        
+        # Convert prediction to signal
+        predicted_change = prediction.item()
+        current_price = features['Close'].iloc[-1]
+        predicted_price = current_price * (1 + predicted_change)
+        
+        # Calculate confidence based on prediction magnitude
+        confidence = min(abs(predicted_change) * 10, 0.95)
+        
+        # Generate signal
+        if predicted_change > 0.02:  # 2% threshold
+            signal = "buy"
+        elif predicted_change < -0.02:
+            signal = "sell"
+        else:
+            signal = "hold"
+        
+        return signal, confidence, predicted_price
+    
+    def generate_rule_based_signal(self, data: pd.DataFrame) -> Tuple[str, float, float]:
+        """Generate signal based on technical indicators"""
+        if len(data) < 50:
+            return "hold", 0.5, data['Close'].iloc[-1]
+        
+        latest = data.iloc[-1]
+        
+        # Signal scoring
+        buy_score = 0
+        sell_score = 0
+        
+        # RSI signals
+        if 'RSI' in data.columns:
+            if latest['RSI'] < 30:
+                buy_score += 2
+            elif latest['RSI'] > 70:
+                sell_score += 2
+        
+        # MACD signals
+        if 'MACD' in data.columns and 'MACD_Signal' in data.columns:
+            if latest['MACD'] > latest['MACD_Signal']:
+                buy_score += 1
+            else:
+                sell_score += 1
+        
+        # Moving average signals
+        if 'SMA_20' in data.columns and 'SMA_50' in data.columns:
+            if latest['Close'] > latest['SMA_20'] > latest['SMA_50']:
+                buy_score += 2
+            elif latest['Close'] < latest['SMA_20'] < latest['SMA_50']:
+                sell_score += 2
+        
+        # Bollinger Band signals
+        if 'BB_Position' in data.columns:
+            if latest['BB_Position'] < 0.2:
+                buy_score += 1
+            elif latest['BB_Position'] > 0.8:
+                sell_score += 1
+        
+        # Volume signals
+        if 'Volume_Ratio' in data.columns:
+            if latest['Volume_Ratio'] > 1.5:
+                if latest['Close'] > latest['Open']:
+                    buy_score += 1
+                else:
+                    sell_score += 1
+        
+        # Determine signal
+        if buy_score > sell_score + 2:
+            signal = "buy"
+            confidence = min(0.5 + (buy_score - sell_score) * 0.1, 0.8)
+        elif sell_score > buy_score + 2:
+            signal = "sell"
+            confidence = min(0.5 + (sell_score - buy_score) * 0.1, 0.8)
+        else:
+            signal = "hold"
+            confidence = 0.5
+        
+        return signal, confidence, latest['Close']
+    
+    def save_model(self, path: str):
+        """Save model state"""
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'scaler': self.scaler,
+            'is_trained': self.is_trained,
+            'sequence_length': self.sequence_length
+        }, path)
+        logger.info(f"Model saved to {path}")
+    
+    def load_model(self, path: str):
+        """Load model state"""
+        try:
+            checkpoint = torch.load(path, map_location=torch.device('cpu'))
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.scaler = checkpoint['scaler']
+            self.is_trained = checkpoint['is_trained']
+            self.sequence_length = checkpoint.get('sequence_length', 60)
+            logger.info(f"Model loaded from {path}")
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+
+# ========== ENHANCED CLASSES ==========
 
 class EnhancedLSTMTradingModel(LSTMTradingModel):
     """Enhanced LSTM model with additional features while preserving base functionality"""

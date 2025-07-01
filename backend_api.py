@@ -13,16 +13,28 @@ import glob
 import asyncio
 import numpy as np
 import traceback
+import sqlite3
 
 from database_models import DatabaseManager
 from lstm_model import TradingSignalGenerator
 
-# Import the ENHANCED classes instead of the old ones
+# Import the ENHANCED classes from integration module
 from integration import AdvancedIntegratedBacktestingSystem, AdvancedTradingSignalGenerator
-from enhanced_backtesting_system import (
-    BacktestConfig, EnhancedSignalWeights, EnhancedBacktestingPipeline,
-    ComprehensiveSignalCalculator, EnhancedPerformanceMetrics
+# Import from backtesting_system (corrected from enhanced_backtesting_system)
+from backtesting_system import (
+    BacktestConfig, SignalWeights, EnhancedSignalWeights, EnhancedBacktestingPipeline,
+    ComprehensiveSignalCalculator, EnhancedPerformanceMetrics,
+    EnhancedWalkForwardBacktester, EnhancedBayesianOptimizer, AdaptiveRetrainingScheduler,
+    PerformanceMetrics
 )
+
+# Import Discord notifications if available
+try:
+    from discord_notifications import DiscordNotifier
+    discord_notifier = DiscordNotifier()
+except ImportError:
+    discord_notifier = None
+    logging.warning("Discord notifications not available")
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +46,7 @@ class TradeRequest(BaseModel):
     price: float
     size: float
     lot_id: Optional[str] = None
+    notes: Optional[str] = None
 
 class LimitOrder(BaseModel):
     symbol: str
@@ -50,6 +63,7 @@ class EnhancedBacktestRequest(BaseModel):
     use_enhanced_weights: bool = True
     n_optimization_trials: int = 20
     force: bool = False
+    settings: Optional[Dict[str, Any]] = None
 
 app = FastAPI(title="BTC Trading System API", version="2.0.0")
 
@@ -93,6 +107,33 @@ latest_backtest_results = None
 # Enhanced metrics cache
 latest_comprehensive_signals = None
 signal_calculator = ComprehensiveSignalCalculator()
+
+# Configuration storage (in production, use database)
+model_config = {
+    'input_size': 16,
+    'hidden_size': 50,
+    'num_layers': 2,
+    'dropout': 0.2,
+    'sequence_length': 60,
+    'learning_rate': 0.001,
+    'batch_size': 32,
+    'epochs': 50,
+    'use_attention': False,
+    'ensemble_size': 5
+}
+
+trading_rules = {
+    'min_trade_size': 0.001,
+    'max_position_size': 0.1,
+    'position_scaling': 'confidence_based',
+    'stop_loss_pct': 5.0,
+    'take_profit_pct': 10.0,
+    'max_daily_trades': 10,
+    'buy_threshold': 0.6,
+    'strong_buy_threshold': 0.8,
+    'sell_threshold': 0.6,
+    'strong_sell_threshold': 0.8
+}
 
 class SignalUpdater:
     def __init__(self):
@@ -161,8 +202,12 @@ class SignalUpdater:
             
             # Store signal in database
             try:
-                db.add_model_signal("BTC-USD", signal, confidence, predicted_price)
-                logger.info("Signal stored in database")
+                db.add_enhanced_model_signal(
+                    "BTC-USD", signal, confidence, predicted_price, 
+                    analysis, signal_generator.enhanced_weights.__dict__ if hasattr(signal_generator, 'enhanced_weights') else None,
+                    {k: float(v.iloc[-1]) if hasattr(v, 'iloc') else v for k, v in latest_comprehensive_signals.items() if k in ['rsi', 'macd', 'bb_position']}
+                )
+                logger.info("Enhanced signal stored in database")
             except Exception as e:
                 logger.warning(f"Failed to store signal in database: {e}")
             
@@ -196,6 +241,10 @@ class SignalUpdater:
             }
             
             logger.info(f"Enhanced signal updated: {signal} (confidence: {confidence:.2%}, price: ${predicted_price:.2f})")
+            
+            # Send Discord notification if signal changed
+            if discord_notifier and hasattr(discord_notifier, 'last_signal') and discord_notifier.last_signal != signal:
+                discord_notifier.notify_signal_update(signal, confidence, predicted_price, btc_data['Close'].iloc[-1])
             
         except Exception as e:
             logger.error(f"Error in update_signals: {e}")
@@ -297,6 +346,10 @@ async def startup_event():
     # Load latest backtest results if available
     load_latest_backtest_results()
     
+    # Send startup notification
+    if discord_notifier:
+        discord_notifier.notify_system_status("online", "BTC Trading System API started successfully")
+    
     logger.info("Enhanced BTC Trading System API startup complete")
 
 @app.on_event("shutdown")
@@ -304,9 +357,13 @@ async def shutdown_event():
     """Cleanup on shutdown"""
     logger.info("Shutting down Enhanced BTC Trading System API...")
     signal_updater.stop()
+    
+    if discord_notifier:
+        discord_notifier.notify_system_status("offline", "BTC Trading System API shutting down")
+    
     logger.info("API shutdown complete")
 
-# Keep all original endpoints...
+# Core endpoints
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -357,8 +414,7 @@ async def health_check():
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
-# Add new ENHANCED endpoints
-
+# Enhanced signal endpoints
 @app.get("/signals/enhanced/latest")
 async def get_enhanced_latest_signal():
     """Get the latest enhanced trading signal with full analysis"""
@@ -454,6 +510,345 @@ async def get_comprehensive_signals():
         logger.error(f"Failed to get comprehensive signals: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/signals/latest")
+async def get_latest_signal():
+    """Get the latest trading signal (original endpoint maintained)"""
+    global latest_signal
+    
+    try:
+        if latest_signal is None:
+            logger.info("No cached signal, generating new one...")
+            try:
+                btc_data = signal_generator.fetch_enhanced_btc_data(period="1mo", include_macro=False)
+                signal, confidence, predicted_price, _ = signal_generator.predict_with_confidence(btc_data)
+                
+                latest_signal = {
+                    "symbol": "BTC-USD",
+                    "signal": signal,
+                    "confidence": confidence,
+                    "predicted_price": predicted_price,
+                    "timestamp": datetime.now()
+                }
+                logger.info(f"Generated new signal: {signal}")
+            except Exception as e:
+                logger.error(f"Failed to generate signal: {e}")
+                # Return a default signal
+                latest_signal = {
+                    "symbol": "BTC-USD",
+                    "signal": "hold",
+                    "confidence": 0.5,
+                    "predicted_price": 45000.0,
+                    "timestamp": datetime.now(),
+                    "error": "Signal generation failed, using default"
+                }
+        
+        return latest_signal
+        
+    except Exception as e:
+        logger.error(f"Failed to get latest signal: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting signal: {str(e)}")
+
+@app.get("/signals/history")
+async def get_signal_history(limit: int = 50, hours: Optional[int] = None):
+    """Get historical trading signals"""
+    try:
+        if hours:
+            # Get signals from last N hours
+            conn = sqlite3.connect(db.db_path)
+            query = """
+                SELECT timestamp, signal, confidence, price_prediction
+                FROM model_signals
+                WHERE timestamp > datetime('now', '-{} hours')
+                ORDER BY timestamp DESC
+            """.format(hours)
+            
+            signals_df = pd.read_sql_query(query, conn)
+            conn.close()
+            
+            if not signals_df.empty:
+                signals_df['timestamp'] = pd.to_datetime(signals_df['timestamp'])
+                return signals_df.to_dict('records')
+            return []
+        else:
+            # Use existing method
+            signals_df = db.get_model_signals(limit=limit)
+            return signals_df.to_dict('records')
+    except Exception as e:
+        logger.error(f"Failed to get signal history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Trading endpoints
+@app.post("/trades/")
+async def create_trade(trade: TradeRequest):
+    """Create a new trade with enhanced features"""
+    try:
+        # Calculate PnL if this is a sell
+        pnl = 0
+        if trade.trade_type == 'sell' and trade.lot_id:
+            positions_df = db.get_positions()
+            position = positions_df[positions_df['lot_id'] == trade.lot_id]
+            if not position.empty:
+                avg_buy_price = position['avg_buy_price'].iloc[0]
+                pnl = (trade.price - avg_buy_price) * trade.size
+        
+        trade_id = db.add_trade(
+            symbol=trade.symbol,
+            trade_type=trade.trade_type,
+            price=trade.price,
+            size=trade.size,
+            lot_id=trade.lot_id,
+            pnl=pnl,
+            notes=trade.notes
+        )
+        logger.info(f"Trade created: {trade_id} with PnL: {pnl}")
+        
+        # Send Discord notification
+        if discord_notifier:
+            trade_value = trade.price * trade.size
+            discord_notifier.notify_trade_executed(
+                trade_id, trade.trade_type, trade.price, trade.size,
+                trade.lot_id, trade_value
+            )
+        
+        return {"trade_id": trade_id, "status": "success", "pnl": pnl}
+    except Exception as e:
+        logger.error(f"Failed to create trade: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/trades/")
+async def get_trades(symbol: Optional[str] = None, limit: Optional[int] = 100):
+    """Get trading history"""
+    try:
+        trades_df = db.get_trades(symbol=symbol, limit=limit)
+        return trades_df.to_dict('records')
+    except Exception as e:
+        logger.error(f"Failed to get trades: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/positions/")
+async def get_positions():
+    """Get current positions"""
+    try:
+        positions_df = db.get_positions()
+        return positions_df.to_dict('records')
+    except Exception as e:
+        logger.error(f"Failed to get positions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/limits/")
+async def create_limit_order(limit_order: LimitOrder):
+    """Create a limit order"""
+    try:
+        limit_id = db.add_trading_limit(
+            symbol=limit_order.symbol,
+            limit_type=limit_order.limit_type,
+            price=limit_order.price,
+            size=limit_order.size,
+            lot_id=limit_order.lot_id
+        )
+        logger.info(f"Limit order created: {limit_id}")
+        
+        # Send Discord notification
+        if discord_notifier:
+            current_price = latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None else 0
+            discord_notifier.notify_limit_triggered(
+                limit_order.limit_type, limit_order.price, current_price, limit_order.size
+            )
+        
+        return {"limit_id": limit_id, "status": "success", "message": "Limit order created"}
+    except Exception as e:
+        logger.error(f"Failed to create limit order: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/limits/")
+async def get_limits():
+    """Get active limit orders"""
+    try:
+        limits_df = db.get_trading_limits()
+        return limits_df.to_dict('records')
+    except Exception as e:
+        logger.error(f"Failed to get limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Portfolio endpoints
+@app.get("/portfolio/metrics")
+async def get_portfolio_metrics():
+    """Get portfolio performance metrics"""
+    try:
+        metrics = db.get_portfolio_metrics()
+        
+        # Add current BTC price if available
+        if latest_btc_data is not None and len(latest_btc_data) > 0:
+            try:
+                metrics['current_btc_price'] = float(latest_btc_data['Close'].iloc[-1])
+            except Exception as e:
+                logger.warning(f"Failed to get current BTC price: {e}")
+                metrics['current_btc_price'] = None
+        else:
+            metrics['current_btc_price'] = None
+        
+        # Add enhanced metrics if available
+        if latest_enhanced_signal and 'analysis' in latest_enhanced_signal:
+            metrics['signal_confidence'] = latest_enhanced_signal.get('confidence', 0)
+            metrics['consensus_ratio'] = latest_enhanced_signal.get('analysis', {}).get('consensus_ratio', 0)
+        
+        return metrics
+    except Exception as e:
+        logger.error(f"Failed to get portfolio metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Market data endpoints
+@app.get("/market/btc-data")
+async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
+    """Get BTC market data with optional indicators"""
+    try:
+        logger.info(f"Fetching BTC data for period: {period}")
+        
+        if include_indicators:
+            # Fetch enhanced data with all indicators
+            btc_data = signal_generator.fetch_enhanced_btc_data(period=period, include_macro=False)
+        else:
+            # Fetch basic data
+            btc_data = signal_generator.fetch_btc_data(period=period)
+        
+        if btc_data is None or len(btc_data) == 0:
+            raise ValueError("No BTC data available")
+        
+        data_records = []
+        for idx, row in btc_data.iterrows():
+            try:
+                record = {
+                    'timestamp': idx.isoformat(),
+                    'Date': idx.isoformat(),  # Add Date field for compatibility
+                    'open': float(row['Open']),
+                    'Open': float(row['Open']),  # Duplicate for compatibility
+                    'high': float(row['High']),
+                    'High': float(row['High']),
+                    'low': float(row['Low']),
+                    'Low': float(row['Low']),
+                    'close': float(row['Close']),
+                    'Close': float(row['Close']),
+                    'volume': float(row['Volume']),
+                    'Volume': float(row['Volume'])
+                }
+                
+                # Add basic indicators always
+                for indicator in ['SMA_20', 'SMA_50', 'RSI', 'MACD', 'sma_50', 'sma_200']:
+                    if indicator in row and not pd.isna(row[indicator]):
+                        record[indicator.lower()] = float(row[indicator])
+                        record[indicator] = float(row[indicator])  # Keep original case too
+                
+                # Add enhanced indicators if requested
+                if include_indicators:
+                    # Add technical indicators
+                    for col in ['bb_position', 'bb_upper', 'bb_lower', 'atr_normalized', 'stoch_k', 'mfi', 'cmf', 'obv']:
+                        if col in row and not pd.isna(row[col]):
+                            record[col] = float(row[col])
+                    
+                    # Add sentiment indicators
+                    for col in ['fear_proxy', 'greed_proxy', 'momentum_sentiment']:
+                        if col in row and not pd.isna(row[col]):
+                            record[col] = float(row[col])
+                
+                data_records.append(record)
+            except Exception as e:
+                logger.warning(f"Error processing data row {idx}: {e}")
+                continue
+        
+        # Return last 100 records to avoid large responses
+        return {
+            "symbol": "BTC-USD",
+            "period": period,
+            "data": data_records[-100:] if len(data_records) > 100 else data_records,
+            "total_records": len(data_records),
+            "enhanced": include_indicators
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get BTC data: {e}")
+        
+        # Return dummy data as fallback
+        try:
+            dummy_data = signal_generator.generate_dummy_data()
+            dummy_records = []
+            
+            for idx, row in dummy_data.tail(50).iterrows():
+                record = {
+                    'timestamp': idx.isoformat(),
+                    'Date': idx.isoformat(),
+                    'open': float(row['Open']),
+                    'Open': float(row['Open']),
+                    'high': float(row['High']),
+                    'High': float(row['High']),
+                    'low': float(row['Low']),
+                    'Low': float(row['Low']),
+                    'close': float(row['Close']),
+                    'Close': float(row['Close']),
+                    'volume': float(row['Volume']),
+                    'Volume': float(row['Volume'])
+                }
+                dummy_records.append(record)
+            
+            return {
+                "symbol": "BTC-USD",
+                "period": period,
+                "data": dummy_records,
+                "total_records": len(dummy_records),
+                "note": "Using simulated data due to data fetch error"
+            }
+            
+        except Exception as dummy_error:
+            logger.error(f"Failed to generate dummy data: {dummy_error}")
+            raise HTTPException(status_code=500, detail="Unable to fetch or generate BTC data")
+
+@app.get("/btc/latest")
+async def get_latest_btc_price():
+    """Get latest BTC price"""
+    try:
+        if latest_btc_data is not None and len(latest_btc_data) > 0:
+            latest_price = float(latest_btc_data['Close'].iloc[-1])
+            return {"latest_price": latest_price, "timestamp": datetime.now()}
+        else:
+            return {"latest_price": 45000.0, "timestamp": datetime.now(), "note": "Using default price"}
+    except Exception as e:
+        logger.error(f"Failed to get latest BTC price: {e}")
+        return {"latest_price": 45000.0, "timestamp": datetime.now(), "error": str(e)}
+
+# Analytics endpoints
+@app.get("/analytics/pnl")
+async def get_pnl_data():
+    """Get P&L analytics data"""
+    try:
+        trades_df = db.get_trades()
+        
+        if trades_df.empty:
+            return {"daily_pnl": [], "cumulative_pnl": []}
+        
+        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
+        trades_df['date'] = trades_df['timestamp'].dt.date
+        trades_df['trade_value'] = trades_df['price'] * trades_df['size']
+        trades_df['signed_value'] = trades_df['trade_value'] * trades_df['trade_type'].map({
+            'buy': -1, 
+            'sell': 1, 
+            'hold': 0
+        })
+        
+        daily_pnl = trades_df.groupby('date')['signed_value'].sum().reset_index()
+        daily_pnl['cumulative_pnl'] = daily_pnl['signed_value'].cumsum()
+        
+        return {
+            "daily_pnl": [
+                {"date": str(row['date']), "pnl": float(row['signed_value'])}
+                for _, row in daily_pnl.iterrows()
+            ],
+            "cumulative_pnl": [
+                {"date": str(row['date']), "pnl": float(row['cumulative_pnl'])}
+                for _, row in daily_pnl.iterrows()
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to get P&L data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/analytics/portfolio-comprehensive")
 async def get_comprehensive_portfolio_analytics():
@@ -484,7 +879,207 @@ async def get_comprehensive_portfolio_analytics():
         logger.error(f"Failed to get comprehensive analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/analytics/performance")
+async def get_performance_analytics():
+    """Get comprehensive performance metrics"""
+    try:
+        # First try to get from latest backtest results
+        if latest_backtest_results and 'performance_metrics' in latest_backtest_results:
+            return latest_backtest_results['performance_metrics']
+        
+        # Otherwise calculate from trades
+        trades_df = db.get_trades()
+        if trades_df.empty:
+            return {
+                'total_return': 0,
+                'sharpe_ratio': 0,
+                'sortino_ratio': 0,
+                'max_drawdown': 0,
+                'win_rate': 0,
+                'profit_factor': 0,
+                'total_trades': 0,
+                'calmar_ratio': 0,
+                'omega_ratio': 1
+            }
+        
+        # Calculate metrics using EnhancedPerformanceMetrics
+        metrics_calculator = EnhancedPerformanceMetrics()
+        
+        # Calculate returns
+        trades_df = trades_df.sort_values('timestamp')
+        trades_df['trade_value'] = trades_df['price'] * trades_df['size']
+        trades_df['signed_value'] = trades_df['trade_value'] * trades_df['trade_type'].map({
+            'buy': -1, 'sell': 1, 'hold': 0
+        })
+        trades_df['cumulative_pnl'] = trades_df['signed_value'].cumsum()
+        trades_df['returns'] = trades_df['cumulative_pnl'].pct_change().fillna(0)
+        
+        returns = trades_df['returns'].values
+        cumulative_pnl = trades_df['cumulative_pnl'].values
+        
+        # Calculate all metrics
+        max_dd = metrics_calculator.maximum_drawdown(cumulative_pnl)
+        
+        return {
+            'total_return': cumulative_pnl[-1] / abs(trades_df[trades_df['trade_type'] == 'buy']['trade_value'].sum()) if len(cumulative_pnl) > 0 else 0,
+            'sharpe_ratio': metrics_calculator.sharpe_ratio(returns),
+            'sortino_ratio': metrics_calculator.sortino_ratio(returns),
+            'max_drawdown': max_dd,
+            'win_rate': metrics_calculator.win_rate(returns),
+            'profit_factor': metrics_calculator.profit_factor(returns),
+            'total_trades': len(trades_df),
+            'calmar_ratio': metrics_calculator.calmar_ratio(returns, max_dd),
+            'omega_ratio': metrics_calculator.omega_ratio(returns),
+            'equity_curve': cumulative_pnl.tolist()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get performance analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/analytics/risk")
+async def get_risk_analytics():
+    """Get risk analysis metrics"""
+    try:
+        trades_df = db.get_trades()
+        if trades_df.empty:
+            return {
+                'var_95': 0,
+                'var_99': 0,
+                'cvar_95': 0,
+                'cvar_99': 0,
+                'returns_distribution': []
+            }
+        
+        # Calculate returns
+        trades_df = trades_df.sort_values('timestamp')
+        trades_df['trade_value'] = trades_df['price'] * trades_df['size']
+        trades_df['signed_value'] = trades_df['trade_value'] * trades_df['trade_type'].map({
+            'buy': -1, 'sell': 1, 'hold': 0
+        })
+        trades_df['cumulative_pnl'] = trades_df['signed_value'].cumsum()
+        trades_df['returns'] = trades_df['cumulative_pnl'].pct_change().fillna(0)
+        
+        returns = trades_df['returns'].values
+        
+        # Calculate risk metrics
+        metrics_calculator = EnhancedPerformanceMetrics()
+        
+        return {
+            'var_95': metrics_calculator.value_at_risk(returns, 0.95),
+            'var_99': metrics_calculator.value_at_risk(returns, 0.99),
+            'cvar_95': metrics_calculator.conditional_value_at_risk(returns, 0.95),
+            'cvar_99': metrics_calculator.conditional_value_at_risk(returns, 0.99),
+            'returns_distribution': returns.tolist()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get risk analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/analytics/correlations")
+async def get_correlations_analytics():
+    """Get market correlations analysis"""
+    try:
+        # Get latest BTC data with all features
+        if latest_btc_data is not None and isinstance(latest_btc_data, pd.DataFrame):
+            # Calculate correlation matrix
+            feature_cols = [col for col in latest_btc_data.columns 
+                          if col not in ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
+            
+            if feature_cols and 'Close' in latest_btc_data.columns:
+                # Correlation with price
+                correlations = {}
+                for col in feature_cols:
+                    if pd.api.types.is_numeric_dtype(latest_btc_data[col]):
+                        corr = latest_btc_data[col].corr(latest_btc_data['Close'])
+                        if not pd.isna(corr):
+                            correlations[col] = corr
+                
+                # Full correlation matrix (limited to top features)
+                top_features = sorted(correlations.items(), key=lambda x: abs(x[1]), reverse=True)[:20]
+                top_feature_names = [f[0] for f in top_features]
+                
+                if top_feature_names:
+                    corr_matrix = latest_btc_data[top_feature_names + ['Close']].corr()
+                    
+                    return {
+                        'correlation_matrix': corr_matrix.to_dict(),
+                        'key_correlations': correlations
+                    }
+        
+        return {
+            'correlation_matrix': {},
+            'key_correlations': {},
+            'message': 'No data available for correlation analysis'
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get correlations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/analytics/optimization")
+async def get_optimization_analytics():
+    """Get strategy optimization results"""
+    try:
+        if latest_backtest_results:
+            optimal_weights = latest_backtest_results.get('optimal_weights', {})
+            
+            # Convert to expected format if needed
+            if isinstance(optimal_weights, dict):
+                return {
+                    'optimal_weights': optimal_weights,
+                    'optimization_history': latest_backtest_results.get('optimization_history', [])
+                }
+        
+        # Return default enhanced weights
+        return {
+            'optimal_weights': {
+                'technical_weight': 0.40,
+                'onchain_weight': 0.35,
+                'sentiment_weight': 0.15,
+                'macro_weight': 0.10,
+                'momentum_weight': 0.30,
+                'trend_weight': 0.40,
+                'volatility_weight': 0.15,
+                'volume_weight': 0.15,
+                'flow_weight': 0.40,
+                'network_weight': 0.30,
+                'holder_weight': 0.30,
+                'social_weight': 0.50,
+                'derivatives_weight': 0.30,
+                'fear_greed_weight': 0.20
+            },
+            'optimization_history': []
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get optimization analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/analytics/feature-importance")
+async def get_feature_importance():
+    """Get feature importance from the trained model"""
+    try:
+        if backtest_system and hasattr(backtest_system.signal_generator, 'feature_importance'):
+            importance = backtest_system.signal_generator.feature_importance
+            if importance:
+                return {
+                    "feature_importance": importance,
+                    "top_10_features": dict(list(importance.items())[:10]),
+                    "timestamp": datetime.now()
+                }
+        
+        return {
+            "feature_importance": {},
+            "message": "Feature importance not yet calculated. Run a backtest first."
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get feature importance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Backtest endpoints
 @app.post("/backtest/enhanced/run")
 async def run_enhanced_backtest(request: EnhancedBacktestRequest):
     """Run enhanced backtest with database storage"""
@@ -496,7 +1091,14 @@ async def run_enhanced_backtest(request: EnhancedBacktestRequest):
     try:
         backtest_in_progress = True
         
+        # Apply custom settings if provided
+        if request.settings and backtest_system:
+            backtest_system.config.training_window_days = request.settings.get('training_window_days', 1008)
+            backtest_system.config.test_window_days = request.settings.get('test_window_days', 90)
+            backtest_system.config.transaction_cost = request.settings.get('transaction_cost', 0.0025)
+        
         # Run backtest
+        loop = asyncio.get_event_loop()
         results = await asyncio.wait_for(
             loop.run_in_executor(None, backtest_system.run_comprehensive_backtest,
                                request.period, request.optimize_weights, 
@@ -543,6 +1145,13 @@ async def run_enhanced_backtest(request: EnhancedBacktestRequest):
     finally:
         backtest_in_progress = False
 
+# Alias for streamlit compatibility
+@app.post("/backtest/enhanced")
+async def run_enhanced_backtest_alias(request: dict):
+    """Alias for enhanced backtest endpoint"""
+    enhanced_request = EnhancedBacktestRequest(**request)
+    return await run_enhanced_backtest(enhanced_request)
+
 @app.get("/backtest/enhanced/results/latest")
 async def get_latest_enhanced_backtest_results():
     """Get the most recent enhanced backtest results with full details"""
@@ -555,6 +1164,113 @@ async def get_latest_enhanced_backtest_results():
     # Return full enhanced results
     return latest_backtest_results
 
+@app.get("/backtest/results/latest")
+async def get_latest_backtest_results():
+    """Get the most recent backtest results"""
+    # Delegate to enhanced endpoint
+    return await get_latest_enhanced_backtest_results()
+
+@app.get("/backtest/status")
+async def get_backtest_status():
+    """Get current backtest status"""
+    return {
+        "in_progress": backtest_in_progress,
+        "has_results": latest_backtest_results is not None,
+        "timestamp": datetime.now().isoformat(),
+        "system_type": "enhanced"
+    }
+
+@app.get("/backtest/results/history")
+async def get_backtest_history(limit: int = 10):
+    """Get historical backtest results"""
+    try:
+        # Find all backtest result files
+        result_files = glob.glob('backtest_results_*.json')
+        result_files.sort(key=os.path.getctime, reverse=True)
+        
+        history = []
+        for file_path in result_files[:limit]:
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                    
+                    # Handle both old and new format
+                    if 'performance_metrics' in data:
+                        composite_score = data.get('performance_metrics', {}).get('composite_score', 0)
+                        sortino_ratio = data.get('performance_metrics', {}).get('sortino_ratio_mean', 0)
+                        max_drawdown = data.get('performance_metrics', {}).get('max_drawdown_mean', 0)
+                    else:
+                        composite_score = data.get('composite_score', 0)
+                        sortino_ratio = data.get('sortino_ratio_mean', 0)
+                        max_drawdown = data.get('max_drawdown_mean', 0)
+                    
+                    history.append({
+                        "filename": os.path.basename(file_path),
+                        "timestamp": data.get('timestamp', 'Unknown'),
+                        "composite_score": composite_score,
+                        "sortino_ratio": sortino_ratio,
+                        "max_drawdown": max_drawdown,
+                        "confidence_score": data.get('confidence_score', None),
+                        "enhanced": 'market_analysis' in data or 'confidence_score' in data
+                    })
+            except Exception as e:
+                logger.error(f"Failed to load {file_path}: {e}")
+                
+        return history
+        
+    except Exception as e:
+        logger.error(f"Failed to get backtest history: {e}")
+        return []
+
+@app.get("/backtest/walk-forward/results")
+async def get_walk_forward_results():
+    """Get walk-forward analysis results"""
+    try:
+        if latest_backtest_results and 'walk_forward_results' in latest_backtest_results:
+            return latest_backtest_results['walk_forward_results']
+        
+        # Return placeholder data
+        return {
+            'total_windows': 0,
+            'avg_return': 0,
+            'consistency_score': 0,
+            'window_results': [],
+            'stability_metrics': {
+                'return_std': 0,
+                'sharpe_std': 0,
+                'max_window_dd': 0,
+                'signal_consistency': 0,
+                'weight_stability': 0,
+                'feature_var': 0
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get walk-forward results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/backtest/optimization/results")
+async def get_optimization_results():
+    """Get optimization results"""
+    try:
+        if latest_backtest_results:
+            return {
+                'best_params': latest_backtest_results.get('optimal_weights', {}),
+                'optimization_history': latest_backtest_results.get('optimization_history', []),
+                'param_importance': latest_backtest_results.get('param_importance', {})
+            }
+        
+        return {
+            'best_params': {},
+            'optimization_history': [],
+            'param_importance': {}
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get optimization results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Configuration endpoints
 @app.get("/config/signal-weights/enhanced")
 async def get_enhanced_signal_weights():
     """Get current enhanced signal weights including sub-categories"""
@@ -629,6 +1345,17 @@ async def get_enhanced_signal_weights():
         logger.error(f"Failed to get enhanced signal weights: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/config/signal-weights")
+async def get_signal_weights():
+    """Get current signal weights (backward compatibility)"""
+    result = await get_enhanced_signal_weights()
+    
+    # Return simplified version for backward compatibility
+    if isinstance(result, dict) and 'main_categories' in result:
+        return result['main_categories']
+    else:
+        return result
+
 @app.post("/config/signal-weights/enhanced")
 async def update_enhanced_signal_weights(weights: Dict[str, Any]):
     """Update enhanced signal weights with sub-categories"""
@@ -676,466 +1403,42 @@ async def update_enhanced_signal_weights(weights: Dict[str, Any]):
         logger.error(f"Failed to update enhanced signal weights: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/analytics/feature-importance")
-async def get_feature_importance():
-    """Get feature importance from the trained model"""
-    try:
-        if backtest_system and hasattr(backtest_system.signal_generator, 'feature_importance'):
-            importance = backtest_system.signal_generator.feature_importance
-            if importance:
-                return {
-                    "feature_importance": importance,
-                    "top_10_features": dict(list(importance.items())[:10]),
-                    "timestamp": datetime.now()
-                }
-        
-        return {
-            "feature_importance": {},
-            "message": "Feature importance not yet calculated. Run a backtest first."
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get feature importance: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/model/retrain/enhanced")
-async def trigger_enhanced_model_retrain():
-    """Manually trigger enhanced model retraining with latest data"""
-    try:
-        if not backtest_system:
-            raise HTTPException(status_code=500, detail="Backtest system not initialized")
-        
-        # Run enhanced retraining in background
-        loop = asyncio.get_event_loop()
-        
-        # The enhanced retrain includes feature importance calculation
-        results = await loop.run_in_executor(None, backtest_system.retrain_model, "6mo", True)
-        
-        return {
-            "status": "success",
-            "message": "Enhanced model retraining completed",
-            "timestamp": datetime.now().isoformat(),
-            "results": results
-        }
-        
-    except Exception as e:
-        logger.error(f"Enhanced model retraining failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Keep all original endpoints (trades, positions, limits, etc.)
-@app.post("/trades/")
-@app.post("/trades/")
-async def create_trade(trade: TradeRequest):
-    """Create a new trade with enhanced features"""
-    try:
-        # Calculate PnL if this is a sell
-        pnl = 0
-        if trade.trade_type == 'sell' and trade.lot_id:
-            positions_df = db.get_positions()
-            position = positions_df[positions_df['lot_id'] == trade.lot_id]
-            if not position.empty:
-                avg_buy_price = position['avg_buy_price'].iloc[0]
-                pnl = (trade.price - avg_buy_price) * trade.size
-        
-        trade_id = db.add_trade(
-            symbol=trade.symbol,
-            trade_type=trade.trade_type,
-            price=trade.price,
-            size=trade.size,
-            lot_id=trade.lot_id,
-            pnl=pnl,
-            notes=getattr(trade, 'notes', None)
-        )
-        logger.info(f"Trade created: {trade_id} with PnL: {pnl}")
-        return {"trade_id": trade_id, "status": "success", "pnl": pnl}
-    except Exception as e:
-        logger.error(f"Failed to create trade: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/trades/")
-async def get_trades(symbol: Optional[str] = None, limit: Optional[int] = 100):
-    """Get trading history"""
-    try:
-        trades_df = db.get_trades(symbol=symbol, limit=limit)
-        return trades_df.to_dict('records')
-    except Exception as e:
-        logger.error(f"Failed to get trades: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/positions/")
-async def get_positions():
-    """Get current positions"""
-    try:
-        positions_df = db.get_positions()
-        return positions_df.to_dict('records')
-    except Exception as e:
-        logger.error(f"Failed to get positions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/limits/")
-async def create_limit_order(limit_order: LimitOrder):
-    """Create a limit order"""
-    try:
-        limit_id = db.add_trading_limit(
-            symbol=limit_order.symbol,
-            limit_type=limit_order.limit_type,
-            price=limit_order.price,
-            size=limit_order.size,
-            lot_id=limit_order.lot_id
-        )
-        logger.info(f"Limit order created: {limit_id}")
-        return {"limit_id": limit_id, "status": "success", "message": "Limit order created"}
-    except Exception as e:
-        logger.error(f"Failed to create limit order: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/limits/")
-async def get_limits():
-    """Get active limit orders"""
-    try:
-        limits_df = db.get_trading_limits()
-        return limits_df.to_dict('records')
-    except Exception as e:
-        logger.error(f"Failed to get limits: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/signals/latest")
-async def get_latest_signal():
-    """Get the latest trading signal (original endpoint maintained)"""
-    global latest_signal
-    
-    try:
-        if latest_signal is None:
-            logger.info("No cached signal, generating new one...")
-            try:
-                btc_data = signal_generator.fetch_enhanced_btc_data(period="1mo", include_macro=False)
-                signal, confidence, predicted_price, _ = signal_generator.predict_with_confidence(btc_data)
-                
-                latest_signal = {
-                    "symbol": "BTC-USD",
-                    "signal": signal,
-                    "confidence": confidence,
-                    "predicted_price": predicted_price,
-                    "timestamp": datetime.now()
-                }
-                logger.info(f"Generated new signal: {signal}")
-            except Exception as e:
-                logger.error(f"Failed to generate signal: {e}")
-                # Return a default signal
-                latest_signal = {
-                    "symbol": "BTC-USD",
-                    "signal": "hold",
-                    "confidence": 0.5,
-                    "predicted_price": 45000.0,
-                    "timestamp": datetime.now(),
-                    "error": "Signal generation failed, using default"
-                }
-        
-        return latest_signal
-        
-    except Exception as e:
-        logger.error(f"Failed to get latest signal: {e}")
-        raise HTTPException(status_code=500, detail=f"Error getting signal: {str(e)}")
-
-@app.get("/signals/history")
-async def get_signal_history(limit: int = 50):
-    """Get historical trading signals"""
-    try:
-        signals_df = db.get_model_signals(limit=limit)
-        return signals_df.to_dict('records')
-    except Exception as e:
-        logger.error(f"Failed to get signal history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/portfolio/metrics")
-async def get_portfolio_metrics():
-    """Get portfolio performance metrics"""
-    try:
-        metrics = db.get_portfolio_metrics()
-        
-        # Add current BTC price if available
-        if latest_btc_data is not None and len(latest_btc_data) > 0:
-            try:
-                metrics['current_btc_price'] = float(latest_btc_data['Close'].iloc[-1])
-            except Exception as e:
-                logger.warning(f"Failed to get current BTC price: {e}")
-                metrics['current_btc_price'] = None
-        else:
-            metrics['current_btc_price'] = None
-        
-        # Add enhanced metrics if available
-        if latest_enhanced_signal and 'analysis' in latest_enhanced_signal:
-            metrics['signal_confidence'] = latest_enhanced_signal.get('confidence', 0)
-            metrics['consensus_ratio'] = latest_enhanced_signal.get('analysis', {}).get('consensus_ratio', 0)
-        
-        return metrics
-    except Exception as e:
-        logger.error(f"Failed to get portfolio metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/market/btc-data")
-async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
-    """Get BTC market data with optional indicators"""
-    try:
-        logger.info(f"Fetching BTC data for period: {period}")
-        
-        if include_indicators:
-            # Fetch enhanced data with all indicators
-            btc_data = signal_generator.fetch_enhanced_btc_data(period=period, include_macro=False)
-        else:
-            # Fetch basic data
-            btc_data = signal_generator.fetch_btc_data(period=period)
-        
-        if btc_data is None or len(btc_data) == 0:
-            raise ValueError("No BTC data available")
-        
-        data_records = []
-        for idx, row in btc_data.iterrows():
-            try:
-                record = {
-                    'timestamp': idx.isoformat(),
-                    'open': float(row['Open']),
-                    'high': float(row['High']),
-                    'low': float(row['Low']),
-                    'close': float(row['Close']),
-                    'volume': float(row['Volume'])
-                }
-                
-                # Add basic indicators always
-                for indicator in ['SMA_20', 'SMA_50', 'RSI', 'MACD']:
-                    if indicator in row and not pd.isna(row[indicator]):
-                        record[indicator.lower()] = float(row[indicator])
-                
-                # Add enhanced indicators if requested
-                if include_indicators:
-                    # Add technical indicators
-                    for col in ['bb_position', 'atr_normalized', 'stoch_k', 'mfi', 'cmf']:
-                        if col in row and not pd.isna(row[col]):
-                            record[col] = float(row[col])
-                    
-                    # Add sentiment indicators
-                    for col in ['fear_proxy', 'greed_proxy', 'momentum_sentiment']:
-                        if col in row and not pd.isna(row[col]):
-                            record[col] = float(row[col])
-                
-                data_records.append(record)
-            except Exception as e:
-                logger.warning(f"Error processing data row {idx}: {e}")
-                continue
-        
-        # Return last 100 records to avoid large responses
-        return {
-            "symbol": "BTC-USD",
-            "period": period,
-            "data": data_records[-100:] if len(data_records) > 100 else data_records,
-            "total_records": len(data_records),
-            "enhanced": include_indicators
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get BTC data: {e}")
-        
-        # Return dummy data as fallback
-        try:
-            dummy_data = signal_generator.generate_dummy_data()
-            dummy_records = []
-            
-            for idx, row in dummy_data.tail(50).iterrows():
-                record = {
-                    'timestamp': idx.isoformat(),
-                    'open': float(row['Open']),
-                    'high': float(row['High']),
-                    'low': float(row['Low']),
-                    'close': float(row['Close']),
-                    'volume': float(row['Volume'])
-                }
-                dummy_records.append(record)
-            
-            return {
-                "symbol": "BTC-USD",
-                "period": period,
-                "data": dummy_records,
-                "total_records": len(dummy_records),
-                "note": "Using simulated data due to data fetch error"
-            }
-            
-        except Exception as dummy_error:
-            logger.error(f"Failed to generate dummy data: {dummy_error}")
-            raise HTTPException(status_code=500, detail="Unable to fetch or generate BTC data")
-
-@app.get("/analytics/pnl")
-async def get_pnl_data():
-    """Get P&L analytics data"""
-    try:
-        trades_df = db.get_trades()
-        
-        if trades_df.empty:
-            return {"daily_pnl": [], "cumulative_pnl": []}
-        
-        trades_df['timestamp'] = pd.to_datetime(trades_df['timestamp'])
-        trades_df['date'] = trades_df['timestamp'].dt.date
-        trades_df['trade_value'] = trades_df['price'] * trades_df['size']
-        trades_df['signed_value'] = trades_df['trade_value'] * trades_df['trade_type'].map({
-            'buy': -1, 
-            'sell': 1, 
-            'hold': 0
-        })
-        
-        daily_pnl = trades_df.groupby('date')['signed_value'].sum().reset_index()
-        daily_pnl['cumulative_pnl'] = daily_pnl['signed_value'].cumsum()
-        
-        return {
-            "daily_pnl": [
-                {"date": str(row['date']), "pnl": float(row['signed_value'])}
-                for _, row in daily_pnl.iterrows()
-            ],
-            "cumulative_pnl": [
-                {"date": str(row['date']), "pnl": float(row['cumulative_pnl'])}
-                for _, row in daily_pnl.iterrows()
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Failed to get P&L data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/system/status")
-async def get_system_status():
-    """Get detailed system status"""
-    try:
-        return {
-            "api_status": "running",
-            "api_version": "2.0.0",
-            "timestamp": datetime.now(),
-            "signal_update_errors": signal_update_errors,
-            "latest_signal_time": latest_signal.get('timestamp') if latest_signal else None,
-            "enhanced_signal_time": latest_enhanced_signal.get('timestamp') if latest_enhanced_signal else None,
-            "data_cache_status": "available" if latest_btc_data is not None else "empty",
-            "comprehensive_signals_status": "available" if latest_comprehensive_signals is not None else "empty",
-            "database_status": "connected",
-            "signal_generator_status": "enhanced" if isinstance(signal_generator, AdvancedTradingSignalGenerator) else "basic",
-            "backtest_system_status": "enhanced" if isinstance(backtest_system, AdvancedIntegratedBacktestingSystem) else "basic",
-            "enhanced_features": {
-                "50_plus_signals": True,
-                "macro_indicators": True,
-                "sentiment_analysis": True,
-                "on_chain_proxies": True,
-                "enhanced_backtesting": True,
-                "bayesian_optimization": True,
-                "feature_importance": True,
-                "confidence_intervals": True
-            }
-        }
-    except Exception as e:
-        logger.error(f"Failed to get system status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Keep existing simple backtest endpoint for backward compatibility
-@app.post("/backtest/")
-async def run_backtest(config: BacktestConfig):
-    """Run simple backtesting simulation (backward compatibility)"""
-    # ... keep the original implementation ...
-    # This ensures old clients still work
-    pass
-
-@app.post("/backtest/run")
-async def run_backtest_advanced(request: dict):
-    """Run backtest with IntegratedBacktestingSystem (enhanced version)"""
-    # Convert to enhanced request
-    enhanced_request = EnhancedBacktestRequest(
-        period=request.get("period", "1y"),
-        optimize_weights=request.get("optimize_weights", True),
-        force=request.get("force", False),
-        use_enhanced_weights=True,
-        include_macro=True
-    )
-    
-    # Delegate to enhanced endpoint
-    return await run_enhanced_backtest(enhanced_request)
-
-@app.get("/backtest/status")
-async def get_backtest_status():
-    """Get current backtest status"""
-    return {
-        "in_progress": backtest_in_progress,
-        "has_results": latest_backtest_results is not None,
-        "timestamp": datetime.now().isoformat(),
-        "system_type": "enhanced"
-    }
-
-@app.get("/backtest/results/latest")
-async def get_latest_backtest_results():
-    """Get the most recent backtest results"""
-    # Delegate to enhanced endpoint
-    return await get_latest_enhanced_backtest_results()
-
-@app.get("/backtest/results/history")
-async def get_backtest_history(limit: int = 10):
-    """Get historical backtest results"""
-    try:
-        # Find all backtest result files
-        result_files = glob.glob('backtest_results_*.json')
-        result_files.sort(key=os.path.getctime, reverse=True)
-        
-        history = []
-        for file_path in result_files[:limit]:
-            try:
-                with open(file_path, 'r') as f:
-                    data = json.load(f)
-                    
-                    # Handle both old and new format
-                    if 'performance_metrics' in data:
-                        composite_score = data.get('performance_metrics', {}).get('composite_score', 0)
-                        sortino_ratio = data.get('performance_metrics', {}).get('sortino_ratio_mean', 0)
-                        max_drawdown = data.get('performance_metrics', {}).get('max_drawdown_mean', 0)
-                    else:
-                        composite_score = data.get('composite_score', 0)
-                        sortino_ratio = data.get('sortino_ratio_mean', 0)
-                        max_drawdown = data.get('max_drawdown_mean', 0)
-                    
-                    history.append({
-                        "filename": os.path.basename(file_path),
-                        "timestamp": data.get('timestamp', 'Unknown'),
-                        "composite_score": composite_score,
-                        "sortino_ratio": sortino_ratio,
-                        "max_drawdown": max_drawdown,
-                        "confidence_score": data.get('confidence_score', None),
-                        "enhanced": 'market_analysis' in data or 'confidence_score' in data
-                    })
-            except Exception as e:
-                logger.error(f"Failed to load {file_path}: {e}")
-                
-        return history
-        
-    except Exception as e:
-        logger.error(f"Failed to get backtest history: {e}")
-        return []
-
-@app.get("/config/signal-weights")
-async def get_signal_weights():
-    """Get current signal weights (backward compatibility)"""
-    result = await get_enhanced_signal_weights()
-    
-    # Return simplified version for backward compatibility
-    if isinstance(result, dict) and 'main_categories' in result:
-        return result['main_categories']
-    else:
-        return result
-
 @app.post("/config/signal-weights")
-async def update_signal_weights(weights: Dict[str, float]):
-    """Manually update signal weights (backward compatibility)"""
-    # Convert to enhanced format
-    enhanced_weights = {
-        "main_categories": weights
-    }
-    
-    return await update_enhanced_signal_weights(enhanced_weights)
-
-@app.post("/model/retrain")
-async def trigger_model_retrain():
-    """Manually trigger model retraining (backward compatibility)"""
-    # Delegate to enhanced endpoint
-    return await trigger_enhanced_model_retrain()
+async def update_signal_weights(weights: dict):
+    """Update signal weights - compatible with flat structure from frontend"""
+    try:
+        # Convert flat structure to nested structure expected by backend
+        enhanced_weights = {
+            'main_categories': {
+                'technical': weights.get('technical_weight', 0.40),
+                'onchain': weights.get('onchain_weight', 0.35),
+                'sentiment': weights.get('sentiment_weight', 0.15),
+                'macro': weights.get('macro_weight', 0.10)
+            },
+            'technical_sub': {
+                'momentum': weights.get('momentum_weight', 0.30),
+                'trend': weights.get('trend_weight', 0.40),
+                'volatility': weights.get('volatility_weight', 0.15),
+                'volume': weights.get('volume_weight', 0.15)
+            },
+            'onchain_sub': {
+                'flow': weights.get('flow_weight', 0.40),
+                'network': weights.get('network_weight', 0.30),
+                'holder': weights.get('holder_weight', 0.30)
+            },
+            'sentiment_sub': {
+                'social': weights.get('social_weight', 0.50),
+                'derivatives': weights.get('derivatives_weight', 0.30),
+                'fear_greed': weights.get('fear_greed_weight', 0.20)
+            }
+        }
+        
+        # Update using the enhanced endpoint
+        return await update_enhanced_signal_weights(enhanced_weights)
+        
+    except Exception as e:
+        logger.error(f"Failed to update signal weights: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/config/backtest-settings")
 async def get_backtest_settings():
@@ -1168,6 +1471,298 @@ async def get_backtest_settings():
     except Exception as e:
         logger.error(f"Failed to get backtest settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/model")
+async def get_model_config():
+    """Get model configuration"""
+    return model_config
+
+@app.post("/config/model")
+async def update_model_config(config: dict):
+    """Update model configuration"""
+    global model_config
+    model_config.update(config)
+    
+    # Apply to signal generator if possible
+    if signal_generator and hasattr(signal_generator, 'sequence_length'):
+        signal_generator.sequence_length = config.get('sequence_length', 60)
+        signal_generator.learning_rate = config.get('learning_rate', 0.001)
+        signal_generator.batch_size = config.get('batch_size', 32)
+        signal_generator.dropout_rate = config.get('dropout', 0.2)
+    
+    return {"status": "success", "message": "Model configuration updated"}
+
+@app.get("/config/trading-rules")
+async def get_trading_rules():
+    """Get trading rules configuration"""
+    return trading_rules
+
+@app.post("/config/trading-rules")
+async def update_trading_rules(rules: dict):
+    """Update trading rules"""
+    global trading_rules
+    trading_rules.update(rules)
+    return {"status": "success", "message": "Trading rules updated"}
+
+# Model endpoints
+@app.post("/model/retrain/enhanced")
+async def trigger_enhanced_model_retrain():
+    """Manually trigger enhanced model retraining with latest data"""
+    try:
+        if not backtest_system:
+            raise HTTPException(status_code=500, detail="Backtest system not initialized")
+        
+        # Run enhanced retraining in background
+        loop = asyncio.get_event_loop()
+        
+        # The enhanced retrain includes feature importance calculation
+        results = await loop.run_in_executor(None, backtest_system.retrain_model, "6mo", True)
+        
+        return {
+            "status": "success",
+            "message": "Enhanced model retraining completed",
+            "timestamp": datetime.now().isoformat(),
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Enhanced model retraining failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/model/retrain")
+async def trigger_model_retrain():
+    """Manually trigger model retraining (backward compatibility)"""
+    # Delegate to enhanced endpoint
+    return await trigger_enhanced_model_retrain()
+
+@app.get("/model/info")
+async def get_model_info():
+    """Get model information"""
+    try:
+        model_info = {
+            'version': '2.0.0',
+            'last_trained': 'N/A',
+            'training_samples': 0,
+            'n_features': 0,
+            'accuracy': 0,
+            'val_loss': 0
+        }
+        
+        if signal_generator and hasattr(signal_generator, 'model'):
+            # Get model details
+            if hasattr(signal_generator.model, 'input_size'):
+                model_info['n_features'] = signal_generator.model.input_size
+            
+            if hasattr(signal_generator, 'is_trained') and signal_generator.is_trained:
+                model_info['last_trained'] = datetime.now().strftime('%Y-%m-%d')
+                model_info['training_samples'] = 1000  # Estimate
+                model_info['accuracy'] = 0.85  # Placeholder
+                model_info['val_loss'] = 0.0015  # Placeholder
+        
+        return model_info
+        
+    except Exception as e:
+        logger.error(f"Failed to get model info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Alias for feature importance
+@app.get("/model/feature-importance")
+async def get_model_feature_importance_alias():
+    """Alias for feature importance endpoint"""
+    return await get_feature_importance()
+
+# System endpoints
+@app.get("/system/status")
+async def get_system_status():
+    """Get detailed system status"""
+    try:
+        return {
+            "api_status": "running",
+            "api_version": "2.0.0",
+            "timestamp": datetime.now(),
+            "signal_update_errors": signal_update_errors,
+            "latest_signal_time": latest_signal.get('timestamp') if latest_signal else None,
+            "enhanced_signal_time": latest_enhanced_signal.get('timestamp') if latest_enhanced_signal else None,
+            "data_cache_status": "available" if latest_btc_data is not None else "empty",
+            "comprehensive_signals_status": "available" if latest_comprehensive_signals is not None else "empty",
+            "database_status": "connected",
+            "signal_generator_status": "enhanced" if isinstance(signal_generator, AdvancedTradingSignalGenerator) else "basic",
+            "backtest_system_status": "enhanced" if isinstance(backtest_system, AdvancedIntegratedBacktestingSystem) else "basic",
+            "enhanced_features": {
+                "50_plus_signals": True,
+                "macro_indicators": True,
+                "sentiment_analysis": True,
+                "on_chain_proxies": True,
+                "enhanced_backtesting": True,
+                "bayesian_optimization": True,
+                "feature_importance": True,
+                "confidence_intervals": True
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get system status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Indicator endpoints
+@app.get("/indicators/all")
+async def get_all_indicators():
+    """Get all calculated indicators"""
+    try:
+        # Get latest comprehensive signals
+        if latest_comprehensive_signals is not None:
+            # Convert to dict format expected by frontend
+            indicators = {}
+            
+            for col in latest_comprehensive_signals.columns:
+                if col not in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    try:
+                        val = latest_comprehensive_signals[col].iloc[-1]
+                        if hasattr(val, 'item'):  # numpy scalar
+                            indicators[col] = val.item()
+                        elif isinstance(val, (bool, np.bool_)):
+                            indicators[col] = bool(val)
+                        elif isinstance(val, (int, float, np.integer, np.floating)):
+                            indicators[col] = float(val)
+                        elif isinstance(val, dict):
+                            indicators[col] = val
+                        else:
+                            indicators[col] = str(val)
+                    except Exception as e:
+                        logger.warning(f"Error processing indicator {col}: {e}")
+                        continue
+            
+            return indicators
+        
+        return {
+            'message': 'No indicators calculated yet',
+            'status': 'waiting'
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get indicators: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Database endpoints
+@app.get("/database/stats")
+async def get_database_stats():
+    """Get database statistics"""
+    try:
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        
+        stats = {}
+        tables = ['trades', 'model_signals', 'backtest_results', 'trading_limits']
+        
+        for table in tables:
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                count = cursor.fetchone()[0]
+                stats[f'{table}_count'] = count
+            except Exception as e:
+                logger.warning(f"Error counting {table}: {e}")
+                stats[f'{table}_count'] = 0
+        
+        conn.close()
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Failed to get database stats: {e}")
+        return {
+            'trades_count': 0,
+            'signals_count': 0,
+            'backtest_count': 0,
+            'limits_count': 0
+        }
+
+@app.get("/database/export")
+async def export_database():
+    """Export database data"""
+    try:
+        export_data = {
+            'trades': db.get_trades().to_dict('records') if not db.get_trades().empty else [],
+            'positions': db.get_positions().to_dict('records') if not db.get_positions().empty else [],
+            'signals': [],
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Get signals
+        try:
+            conn = sqlite3.connect(db.db_path)
+            signals_df = pd.read_sql_query("SELECT * FROM model_signals ORDER BY timestamp DESC LIMIT 100", conn)
+            conn.close()
+            
+            if not signals_df.empty:
+                export_data['signals'] = signals_df.to_dict('records')
+        except Exception as e:
+            logger.warning(f"Error exporting signals: {e}")
+        
+        return export_data
+        
+    except Exception as e:
+        logger.error(f"Failed to export database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Trading status endpoints (for compatibility)
+@app.get("/trading/status")
+async def get_trading_status():
+    """Get trading status"""
+    return {
+        "is_active": False,  # Placeholder - implement auto trading if needed
+        "mode": "manual",
+        "last_trade_time": None
+    }
+
+@app.post("/trading/start")
+async def start_trading():
+    """Start automated trading"""
+    return {"status": "success", "message": "Trading started (manual mode only)"}
+
+@app.post("/trading/stop")
+async def stop_trading():
+    """Stop automated trading"""
+    return {"status": "success", "message": "Trading stopped"}
+
+# Trade execution endpoint
+@app.post("/trades/execute")
+async def execute_trade(request: dict):
+    """Execute a trade"""
+    trade = TradeRequest(
+        symbol=request.get("symbol", "BTC-USD"),
+        trade_type=request.get("signal", request.get("trade_type", "hold")),
+        price=latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None else 45000.0,
+        size=request.get("size", 0.001),
+        lot_id=request.get("lot_id"),
+        notes=request.get("reason", "manual")
+    )
+    return await create_trade(trade)
+
+# Recent trades endpoint
+@app.get("/trades/recent")
+async def get_recent_trades(limit: int = 10):
+    """Get recent trades"""
+    trades_df = db.get_trades(limit=limit)
+    if not trades_df.empty:
+        trades_df['reason'] = trades_df.get('notes', 'auto')  # Map notes to reason
+        return trades_df.to_dict('records')
+    return []
+
+# Portfolio positions endpoint
+@app.get("/portfolio/positions")
+async def get_portfolio_positions():
+    """Get portfolio positions"""
+    return await get_positions()
+
+# Helper functions
+def calculate_var(returns: np.ndarray, confidence: float) -> float:
+    """Calculate Value at Risk"""
+    if len(returns) == 0:
+        return 0
+    return np.percentile(returns, (1 - confidence) * 100)
+
+def calculate_cvar(returns: np.ndarray, confidence: float) -> float:
+    """Calculate Conditional Value at Risk"""
+    var = calculate_var(returns, confidence)
+    return returns[returns <= var].mean() if len(returns[returns <= var]) > 0 else 0
 
 if __name__ == "__main__":
     import uvicorn

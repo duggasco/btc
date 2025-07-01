@@ -10,7 +10,7 @@ from typing import Dict, Tuple, Optional, List, Any
 
 from lstm_model import TradingSignalGenerator
 from database_models import DatabaseManager
-from enhanced_backtesting_system import (
+from backtesting_system import (
     BacktestConfig, SignalWeights, EnhancedSignalWeights,
     EnhancedBacktestingPipeline, AdaptiveRetrainingScheduler,
     EnhancedBayesianOptimizer, EnhancedWalkForwardBacktester,

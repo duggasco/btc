@@ -38,6 +38,7 @@ try:
 except ImportError:
     discord_notifier = None
     logging.warning("Discord notifications not available")
+from paper_trading_persistence import PersistentPaperTrading
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -112,70 +113,64 @@ class RateLimiter:
 
 rate_limiter = RateLimiter()
 
-# Paper trading state
+# Paper trading with persistence
 paper_trading_enabled = False
-paper_portfolio = {
-    'btc_balance': 0.0,
-    'usd_balance': 10000.0,
-    'trades': [],
-    'total_pnl': 0.0
-}
+paper_trading = None  # Will be initialized in lifespan
 
 def execute_paper_trade(signal: str, confidence: float):
-    """Execute paper trades based on signals"""
-    global paper_portfolio
+    """Execute paper trades based on signals with persistence"""
+    global paper_trading
     
+    if not paper_trading:
+        logger.warning("Paper trading not initialized")
+        return
+        
     if not latest_btc_data or len(latest_btc_data) == 0:
         return
     
     current_price = float(latest_btc_data['Close'].iloc[-1])
+    
+    # Get current portfolio state
+    portfolio = paper_trading.get_portfolio()
     
     # Determine position size based on confidence
     position_size = min(0.1 * confidence, 0.05)  # Max 5% of portfolio
     
     if signal == "buy" and confidence > trading_rules['buy_threshold']:
         # Calculate BTC amount to buy
-        usd_amount = paper_portfolio['usd_balance'] * position_size
+        usd_amount = portfolio['usd_balance'] * position_size
         btc_amount = usd_amount / current_price
         
-        if usd_amount > 0:
-            paper_portfolio['btc_balance'] += btc_amount
-            paper_portfolio['usd_balance'] -= usd_amount
-            
-            trade = {
-                'id': str(uuid.uuid4()),
-                'timestamp': datetime.now().isoformat(),
-                'type': 'buy',
-                'price': current_price,
-                'amount': btc_amount,
-                'value': usd_amount
-            }
-            paper_portfolio['trades'].append(trade)
-            logger.info(f"Paper trade executed: BUY {btc_amount:.6f} BTC at ${current_price:.2f}")
+        if usd_amount > 0 and btc_amount >= 0.00001:  # Minimum trade size
+            try:
+                trade_id = paper_trading.execute_trade("buy", current_price, btc_amount, usd_amount)
+                logger.info(f"Paper trade executed: BUY {btc_amount:.6f} BTC at ${current_price:.2f}")
+                
+                # Send Discord notification if enabled
+                if discord_notifier:
+                    discord_notifier.notify_trade_executed(
+                        trade_id, "buy", current_price, btc_amount, None, usd_amount
+                    )
+            except Exception as e:
+                logger.error(f"Failed to execute paper buy: {e}")
     
     elif signal == "sell" and confidence > trading_rules['sell_threshold']:
         # Calculate BTC amount to sell
-        btc_amount = paper_portfolio['btc_balance'] * position_size
+        btc_amount = portfolio['btc_balance'] * position_size
         usd_amount = btc_amount * current_price
         
-        if btc_amount > 0:
-            paper_portfolio['btc_balance'] -= btc_amount
-            paper_portfolio['usd_balance'] += usd_amount
-            
-            trade = {
-                'id': str(uuid.uuid4()),
-                'timestamp': datetime.now().isoformat(),
-                'type': 'sell',
-                'price': current_price,
-                'amount': btc_amount,
-                'value': usd_amount
-            }
-            paper_portfolio['trades'].append(trade)
-            logger.info(f"Paper trade executed: SELL {btc_amount:.6f} BTC at ${current_price:.2f}")
-    
-    # Update total P&L
-    total_value = paper_portfolio['usd_balance'] + (paper_portfolio['btc_balance'] * current_price)
-    paper_portfolio['total_pnl'] = total_value - 10000.0  # Initial balance was $10,000
+        if btc_amount > 0 and btc_amount >= 0.00001:  # Minimum trade size
+            try:
+                trade_id = paper_trading.execute_trade("sell", current_price, btc_amount, usd_amount)
+                logger.info(f"Paper trade executed: SELL {btc_amount:.6f} BTC at ${current_price:.2f}")
+                
+                # Send Discord notification if enabled
+                if discord_notifier:
+                    discord_notifier.notify_trade_executed(
+                        trade_id, "sell", current_price, btc_amount, None, usd_amount
+                    )
+            except Exception as e:
+                logger.error(f"Failed to execute paper sell: {e}")
 
 # ============= END NEW ENHANCED FEATURES =============
 
@@ -295,6 +290,15 @@ class SignalUpdater:
                 
                 # Broadcast updates via WebSocket (NEW)
                 asyncio.run(self.broadcast_updates())
+                
+                if paper_trading_enabled and paper_trading and latest_btc_data is not None:
+                    try:
+                        current_price = float(latest_btc_data['Close'].iloc[-1])
+                        paper_trading.save_performance_snapshot(current_price)
+                        logger.debug("Paper trading performance snapshot saved")
+                    except Exception as e:
+                        logger.error(f"Failed to save paper trading snapshot: {e}")
+                
                 
                 time.sleep(300)  # Update every 5 minutes
             except Exception as e:
@@ -435,9 +439,12 @@ def load_latest_backtest_results():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Enhanced lifespan management with better initialization"""
+    """Enhanced lifespan management with better initialization and paper trading persistence"""
     # Startup
     logger.info("Starting Enhanced BTC Trading System API...")
+    
+    # Initialize global variables
+    global latest_signal, latest_btc_data, latest_enhanced_signal, backtest_system, paper_trading
     
     # Start signal updater
     try:
@@ -446,13 +453,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start signal updater: {e}")
     
+    # Initialize paper trading with persistence
+    try:
+        paper_trading = PersistentPaperTrading(db_path)
+        logger.info("Paper trading persistence initialized")
+        
+        # Log current portfolio state
+        portfolio = paper_trading.get_portfolio()
+        logger.info(f"Paper trading portfolio loaded - BTC: {portfolio['btc_balance']:.6f}, "
+                   f"USD: ${portfolio['usd_balance']:,.2f}, "
+                   f"Trades: {len(portfolio['trades'])}")
+    except Exception as e:
+        logger.error(f"Failed to initialize paper trading persistence: {e}")
+        logger.warning("Paper trading will run without persistence")
+        paper_trading = None
+    
     # Generate initial enhanced signal
     try:
         logger.info("Generating initial enhanced signal...")
         initial_data = signal_generator.fetch_enhanced_btc_data(period="1mo", include_macro=False)
         signal, confidence, predicted_price, analysis = signal_generator.predict_with_confidence(initial_data)
         
-        global latest_signal, latest_btc_data, latest_enhanced_signal
         latest_btc_data = initial_data
         latest_signal = {
             "symbol": "BTC-USD",
@@ -466,7 +487,7 @@ async def lifespan(app: FastAPI):
             "analysis": analysis,
             "comprehensive_signals": {}
         }
-        logger.info(f"Initial enhanced signal generated: {signal}")
+        logger.info(f"Initial enhanced signal generated: {signal} (confidence: {confidence:.2%})")
         
     except Exception as e:
         logger.warning(f"Failed to generate initial signal: {e}")
@@ -483,9 +504,9 @@ async def lifespan(app: FastAPI):
             "analysis": {},
             "comprehensive_signals": {}
         }
+        logger.info("Using default signal due to initialization error")
     
     # Initialize ADVANCED backtest system
-    global backtest_system
     try:
         backtest_system = AdvancedIntegratedBacktestingSystem(
             db_path=db_path,
@@ -494,13 +515,34 @@ async def lifespan(app: FastAPI):
         logger.info("Advanced backtest system initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize backtest system: {e}")
+        backtest_system = None
     
     # Load latest backtest results if available
-    load_latest_backtest_results()
+    try:
+        load_latest_backtest_results()
+        logger.info("Loaded previous backtest results")
+    except Exception as e:
+        logger.warning(f"Could not load previous backtest results: {e}")
     
     # Send startup notification
     if discord_notifier:
-        discord_notifier.notify_system_status("online", "BTC Trading System API started successfully")
+        try:
+            startup_message = "BTC Trading System API started successfully"
+            if paper_trading:
+                portfolio = paper_trading.get_portfolio()
+                startup_message += f"\nPaper Trading Portfolio: BTC={portfolio['btc_balance']:.6f}, USD=${portfolio['usd_balance']:,.2f}"
+            discord_notifier.notify_system_status("online", startup_message)
+        except Exception as e:
+            logger.warning(f"Failed to send Discord startup notification: {e}")
+    
+    # Save initial paper trading snapshot if enabled
+    if paper_trading_enabled and paper_trading and latest_btc_data is not None:
+        try:
+            current_price = float(latest_btc_data['Close'].iloc[-1])
+            paper_trading.save_performance_snapshot(current_price)
+            logger.info("Initial paper trading performance snapshot saved")
+        except Exception as e:
+            logger.warning(f"Failed to save initial paper trading snapshot: {e}")
     
     logger.info("Enhanced BTC Trading System API startup complete")
     
@@ -508,10 +550,42 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Enhanced BTC Trading System API...")
-    signal_updater.stop()
     
+    # Stop signal updater
+    try:
+        signal_updater.stop()
+        logger.info("Signal updater stopped")
+    except Exception as e:
+        logger.error(f"Error stopping signal updater: {e}")
+    
+    # Save final paper trading snapshot
+    if paper_trading and latest_btc_data is not None:
+        try:
+            current_price = float(latest_btc_data['Close'].iloc[-1])
+            paper_trading.save_performance_snapshot(current_price)
+            
+            # Log final portfolio state
+            portfolio = paper_trading.get_portfolio()
+            metrics = paper_trading.calculate_performance_metrics(current_price)
+            
+            logger.info(f"Final paper trading state - BTC: {portfolio['btc_balance']:.6f}, "
+                       f"USD: ${portfolio['usd_balance']:,.2f}, "
+                       f"P&L: ${portfolio['total_pnl']:,.2f}, "
+                       f"Return: {metrics['total_return']:.2%}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save final paper trading snapshot: {e}")
+    
+    # Send shutdown notification
     if discord_notifier:
-        discord_notifier.notify_system_status("offline", "BTC Trading System API shutting down")
+        try:
+            shutdown_message = "BTC Trading System API shutting down"
+            if paper_trading:
+                portfolio = paper_trading.get_portfolio()
+                shutdown_message += f"\nFinal P&L: ${portfolio['total_pnl']:,.2f}"
+            discord_notifier.notify_system_status("offline", shutdown_message)
+        except Exception as e:
+            logger.warning(f"Failed to send Discord shutdown notification: {e}")
     
     logger.info("API shutdown complete")
 
@@ -1968,9 +2042,17 @@ async def get_portfolio_positions():
 @app.get("/paper-trading/status")
 async def get_paper_trading_status():
     """Get paper trading status and portfolio"""
+    if not paper_trading:
+        raise HTTPException(status_code=500, detail="Paper trading not initialized")
+    
+    portfolio = paper_trading.get_portfolio()
+    current_price = latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 45000
+    metrics = paper_trading.calculate_performance_metrics(current_price)
+    
     return {
         "enabled": paper_trading_enabled,
-        "portfolio": paper_portfolio,
+        "portfolio": portfolio,
+        "performance": metrics,
         "timestamp": datetime.now()
     }
 
@@ -1993,16 +2075,27 @@ async def toggle_paper_trading():
 @app.post("/paper-trading/reset")
 async def reset_paper_trading():
     """Reset paper trading portfolio"""
-    global paper_portfolio
-    paper_portfolio = {
-        'btc_balance': 0.0,
-        'usd_balance': 10000.0,
-        'trades': [],
-        'total_pnl': 0.0
-    }
+    if not paper_trading:
+        raise HTTPException(status_code=500, detail="Paper trading not initialized")
+    
+    paper_trading.reset_portfolio()
     logger.info("Paper trading portfolio reset")
     return {"status": "success", "message": "Paper trading portfolio reset"}
-
+    
+    
+@app.get("/paper-trading/history")
+async def get_paper_trading_history(days: int = 30):
+    """Get paper trading performance history"""
+    if not paper_trading:
+        raise HTTPException(status_code=500, detail="Paper trading not initialized")
+    
+    try:
+        history_df = paper_trading.get_performance_history(days)
+        return history_df.to_dict('records')
+    except Exception as e:
+        logger.error(f"Failed to get paper trading history: {e}")
+        return []
+        
 # Monte Carlo simulation endpoint
 @app.post("/analytics/monte-carlo")
 async def run_monte_carlo_simulation(

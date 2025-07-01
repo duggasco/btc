@@ -10,10 +10,48 @@ from datetime import datetime, timedelta
 import time
 import numpy as np
 import logging
+import websocket
+import threading
+import queue
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+st.markdown("""
+<style>
+/* Paper trading specific styles */
+.paper-trading-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+    border-radius: 10px;
+    color: white;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.paper-badge {
+    background-color: #9C27B0;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.profit-positive {
+    color: #4CAF50 !important;
+    font-weight: bold;
+}
+
+.profit-negative {
+    color: #f44336 !important;
+    font-weight: bold;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 
 st.set_page_config(
     page_title="BTC Trading System - UltraThink Enhanced",
@@ -25,6 +63,107 @@ st.set_page_config(
 # Use backend service name when running in Docker, fallback to localhost
 # Fixed port to 8080 to match backend_api.py
 API_BASE_URL = os.getenv("API_BASE_URL", "http://backend:8080")
+
+
+# WebSocket client for real-time updates
+class WebSocketClient:
+    def __init__(self, url=None):
+        # Use environment variable or default to backend service
+        if url is None:
+            # When running in Docker, 'backend' is the service name
+            # When running locally, use localhost
+            backend_host = os.getenv("API_BASE_URL", "http://backend:8080")
+            # Convert HTTP URL to WebSocket URL
+            ws_url = backend_host.replace("http://", "ws://").replace(":8080", ":8000")
+            self.url = f"{ws_url}/ws"
+        else:
+            self.url = url
+            
+        self.ws = None
+        self.message_queue = queue.Queue()
+        self.running = False
+        self.connected = False
+        
+    def connect(self):
+        """Connect to WebSocket server"""
+        def on_message(ws, message):
+            try:
+                data = json.loads(message)
+                self.message_queue.put(data)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid WebSocket message: {message}")
+            
+        def on_error(ws, error):
+            logger.error(f"WebSocket error: {error}")
+            self.connected = False
+            
+        def on_close(ws, close_status_code, close_msg):
+            logger.info("WebSocket closed")
+            self.running = False
+            self.connected = False
+            
+        def on_open(ws):
+            logger.info("WebSocket connected")
+            self.connected = True
+            # Subscribe to real-time updates
+            ws.send(json.dumps({"action": "subscribe_signals"}))
+            ws.send(json.dumps({"action": "subscribe_prices"}))
+            
+        try:
+            self.ws = websocket.WebSocketApp(
+                self.url,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
+            
+            self.running = True
+            # Run WebSocket in a separate thread
+            wst = threading.Thread(target=self.ws.run_forever)
+            wst.daemon = True
+            wst.start()
+            
+            # Wait briefly for connection
+            time.sleep(1)
+            
+        except Exception as e:
+            logger.error(f"Failed to connect WebSocket: {e}")
+            self.connected = False
+        
+    def get_messages(self):
+        """Get all pending messages from the queue"""
+        messages = []
+        while not self.message_queue.empty():
+            try:
+                messages.append(self.message_queue.get_nowait())
+            except queue.Empty:
+                break
+        return messages
+    
+    def is_connected(self):
+        """Check if WebSocket is connected"""
+        return self.connected
+        
+    def close(self):
+        """Close WebSocket connection"""
+        self.running = False
+        if self.ws:
+            self.ws.close()
+
+# Cache the WebSocket client to avoid reconnecting on every rerun
+@st.cache_resource
+def get_websocket_client():
+    """Get or create WebSocket client"""
+    try:
+        client = WebSocketClient()
+        client.connect()
+        return client
+    except Exception as e:
+        logger.error(f"Failed to create WebSocket client: {e}")
+        return None
+
+
 
 # Enhanced cache function with better error handling
 @st.cache_data(ttl=60)
@@ -236,8 +375,26 @@ def create_candlestick_chart(btc_data, include_enhanced_indicators=False):
     return fig
 
 def show_dashboard():
-    """Display main dashboard with key metrics"""
+    """Display main dashboard with key metrics, real-time updates, and paper trading status"""
     st.header("📊 Trading Dashboard - UltraThink Enhanced")
+    
+    # Create containers for real-time notifications
+    websocket_status_container = st.container()
+    notification_container = st.container()
+    
+    # Initialize WebSocket for real-time updates
+    ws_client = None
+    try:
+        ws_client = get_websocket_client()
+        
+        # Display WebSocket connection status
+        if ws_client and ws_client.is_connected():
+            websocket_status_container.success("🟢 Connected to real-time updates")
+        else:
+            websocket_status_container.info("📡 Connecting to real-time updates...")
+    except Exception as e:
+        websocket_status_container.warning("🟡 Real-time updates unavailable - using standard refresh")
+        logger.warning(f"WebSocket initialization failed: {e}")
     
     # Key metrics
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -251,49 +408,213 @@ def show_dashboard():
         btc_data = fetch_api_data("/btc/latest")
         backtest_results = fetch_api_data("/backtest/results/latest")
         system_status = fetch_api_data("/system/status")
+        # Fetch paper trading status
+        pt_status = fetch_api_data("/paper-trading/status")
     
-    # Display metrics
+    # Create placeholders for real-time updates
     with col1:
+        price_placeholder = st.empty()
         current_price = btc_data['latest_price'] if btc_data else 0
-        st.metric("BTC Price", f"${current_price:,.2f}")
+        
+        # Initial display
+        price_placeholder.metric("BTC Price", f"${current_price:,.2f}")
     
     with col2:
+        signal_placeholder = st.empty()
         signal_value = latest_signal.get('signal', 'N/A') if latest_signal else 'N/A'
         signal_confidence = latest_signal.get('confidence', 0) if latest_signal else 0
         delta_text = f"{signal_confidence:.1%} conf" if signal_confidence > 0 else None
-        st.metric("Signal", signal_value.upper(), delta=delta_text)
+        
+        # Initial display
+        signal_placeholder.metric("Signal", signal_value.upper(), delta=delta_text)
     
     with col3:
+        pnl_placeholder = st.empty()
         if portfolio_metrics:
             total_pnl = portfolio_metrics.get('total_pnl', 0)
             pnl_pct = (total_pnl / portfolio_metrics.get('total_invested', 1)) * 100 if portfolio_metrics.get('total_invested', 0) > 0 else 0
-            st.metric("Total P&L", f"${total_pnl:,.2f}", f"{pnl_pct:+.2f}%")
+            pnl_placeholder.metric("Total P&L", f"${total_pnl:,.2f}", f"{pnl_pct:+.2f}%")
         else:
-            st.metric("Total P&L", "$0.00", "0.00%")
+            pnl_placeholder.metric("Total P&L", "$0.00", "0.00%")
     
     with col4:
+        sortino_placeholder = st.empty()
         if backtest_results and 'performance_metrics' in backtest_results:
             sortino = backtest_results['performance_metrics'].get('sortino_ratio', 0)
-            st.metric("Sortino Ratio", f"{sortino:.3f}")
+            sortino_placeholder.metric("Sortino Ratio", f"{sortino:.3f}")
         else:
-            st.metric("Sortino Ratio", "N/A")
+            sortino_placeholder.metric("Sortino Ratio", "N/A")
     
     with col5:
+        features_placeholder = st.empty()
         if system_status and 'enhanced_features' in system_status:
             active_features = sum(1 for v in system_status['enhanced_features'].values() if v)
             total_features = len(system_status['enhanced_features'])
-            st.metric("Enhanced Features", f"{active_features}/{total_features}")
+            features_placeholder.metric("Enhanced Features", f"{active_features}/{total_features}")
         else:
-            st.metric("Enhanced Features", "Loading...")
+            features_placeholder.metric("Enhanced Features", "Loading...")
     
-    # Main chart
+    # Process WebSocket messages for real-time updates
+    if ws_client and ws_client.is_connected():
+        messages = ws_client.get_messages()
+        
+        for msg in messages:
+            try:
+                if msg.get("type") == "price_update":
+                    # Update price in real-time
+                    new_price = msg['data']['price']
+                    timestamp = msg['data'].get('timestamp', datetime.now().isoformat())
+                    
+                    # Calculate price change
+                    price_change = new_price - current_price if current_price > 0 else 0
+                    price_change_pct = (price_change / current_price * 100) if current_price > 0 else 0
+                    
+                    # Update display with animation
+                    price_placeholder.metric(
+                        "BTC Price", 
+                        f"${new_price:,.2f}",
+                        f"{price_change_pct:+.2f}%"
+                    )
+                    
+                    # Update current price for next comparison
+                    current_price = new_price
+                    
+                    # Show notification for significant price changes
+                    if abs(price_change_pct) > 1.0:
+                        if price_change_pct > 0:
+                            notification_container.success(f"📈 Price up {price_change_pct:.2f}% to ${new_price:,.2f}")
+                        else:
+                            notification_container.error(f"📉 Price down {abs(price_change_pct):.2f}% to ${new_price:,.2f}")
+                
+                elif msg.get("type") == "signal_update":
+                    # Update signal in real-time
+                    new_signal = msg['data']['signal']
+                    new_confidence = msg['data']['confidence']
+                    predicted_price = msg['data'].get('predicted_price', 0)
+                    
+                    # Check if signal changed
+                    signal_changed = new_signal != signal_value
+                    
+                    # Update display
+                    signal_placeholder.metric(
+                        "Signal", 
+                        new_signal.upper(), 
+                        f"{new_confidence:.1%} conf"
+                    )
+                    
+                    # Update stored values
+                    signal_value = new_signal
+                    signal_confidence = new_confidence
+                    
+                    # Show notification for signal changes or high confidence
+                    if signal_changed:
+                        notification_container.info(
+                            f"🔔 Signal changed to {new_signal.upper()}! "
+                            f"Confidence: {new_confidence:.1%}, "
+                            f"Predicted: ${predicted_price:,.2f}"
+                        )
+                        
+                        # Special alert for high confidence signals
+                        if new_confidence > 0.8:
+                            st.balloons()
+                            notification_container.success(
+                                f"🚨 HIGH CONFIDENCE {new_signal.upper()} SIGNAL! "
+                                f"({new_confidence:.1%})"
+                            )
+                
+                elif msg.get("type") == "trade_execution":
+                    # Show trade execution notification
+                    trade_data = msg['data']
+                    notification_container.info(
+                        f"💹 Trade Executed: {trade_data.get('type', 'N/A').upper()} "
+                        f"{trade_data.get('amount', 0):.6f} BTC @ "
+                        f"${trade_data.get('price', 0):,.2f}"
+                    )
+                
+                elif msg.get("type") == "portfolio_update":
+                    # Update portfolio metrics in real-time
+                    new_pnl = msg['data'].get('total_pnl', 0)
+                    new_pnl_pct = msg['data'].get('pnl_percent', 0)
+                    
+                    pnl_placeholder.metric(
+                        "Total P&L", 
+                        f"${new_pnl:,.2f}", 
+                        f"{new_pnl_pct:+.2f}%"
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Error processing WebSocket message: {e}")
+    
+    # Paper Trading Status Section (NEW)
+    if pt_status and pt_status.get('enabled'):
+        st.markdown("---")
+        
+        # Create a styled container for paper trading
+        st.markdown("""
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    padding: 15px; border-radius: 10px; margin: 10px 0;'>
+            <h3 style='color: white; margin: 0;'>📄 Paper Trading Active</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        portfolio = pt_status.get('portfolio', {})
+        performance = pt_status.get('performance', {})
+        
+        # Calculate current portfolio value
+        btc_balance = portfolio.get('btc_balance', 0)
+        usd_balance = portfolio.get('usd_balance', 10000)
+        portfolio_value = usd_balance + (btc_balance * current_price)
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            paper_pnl = portfolio.get('total_pnl', 0)
+            paper_pnl_pct = (paper_pnl / 10000) * 100
+            color = "green" if paper_pnl >= 0 else "red"
+            st.markdown(f"<h4 style='color: gray;'>Paper P&L</h4>", unsafe_allow_html=True)
+            st.markdown(
+                f"<h2 style='color: {color}; margin: 0;'>${paper_pnl:,.2f}</h2>"
+                f"<p style='color: {color}; margin: 0;'>{paper_pnl_pct:+.2f}%</p>",
+                unsafe_allow_html=True
+            )
+        
+        with col2:
+            st.metric(
+                "Portfolio Value", 
+                f"${portfolio_value:,.2f}",
+                f"BTC: {btc_balance:.6f}"
+            )
+        
+        with col3:
+            trades_count = len(portfolio.get('trades', []))
+            st.metric(
+                "Paper Trades", 
+                trades_count,
+                "Today" if trades_count > 0 else "No trades"
+            )
+        
+        with col4:
+            win_rate = performance.get('win_rate', 0)
+            st.metric(
+                "Win Rate", 
+                f"{win_rate:.1%}",
+                "🟢" if win_rate > 0.5 else "🔴"
+            )
+        
+        with col5:
+            st.markdown("<br>", unsafe_allow_html=True)  # Spacer
+            if st.button("📊 View Paper Trading →", use_container_width=True):
+                st.switch_page("pages/paper_trading.py")  # Adjust path as needed
+    
+    # Main chart (existing functionality preserved)
+    st.markdown("---")
     if btc_data:
         include_enhanced = system_status and system_status.get('enhanced_features', {}).get('50_plus_signals', False)
         chart = create_candlestick_chart(btc_data, include_enhanced_indicators=include_enhanced)
         if chart:
             st.plotly_chart(chart, use_container_width=True)
     
-    # Enhanced signal analysis
+    # Enhanced signal analysis (existing functionality preserved)
     if latest_signal and 'analysis' in latest_signal:
         with st.expander("📈 Enhanced Signal Analysis", expanded=True):
             col1, col2 = st.columns(2)
@@ -354,7 +675,119 @@ def show_dashboard():
                     st.markdown("**Top Feature Importance:**")
                     for feature, importance in list(analysis['feature_importance'].items())[:5]:
                         st.write(f"- {feature}: {importance:.3f}")
-
+    
+    # Real-time updates section (existing functionality)
+    with st.expander("🔴 Real-time Activity Feed", expanded=False):
+        st.markdown("### Live Updates")
+        
+        # Create a container for the activity feed
+        activity_container = st.container()
+        
+        # Initialize session state for activity history
+        if 'activity_history' not in st.session_state:
+            st.session_state.activity_history = []
+        
+        # Add WebSocket messages to activity history
+        if ws_client and ws_client.is_connected():
+            for msg in messages:
+                activity_entry = {
+                    'time': datetime.now().strftime('%H:%M:%S'),
+                    'type': msg.get('type', 'unknown'),
+                    'data': msg.get('data', {})
+                }
+                st.session_state.activity_history.append(activity_entry)
+                
+                # Keep only last 20 entries
+                if len(st.session_state.activity_history) > 20:
+                    st.session_state.activity_history.pop(0)
+        
+        # Display activity history
+        for activity in reversed(st.session_state.activity_history[-10:]):  # Show last 10
+            if activity['type'] == 'price_update':
+                activity_container.write(
+                    f"**{activity['time']}** - 💰 Price: ${activity['data'].get('price', 0):,.2f}"
+                )
+            elif activity['type'] == 'signal_update':
+                activity_container.write(
+                    f"**{activity['time']}** - 📊 Signal: {activity['data'].get('signal', 'N/A').upper()} "
+                    f"({activity['data'].get('confidence', 0):.1%})"
+                )
+            else:
+                activity_container.write(
+                    f"**{activity['time']}** - 📌 {activity['type']}"
+                )
+    
+    # Quick Actions Section (NEW)
+    st.markdown("---")
+    st.markdown("### ⚡ Quick Actions")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("📊 View Signals", use_container_width=True):
+            st.switch_page("pages/signals.py")
+    
+    with col2:
+        if st.button("💹 Trading", use_container_width=True):
+            st.switch_page("pages/trading.py")
+    
+    with col3:
+        if st.button("💼 Portfolio", use_container_width=True):
+            st.switch_page("pages/portfolio.py")
+    
+    with col4:
+        if pt_status and not pt_status.get('enabled'):
+            if st.button("🎮 Start Paper Trading", use_container_width=True):
+                result = post_api_data("/paper-trading/toggle", {})
+                if result:
+                    st.success("Paper trading activated!")
+                    time.sleep(0.5)
+                    st.rerun()
+        else:
+            if st.button("📄 Paper Trading", use_container_width=True):
+                st.switch_page("pages/paper_trading.py")
+    
+    # Add custom CSS for smooth animations and paper trading styles
+    st.markdown("""
+    <style>
+    /* Smooth transitions for metric updates */
+    .stMetric {
+        transition: all 0.5s ease-in-out;
+    }
+    
+    /* Pulse animation for high confidence signals */
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+    
+    .stSuccess {
+        animation: pulse 2s ease-in-out;
+    }
+    
+    /* Paper trading styles */
+    .paper-trading-widget {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 15px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Gradient background for real-time updates */
+    [data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
+        color: #00D4FF;
+    }
+    
+    /* Quick action buttons hover effect */
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        transition: all 0.2s ease;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
 def show_trading():
     """Trading interface with manual and automated controls"""
     st.header("💹 Trading Interface")
@@ -433,7 +866,33 @@ def show_trading():
                 if result:
                     st.success("Sell order executed")
                     st.rerun()
-    
+    # Paper Trading Toggle
+    st.markdown("---")
+    st.markdown("### 📄 Paper Trading Mode")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        pt_status = fetch_api_data("/paper-trading/status")
+        if pt_status:
+            enabled = pt_status.get('enabled', False)
+            if enabled:
+                st.success("🟢 Paper Trading Active")
+                if st.button("Disable Paper Trading"):
+                    post_api_data("/paper-trading/toggle", {})
+                    st.rerun()
+            else:
+                st.info("🔴 Paper Trading Inactive")
+                if st.button("Enable Paper Trading"):
+                    post_api_data("/paper-trading/toggle", {})
+                    st.rerun()
+
+    with col2:
+        if pt_status:
+            portfolio = pt_status.get('portfolio', {})
+            st.metric("Paper P&L", f"${portfolio.get('total_pnl', 0):,.2f}")
+            
+            
     # Recent trades
     st.markdown("### 📋 Recent Trades")
     trades = fetch_api_data("/trades/recent?limit=10")
@@ -467,6 +926,20 @@ def show_portfolio():
     portfolio_metrics = fetch_api_data("/portfolio/metrics")
     positions = fetch_api_data("/portfolio/positions")
     trades = fetch_api_data("/trades/all")
+
+    # Portfolio Type Selector
+    portfolio_type = st.radio(
+        "Portfolio Type",
+        ["Real Trading", "Paper Trading"],
+        horizontal=True
+    )
+
+    if portfolio_type == "Paper Trading":
+        # Show paper trading portfolio
+        show_paper_trading_portfolio()
+        return
+
+    # Rest of the original portfolio code for real trading...
     
     if not portfolio_metrics:
         st.warning("No portfolio data available. Start trading to see your portfolio!")
@@ -2509,6 +2982,428 @@ def show_system_info():
             else:
                 st.info("Database export endpoint not yet implemented.")
 
+def show_paper_trading():
+    """Display comprehensive paper trading interface with persistence"""
+    st.header("📄 Paper Trading - Practice Without Risk")
+    
+    # Add custom CSS for paper trading
+    st.markdown("""
+    <style>
+    .paper-trading-active {
+        background-color: #1e3a1e;
+        border: 2px solid #4CAF50;
+        border-radius: 10px;
+        padding: 10px;
+        margin: 10px 0;
+    }
+    .paper-trading-inactive {
+        background-color: #3a1e1e;
+        border: 2px solid #f44336;
+        border-radius: 10px;
+        padding: 10px;
+        margin: 10px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Get paper trading status
+    pt_status = fetch_api_data("/paper-trading/status")
+    
+    if not pt_status:
+        st.error("❌ Paper trading service is not available. Please check if the backend is running.")
+        return
+    
+    # Extract data
+    enabled = pt_status.get('enabled', False)
+    portfolio = pt_status.get('portfolio', {})
+    performance = pt_status.get('performance', {})
+    
+    # Status and Controls Section
+    st.markdown("### 🎮 Trading Controls")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Status indicator with color
+        if enabled:
+            st.markdown('<div class="paper-trading-active">', unsafe_allow_html=True)
+            st.markdown("### 🟢 Status: ACTIVE")
+            st.markdown("Paper trading is running")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="paper-trading-inactive">', unsafe_allow_html=True)
+            st.markdown("### 🔴 Status: INACTIVE")
+            st.markdown("Paper trading is stopped")
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### 🔄 Toggle Trading")
+        if st.button("Start/Stop Trading", type="primary", use_container_width=True):
+            result = post_api_data("/paper-trading/toggle", {})
+            if result:
+                if result.get('enabled'):
+                    st.success("✅ Paper trading started!")
+                else:
+                    st.info("⏹️ Paper trading stopped")
+                time.sleep(0.5)
+                st.rerun()
+    
+    with col3:
+        st.markdown("### 🔄 Reset Portfolio")
+        if st.button("Reset to $10,000", type="secondary", use_container_width=True):
+            # Add confirmation dialog
+            if 'confirm_reset' not in st.session_state:
+                st.session_state.confirm_reset = False
+            
+            st.session_state.confirm_reset = True
+    
+    with col4:
+        st.markdown("### 📊 Quick Stats")
+        st.metric("Total Trades", len(portfolio.get('trades', [])))
+        st.metric("Portfolio Age", f"{portfolio.get('id', 0)} sessions")
+    
+    # Confirmation dialog for reset
+    if 'confirm_reset' in st.session_state and st.session_state.confirm_reset:
+        st.warning("⚠️ Are you sure you want to reset? This will clear all trading history!")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Yes, Reset", type="primary"):
+                result = post_api_data("/paper-trading/reset", {})
+                if result:
+                    st.success("✅ Portfolio reset to initial state!")
+                    st.session_state.confirm_reset = False
+                    time.sleep(0.5)
+                    st.rerun()
+        with col2:
+            if st.button("Cancel"):
+                st.session_state.confirm_reset = False
+                st.rerun()
+    
+    # Portfolio Summary Section
+    st.markdown("---")
+    st.markdown("### 💼 Portfolio Summary")
+    
+    # Calculate current portfolio value
+    current_btc_price = fetch_api_data("/btc/latest")
+    btc_price = current_btc_price.get('latest_price', 45000) if current_btc_price else 45000
+    
+    btc_value = portfolio.get('btc_balance', 0) * btc_price
+    usd_value = portfolio.get('usd_balance', 10000)
+    total_value = btc_value + usd_value
+    
+    # Display portfolio metrics
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric(
+            "BTC Balance", 
+            f"{portfolio.get('btc_balance', 0):.6f}",
+            f"${btc_value:,.2f}"
+        )
+    
+    with col2:
+        st.metric(
+            "USD Balance", 
+            f"${portfolio.get('usd_balance', 10000):,.2f}"
+        )
+    
+    with col3:
+        total_pnl = portfolio.get('total_pnl', 0)
+        pnl_color = "green" if total_pnl >= 0 else "red"
+        st.metric(
+            "Total P&L", 
+            f"${total_pnl:,.2f}",
+            f"{(total_pnl/10000)*100:+.2f}%"
+        )
+    
+    with col4:
+        st.metric(
+            "Portfolio Value",
+            f"${total_value:,.2f}",
+            f"{((total_value-10000)/10000)*100:+.2f}%"
+        )
+    
+    with col5:
+        st.metric(
+            "Total Return", 
+            f"{performance.get('total_return', 0):.2%}"
+        )
+    
+    # Performance Metrics Section
+    st.markdown("---")
+    st.markdown("### 📈 Performance Metrics")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        win_rate = performance.get('win_rate', 0)
+        st.metric(
+            "Win Rate", 
+            f"{win_rate:.1%}",
+            "🟢" if win_rate > 0.5 else "🔴"
+        )
+    
+    with col2:
+        sharpe = performance.get('sharpe_ratio', 0)
+        st.metric(
+            "Sharpe Ratio", 
+            f"{sharpe:.2f}",
+            "Good" if sharpe > 1 else "Poor"
+        )
+    
+    with col3:
+        max_dd = performance.get('max_drawdown', 0)
+        st.metric(
+            "Max Drawdown", 
+            f"{max_dd:.2%}",
+            "🟢" if max_dd > -0.2 else "🔴"
+        )
+    
+    with col4:
+        trades_count = performance.get('trades_count', 0)
+        st.metric(
+            "Total Trades", 
+            trades_count,
+            "Active" if trades_count > 0 else "No trades"
+        )
+    
+    # Portfolio Allocation Pie Chart
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 🥧 Portfolio Allocation")
+        
+        fig_allocation = go.Figure(data=[go.Pie(
+            labels=['BTC', 'USD'],
+            values=[btc_value, usd_value],
+            hole=.3,
+            marker_colors=['#FF9800', '#4CAF50']
+        )])
+        
+        fig_allocation.update_layout(
+            height=300,
+            showlegend=True,
+            annotations=[dict(
+                text=f'${total_value:,.0f}',
+                x=0.5, y=0.5,
+                font_size=20,
+                showarrow=False
+            )]
+        )
+        
+        st.plotly_chart(fig_allocation, use_container_width=True)
+    
+    with col2:
+        st.markdown("### 📊 Trade Distribution")
+        
+        trades = portfolio.get('trades', [])
+        if trades:
+            buy_trades = sum(1 for t in trades if t['type'] == 'buy')
+            sell_trades = sum(1 for t in trades if t['type'] == 'sell')
+            
+            fig_trades = go.Figure(data=[go.Bar(
+                x=['Buy', 'Sell'],
+                y=[buy_trades, sell_trades],
+                marker_color=['green', 'red']
+            )])
+            
+            fig_trades.update_layout(
+                height=300,
+                showlegend=False,
+                yaxis_title="Number of Trades"
+            )
+            
+            st.plotly_chart(fig_trades, use_container_width=True)
+        else:
+            st.info("No trades executed yet")
+    
+    # Performance History Chart
+    st.markdown("---")
+    st.markdown("### 📊 Performance History")
+    
+    # Time period selector
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        days = st.selectbox("Time Period", [7, 30, 90], index=1)
+    
+    # Fetch history
+    history = fetch_api_data(f"/paper-trading/history?days={days}")
+    
+    if history and len(history) > 0:
+        history_df = pd.DataFrame(history)
+        history_df['timestamp'] = pd.to_datetime(history_df['timestamp'])
+        
+        # Create subplots
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.1,
+            subplot_titles=("Portfolio Value", "Daily P&L"),
+            row_heights=[0.7, 0.3]
+        )
+        
+        # Portfolio value line
+        fig.add_trace(
+            go.Scatter(
+                x=history_df['timestamp'],
+                y=history_df['total_value'],
+                mode='lines',
+                name='Portfolio Value',
+                line=dict(color='#2196F3', width=2),
+                fill='tonexty',
+                fillcolor='rgba(33, 150, 243, 0.1)'
+            ),
+            row=1, col=1
+        )
+        
+        # Add 10k reference line
+        fig.add_hline(
+            y=10000, 
+            line_dash="dash", 
+            line_color="gray",
+            annotation_text="Initial Investment",
+            row=1, col=1
+        )
+        
+        # Daily P&L bars
+        colors = ['green' if x >= 0 else 'red' for x in history_df['daily_pnl']]
+        fig.add_trace(
+            go.Bar(
+                x=history_df['timestamp'],
+                y=history_df['daily_pnl'],
+                name='Daily P&L',
+                marker_color=colors
+            ),
+            row=2, col=1
+        )
+        
+        fig.update_layout(
+            height=600,
+            showlegend=False,
+            template='plotly_dark'
+        )
+        
+        fig.update_yaxes(title_text="Value ($)", row=1, col=1)
+        fig.update_yaxes(title_text="P&L ($)", row=2, col=1)
+        fig.update_xaxes(title_text="Date", row=2, col=1)
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Performance statistics
+        if len(history_df) > 1:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                best_day = history_df['daily_pnl'].max()
+                st.metric("Best Day", f"${best_day:,.2f}")
+            
+            with col2:
+                worst_day = history_df['daily_pnl'].min()
+                st.metric("Worst Day", f"${worst_day:,.2f}")
+            
+            with col3:
+                avg_daily = history_df['daily_pnl'].mean()
+                st.metric("Avg Daily P&L", f"${avg_daily:,.2f}")
+    else:
+        st.info("No performance history available yet. Start trading to see your progress!")
+    
+    # Recent Trades Section
+    st.markdown("---")
+    st.markdown("### 📜 Recent Trades")
+    
+    trades = portfolio.get('trades', [])
+    
+    if trades:
+        # Get last 20 trades, most recent first
+        recent_trades = trades[-20:][::-1]
+        
+        # Convert to dataframe for display
+        trades_data = []
+        for trade in recent_trades:
+            trades_data.append({
+                'Time': pd.to_datetime(trade['timestamp']).strftime('%Y-%m-%d %H:%M:%S'),
+                'Type': trade['type'].upper(),
+                'Price': f"${trade['price']:,.2f}",
+                'Amount': f"{trade['amount']:.6f} BTC",
+                'Value': f"${trade['value']:,.2f}"
+            })
+        
+        trades_df = pd.DataFrame(trades_data)
+        
+        # Style the dataframe
+        def style_type(val):
+            if val == 'BUY':
+                return 'background-color: #1e3a1e; color: #4CAF50'
+            else:
+                return 'background-color: #3a1e1e; color: #f44336'
+        
+        styled_df = trades_df.style.applymap(style_type, subset=['Type'])
+        
+        st.dataframe(
+            styled_df,
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Export trades button
+        if st.button("📥 Export Trade History"):
+            csv = pd.DataFrame(trades).to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"paper_trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+    else:
+        st.info("No trades executed yet. Enable paper trading to start!")
+    
+    # Tips and Information
+    with st.expander("📚 Paper Trading Guide", expanded=False):
+        st.markdown("""
+        ### What is Paper Trading?
+        Paper trading allows you to practice trading strategies without risking real money.
+        
+        ### How it Works:
+        1. **Start with $10,000** virtual USD
+        2. **Automatic Trading**: When enabled, the system executes trades based on AI signals
+        3. **Track Performance**: Monitor your P&L, win rate, and other metrics
+        4. **Learn Risk-Free**: Perfect your strategy before going live
+        
+        ### Key Metrics Explained:
+        - **Win Rate**: Percentage of profitable trades
+        - **Sharpe Ratio**: Risk-adjusted returns (>1 is good, >2 is excellent)
+        - **Max Drawdown**: Largest peak-to-trough decline
+        - **Total Return**: Overall profit/loss percentage
+        
+        ### Tips for Success:
+        - Let the system run for at least a week to see meaningful results
+        - Pay attention to the drawdown - it shows your risk exposure
+        - Compare your paper trading results with the backtesting results
+        - Reset and try different settings in Configuration to optimize
+        """)
+    
+    # Auto-refresh for live updates
+    if enabled and st.checkbox("Auto-refresh (5 seconds)", value=True):
+        time.sleep(5)
+        st.rerun()
+
+def show_paper_trading_portfolio():
+    """Display paper trading portfolio performance"""
+    st.subheader("📄 Paper Trading Portfolio")
+    
+    pt_status = fetch_api_data("/paper-trading/status")
+    if not pt_status:
+        st.error("Paper trading data not available")
+        return
+    
+    portfolio = pt_status.get('portfolio', {})
+    performance = pt_status.get('performance', {})
+    
+    # Display similar metrics as real portfolio but clearly marked as paper trading
+    st.info("This is a paper trading portfolio - no real money involved")
+    
+
 # Main app
 def main():
     st.title("🚀 BTC Trading System - UltraThink Enhanced")
@@ -2518,7 +3413,7 @@ def main():
         st.header("Navigation")
         page = st.selectbox(
             "Select Page",
-            ["Dashboard", "Trading", "Portfolio", "Signals", "Advanced Signals", 
+            ["Dashboard", "Trading", "Portfolio", "Paper Trading", "Signals", "Advanced Signals", 
              "Limits", "Analytics", "Backtesting", "Configuration"]
         )
         
@@ -2546,6 +3441,17 @@ def main():
             st.error("❌ API Disconnected")
             st.info("Please ensure the backend service is running on port 8080")
         
+        st.markdown("---")
+        pt_status = fetch_api_data("/paper-trading/status")
+        if pt_status:
+            if pt_status.get('enabled'):
+                st.sidebar.success("📄 Paper Trading: ON")
+                portfolio = pt_status.get('portfolio', {})
+                st.sidebar.metric("Paper P&L", f"${portfolio.get('total_pnl', 0):,.2f}")
+            else:
+                st.sidebar.info("📄 Paper Trading: OFF")
+        
+        
         # Auto-refresh toggle
         auto_refresh = st.checkbox("Auto-refresh (60s)", value=False)
         if auto_refresh:
@@ -2557,12 +3463,31 @@ def main():
         st.caption("50+ Indicators | AI Optimization")
     
     # Page routing
+# In the main() function, add this after page routing:
     if page == "Dashboard":
         show_dashboard()
+        
+        # Auto-refresh for WebSocket updates
+        if st.checkbox("Enable real-time updates", value=True):
+            # Add custom CSS for smooth updates
+            st.markdown("""
+            <style>
+            .stMetric {
+                transition: all 0.3s ease-in-out;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Refresh every 2 seconds to process WebSocket messages
+            time.sleep(2)
+            st.rerun()
     elif page == "Trading":
         show_trading()
     elif page == "Portfolio":
         show_portfolio()
+    # In the page routing section of main():
+    elif page == "Paper Trading":
+        show_paper_trading()
     elif page == "Signals":
         show_signals()
     elif page == "Advanced Signals":

@@ -541,6 +541,162 @@ async def get_system_status():
         logger.error(f"Failed to get system status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/backtest/")
+async def run_backtest(config: BacktestConfig):
+    """Run backtesting simulation"""
+    try:
+        logger.info(f"Running backtest with config: {config}")
+        
+        # Fetch historical data
+        btc_data = signal_generator.fetch_btc_data(period=config.period)
+        if btc_data is None or len(btc_data) < signal_generator.sequence_length:
+            raise ValueError("Insufficient data for backtesting")
+        
+        # Prepare features for the model
+        features_df = signal_generator.prepare_features(btc_data)
+        
+        # Extract just the price series for return calculations
+        prices = features_df['price'].values
+        
+        # Initialize backtest results
+        results = {
+            'trades': [],
+            'equity_curve': [config.initial_capital],
+            'timestamps': [btc_data.index[signal_generator.sequence_length]],
+            'positions': [],
+            'signals': []
+        }
+        
+        # Backtest variables
+        capital = config.initial_capital
+        position = 0
+        entry_price = 0
+        
+        # Run through historical data
+        for i in range(signal_generator.sequence_length, len(features_df)):
+            current_price = prices[i]
+            current_time = btc_data.index[i]
+            
+            # Get model signal using the feature window
+            try:
+                # Create a subset of data up to current point
+                historical_data = btc_data.iloc[:i+1].copy()
+                signal, confidence, predicted_price = signal_generator.predict_signal(historical_data)
+            except Exception as e:
+                logger.warning(f"Signal generation failed at index {i}: {e}")
+                signal = "hold"
+                confidence = 0.5
+                predicted_price = current_price
+            
+            results['signals'].append({
+                'timestamp': current_time,
+                'signal': signal,
+                'confidence': confidence,
+                'predicted_price': predicted_price,
+                'actual_price': current_price
+            })
+            
+            # Execute trading logic
+            if position == 0 and signal == "buy" and confidence >= config.confidence_threshold:
+                # Open long position
+                position_value = capital * config.position_size
+                position = position_value / current_price
+                entry_price = current_price
+                capital -= position_value
+                
+                results['trades'].append({
+                    'timestamp': current_time,
+                    'type': 'buy',
+                    'price': current_price,
+                    'size': position,
+                    'value': position_value,
+                    'capital_after': capital
+                })
+                
+            elif position > 0:
+                # Check exit conditions
+                current_value = position * current_price
+                pnl_pct = (current_price - entry_price) / entry_price
+                
+                should_sell = False
+                exit_reason = ""
+                
+                if signal == "sell" and confidence >= config.confidence_threshold:
+                    should_sell = True
+                    exit_reason = "signal"
+                elif pnl_pct <= -config.stop_loss:
+                    should_sell = True
+                    exit_reason = "stop_loss"
+                elif pnl_pct >= config.take_profit:
+                    should_sell = True
+                    exit_reason = "take_profit"
+                
+                if should_sell:
+                    # Close position
+                    capital += current_value
+                    
+                    results['trades'].append({
+                        'timestamp': current_time,
+                        'type': 'sell',
+                        'price': current_price,
+                        'size': position,
+                        'value': current_value,
+                        'pnl': current_value - (position * entry_price),
+                        'pnl_pct': pnl_pct,
+                        'exit_reason': exit_reason,
+                        'capital_after': capital
+                    })
+                    
+                    position = 0
+                    entry_price = 0
+            
+            # Update equity curve
+            total_equity = capital + (position * current_price if position > 0 else 0)
+            results['equity_curve'].append(total_equity)
+            results['timestamps'].append(current_time)
+            results['positions'].append(position)
+        
+        # Calculate final metrics
+        final_equity = results['equity_curve'][-1]
+        total_return = (final_equity - config.initial_capital) / config.initial_capital
+        
+        # Calculate performance metrics
+        equity_array = np.array(results['equity_curve'])
+        returns = np.diff(equity_array) / equity_array[:-1]
+        
+        # Handle any potential NaN or inf values
+        returns = returns[np.isfinite(returns)]
+        
+        if len(returns) > 0:
+            sharpe_ratio = np.sqrt(252) * (np.mean(returns) / np.std(returns)) if np.std(returns) > 0 else 0
+            max_drawdown = np.min(equity_array / np.maximum.accumulate(equity_array) - 1)
+            win_rate = sum(1 for t in results['trades'] if t.get('type') == 'sell' and t.get('pnl', 0) > 0) / max(1, sum(1 for t in results['trades'] if t.get('type') == 'sell'))
+        else:
+            sharpe_ratio = 0
+            max_drawdown = 0
+            win_rate = 0
+        
+        # Summary statistics
+        results['summary'] = {
+            'initial_capital': config.initial_capital,
+            'final_equity': final_equity,
+            'total_return': total_return,
+            'total_return_pct': total_return * 100,
+            'sharpe_ratio': sharpe_ratio,
+            'max_drawdown': max_drawdown,
+            'max_drawdown_pct': max_drawdown * 100,
+            'total_trades': len([t for t in results['trades'] if t['type'] == 'buy']),
+            'win_rate': win_rate,
+            'avg_trade_return': np.mean([t.get('pnl_pct', 0) for t in results['trades'] if t.get('type') == 'sell' and 'pnl_pct' in t]) if any(t.get('type') == 'sell' for t in results['trades']) else 0
+        }
+        
+        logger.info(f"Backtest completed: {results['summary']}")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Backtest failed: {str(e)}")
+
 # Backtesting endpoints
 @app.post("/backtest/run")
 async def run_backtest(

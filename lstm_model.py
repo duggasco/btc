@@ -637,8 +637,11 @@ class TradingSignalGenerator:
                 prediction = self.model(sequence_tensor)
                 
                 # Inverse transform the prediction
+                # Create a dummy array with the same shape as the feature array
                 dummy_array = np.zeros((1, features.shape[1]))
+                # Set the price column (index 0) to the prediction
                 dummy_array[0, 0] = prediction.item()
+                # Inverse transform and extract the price
                 predicted_price = self.scaler.inverse_transform(dummy_array)[0, 0]
             
             # Generate signal based on prediction vs current price

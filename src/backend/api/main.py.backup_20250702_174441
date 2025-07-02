@@ -23,40 +23,6 @@ from models.database import DatabaseManager
 from models.lstm import TradingSignalGenerator
 
 
-# Custom JSON encoder for datetime serialization
-from json import JSONEncoder
-from datetime import datetime, date
-import numpy as np
-
-class DateTimeEncoder(JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif hasattr(obj, 'item'):  # numpy scalars
-            return obj.item()
-        elif isinstance(obj, (np.integer, np.floating)):
-            return float(obj)
-        elif isinstance(obj, np.bool_):
-            return bool(obj)
-        return super().default(obj)
-
-# Custom response class that uses our encoder
-from fastapi.responses import JSONResponse as FastAPIJSONResponse
-
-class JSONResponse(FastAPIJSONResponse):
-    def render(self, content) -> bytes:
-        return json.dumps(
-            content,
-            ensure_ascii=False,
-            allow_nan=False,
-            indent=None,
-            separators=(",", ":"),
-            cls=DateTimeEncoder,
-        ).encode("utf-8")
-
-
 # Import compatibility layer
 try:
     import import_compat
@@ -671,7 +637,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # ============= ORIGINAL ENDPOINTS WITH ENHANCEMENTS =============
 
 # Core endpoints
-@app.get("/", response_class=JSONResponse)
+@app.get("/")
 async def root():
     """Health check endpoint"""
     return {
@@ -683,7 +649,7 @@ async def root():
         "features": ["enhanced_signals", "comprehensive_backtesting", "50+_indicators", "websocket_support", "paper_trading"]
     }
 
-@app.get("/health", response_class=JSONResponse)
+@app.get("/health")
 async def health_check():
     """Detailed health check"""
     try:
@@ -727,7 +693,7 @@ async def health_check():
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 # Enhanced signal endpoints
-@app.get("/signals/enhanced/latest", response_class=JSONResponse)
+@app.get("/signals/enhanced/latest")
 async def get_enhanced_latest_signal():
     """Get the latest enhanced trading signal with full analysis"""
     global latest_enhanced_signal
@@ -762,51 +728,42 @@ async def get_enhanced_latest_signal():
         logger.error(f"Failed to get enhanced signal: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting enhanced signal: {str(e)}")
 
-@app.get("/signals/comprehensive", response_class=JSONResponse)
+@app.get("/signals/comprehensive")
 async def get_comprehensive_signals():
     """Get all 50+ calculated signals"""
     global latest_comprehensive_signals
     
     if latest_comprehensive_signals is None:
         return {
-            "message": "Comprehensive signals not yet calculated. Please wait for next update cycle.",
-            "status": "waiting"
+            "status": "no_data",
+            "message": "Comprehensive signals not yet calculated. Please wait for next update cycle."
         }
     
     try:
-        # Safely convert DataFrame to dict with latest values
+        # Convert DataFrame to dict with latest values
         signals_dict = {}
-        
-        # Get DataFrame info safely
-        df = latest_comprehensive_signals
-        
-        for col in df.columns:
+        for col in latest_comprehensive_signals.columns:
             if col not in ['Open', 'High', 'Low', 'Close', 'Volume']:  # Skip basic OHLCV
                 try:
-                    # Get the latest value
-                    latest_val = df[col].iloc[-1] if len(df) > 0 else None
+                    latest_val = latest_comprehensive_signals[col].iloc[-1]
                     
-                    # Convert to JSON-serializable format
-                    if latest_val is None or pd.isna(latest_val):
-                        signals_dict[col] = None
-                    elif callable(latest_val):
-                        continue  # Skip functions
+                    # Handle various data types
+                    if callable(latest_val):
+                        continue  # Skip callable objects
                     elif hasattr(latest_val, 'item'):  # numpy scalar
                         signals_dict[col] = float(latest_val.item())
-                    elif isinstance(latest_val, (np.bool_, np.bool)):
+                    elif isinstance(latest_val, (np.bool_, bool)):
                         signals_dict[col] = bool(latest_val)
                     elif isinstance(latest_val, (np.integer, int)):
                         signals_dict[col] = int(latest_val)
                     elif isinstance(latest_val, (np.floating, float)):
                         signals_dict[col] = float(latest_val)
-                    elif isinstance(latest_val, (np.ndarray, list)):
-                        # Convert arrays to list
-                        signals_dict[col] = [float(x) for x in latest_val][:10]  # Limit to 10 items
+                    elif pd.isna(latest_val):
+                        signals_dict[col] = None
                     else:
                         signals_dict[col] = str(latest_val)
-                        
                 except Exception as e:
-                    logger.warning(f"Error processing signal {col}: {type(e).__name__}: {str(e)}")
+                    logger.warning(f"Error processing signal {col}: {e}")
                     continue
         
         # Group signals by category
@@ -817,45 +774,38 @@ async def get_comprehensive_signals():
             "volume": {},
             "trend": {},
             "sentiment": {},
-            "on_chain": {},
-            "other": {}
+            "on_chain": {}
         }
         
         # Categorize signals
         for signal, value in signals_dict.items():
-            signal_lower = signal.lower()
-            if any(ind in signal_lower for ind in ['rsi', 'macd', 'stoch', 'mfi', 'roc', 'momentum']):
+            if any(ind in signal for ind in ['rsi', 'macd', 'stoch', 'mfi', 'roc']):
                 categorized["momentum"][signal] = value
-            elif any(ind in signal_lower for ind in ['bb_', 'bollinger', 'atr', 'volatility', 'std']):
+            elif any(ind in signal for ind in ['bb_', 'atr', 'volatility']):
                 categorized["volatility"][signal] = value
-            elif any(ind in signal_lower for ind in ['volume', 'obv', 'cmf', 'vol_']):
+            elif any(ind in signal for ind in ['volume', 'obv', 'cmf']):
                 categorized["volume"][signal] = value
-            elif any(ind in signal_lower for ind in ['sma', 'ema', 'trend', 'adx', 'moving_average']):
+            elif any(ind in signal for ind in ['sma', 'ema', 'trend', 'adx']):
                 categorized["trend"][signal] = value
-            elif any(ind in signal_lower for ind in ['fear', 'greed', 'sentiment', 'social']):
+            elif any(ind in signal for ind in ['fear', 'greed', 'sentiment']):
                 categorized["sentiment"][signal] = value
-            elif any(ind in signal_lower for ind in ['nvt', 'whale', 'accumulation', 'hodl', 'chain']):
+            elif any(ind in signal for ind in ['nvt', 'whale', 'accumulation', 'hodl']):
                 categorized["on_chain"][signal] = value
             else:
-                categorized["other"][signal] = value
-        
-        # Remove empty categories
-        categorized = {k: v for k, v in categorized.items() if v}
+                categorized["technical"][signal] = value
         
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(),
             "total_signals": len(signals_dict),
             "categorized_signals": categorized,
-            "all_signals": signals_dict,
-            "data_shape": list(df.shape) if hasattr(df, 'shape') else None
+            "all_signals": signals_dict
         }
         
     except Exception as e:
-        logger.error(f"Failed to get comprehensive signals: {type(e).__name__}: {str(e)}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Error processing signals: {str(e)}")
+        logger.error(f"Failed to get comprehensive signals: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/signals/latest", response_class=JSONResponse)
+@app.get("/signals/latest")
 async def get_latest_signal():
     """Get the latest trading signal (original endpoint maintained)"""
     global latest_signal
@@ -893,7 +843,7 @@ async def get_latest_signal():
         logger.error(f"Failed to get latest signal: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting signal: {str(e)}")
 
-@app.get("/signals/history", response_class=JSONResponse)
+@app.get("/signals/history")
 async def get_signal_history(limit: int = 50, hours: Optional[int] = None):
     """Get historical trading signals"""
     try:
@@ -923,7 +873,7 @@ async def get_signal_history(limit: int = 50, hours: Optional[int] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Trading endpoints
-@app.post("/trades/", response_class=JSONResponse)
+@app.post("/trades/")
 async def create_trade(trade: TradeRequest):
     """Create a new trade with enhanced features"""
     try:
@@ -960,7 +910,7 @@ async def create_trade(trade: TradeRequest):
         logger.error(f"Failed to create trade: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/trades/", response_class=JSONResponse)
+@app.get("/trades/")
 async def get_trades(symbol: Optional[str] = None, limit: Optional[int] = 100):
     """Get trading history"""
     try:
@@ -970,7 +920,7 @@ async def get_trades(symbol: Optional[str] = None, limit: Optional[int] = 100):
         logger.error(f"Failed to get trades: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/positions/", response_class=JSONResponse)
+@app.get("/positions/")
 async def get_positions():
     """Get current positions"""
     try:
@@ -980,7 +930,7 @@ async def get_positions():
         logger.error(f"Failed to get positions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/limits/", response_class=JSONResponse)
+@app.post("/limits/")
 async def create_limit_order(limit_order: LimitOrder):
     """Create a limit order"""
     try:
@@ -1005,7 +955,7 @@ async def create_limit_order(limit_order: LimitOrder):
         logger.error(f"Failed to create limit order: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/limits/", response_class=JSONResponse)
+@app.get("/limits/")
 async def get_limits():
     """Get active limit orders"""
     try:
@@ -1016,7 +966,7 @@ async def get_limits():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Portfolio endpoints
-@app.get("/portfolio/metrics", response_class=JSONResponse)
+@app.get("/portfolio/metrics")
 async def get_portfolio_metrics():
     """Get portfolio performance metrics"""
     try:
@@ -1043,7 +993,7 @@ async def get_portfolio_metrics():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Market data endpoints
-@app.get("/market/btc-data", response_class=JSONResponse)
+@app.get("/market/btc-data")
 async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
     """Get BTC market data with optional indicators"""
     try:
@@ -1147,7 +1097,7 @@ async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
             logger.error(f"Failed to generate dummy data: {dummy_error}")
             raise HTTPException(status_code=500, detail="Unable to fetch or generate BTC data")
 
-@app.get("/btc/latest", response_class=JSONResponse)
+@app.get("/btc/latest")
 async def get_latest_btc_price():
     """Get latest BTC price"""
     try:
@@ -1161,7 +1111,7 @@ async def get_latest_btc_price():
         return {"latest_price": 45000.0, "timestamp": datetime.now(), "error": str(e)}
 
 # Analytics endpoints
-@app.get("/analytics/pnl", response_class=JSONResponse)
+@app.get("/analytics/pnl")
 async def get_pnl_data():
     """Get P&L analytics data"""
     try:
@@ -1196,7 +1146,7 @@ async def get_pnl_data():
         logger.error(f"Failed to get P&L data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/analytics/portfolio-comprehensive", response_class=JSONResponse)
+@app.get("/analytics/portfolio-comprehensive")
 async def get_comprehensive_portfolio_analytics():
     """Get enhanced portfolio analytics"""
     try:
@@ -1225,7 +1175,7 @@ async def get_comprehensive_portfolio_analytics():
         logger.error(f"Failed to get comprehensive analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/analytics/performance", response_class=JSONResponse)
+@app.get("/analytics/performance")
 async def get_performance_analytics():
     """Get comprehensive performance metrics"""
     try:
@@ -1283,7 +1233,7 @@ async def get_performance_analytics():
         logger.error(f"Failed to get performance analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/analytics/risk", response_class=JSONResponse)
+@app.get("/analytics/risk")
 async def get_risk_analytics():
     """Get risk analysis metrics"""
     try:
@@ -1323,7 +1273,7 @@ async def get_risk_analytics():
         logger.error(f"Failed to get risk analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/analytics/correlations", response_class=JSONResponse)
+@app.get("/analytics/correlations")
 async def get_correlations_analytics():
     """Get market correlations analysis"""
     try:
@@ -1364,7 +1314,7 @@ async def get_correlations_analytics():
         logger.error(f"Failed to get correlations: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/analytics/optimization", response_class=JSONResponse)
+@app.get("/analytics/optimization")
 async def get_optimization_analytics():
     """Get strategy optimization results"""
     try:
@@ -1403,7 +1353,7 @@ async def get_optimization_analytics():
         logger.error(f"Failed to get optimization analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/analytics/feature-importance", response_class=JSONResponse)
+@app.get("/analytics/feature-importance")
 async def get_feature_importance():
     """Get feature importance from the trained model"""
     try:
@@ -1426,7 +1376,7 @@ async def get_feature_importance():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Backtest endpoints
-@app.post("/backtest/enhanced/run", response_class=JSONResponse)
+@app.post("/backtest/enhanced/run")
 async def run_enhanced_backtest(request: EnhancedBacktestRequest):
     """Run enhanced backtest with database storage"""
     global backtest_in_progress, latest_backtest_results
@@ -1492,13 +1442,13 @@ async def run_enhanced_backtest(request: EnhancedBacktestRequest):
         backtest_in_progress = False
 
 # Alias for streamlit compatibility
-@app.post("/backtest/enhanced", response_class=JSONResponse)
+@app.post("/backtest/enhanced")
 async def run_enhanced_backtest_alias(request: dict):
     """Alias for enhanced backtest endpoint"""
     enhanced_request = EnhancedBacktestRequest(**request)
     return await run_enhanced_backtest(enhanced_request)
 
-@app.get("/backtest/enhanced/results/latest", response_class=JSONResponse)
+@app.get("/backtest/enhanced/results/latest")
 async def get_latest_enhanced_backtest_results():
     """Get the most recent enhanced backtest results with full details"""
     if latest_backtest_results is None:
@@ -1510,13 +1460,13 @@ async def get_latest_enhanced_backtest_results():
     # Return full enhanced results
     return latest_backtest_results
 
-@app.get("/backtest/results/latest", response_class=JSONResponse)
+@app.get("/backtest/results/latest")
 async def get_latest_backtest_results():
     """Get the most recent backtest results"""
     # Delegate to enhanced endpoint
     return await get_latest_enhanced_backtest_results()
 
-@app.get("/backtest/status", response_class=JSONResponse)
+@app.get("/backtest/status")
 async def get_backtest_status():
     """Get current backtest status"""
     return {
@@ -1526,7 +1476,7 @@ async def get_backtest_status():
         "system_type": "enhanced"
     }
 
-@app.get("/backtest/results/history", response_class=JSONResponse)
+@app.get("/backtest/results/history")
 async def get_backtest_history(limit: int = 10):
     """Get historical backtest results"""
     try:
@@ -1568,7 +1518,7 @@ async def get_backtest_history(limit: int = 10):
         logger.error(f"Failed to get backtest history: {e}")
         return []
 
-@app.get("/backtest/walk-forward/results", response_class=JSONResponse)
+@app.get("/backtest/walk-forward/results")
 async def get_walk_forward_results():
     """Get walk-forward analysis results"""
     try:
@@ -1595,7 +1545,7 @@ async def get_walk_forward_results():
         logger.error(f"Failed to get walk-forward results: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/backtest/optimization/results", response_class=JSONResponse)
+@app.get("/backtest/optimization/results")
 async def get_optimization_results():
     """Get optimization results"""
     try:
@@ -1617,7 +1567,7 @@ async def get_optimization_results():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Configuration endpoints
-@app.get("/config/signal-weights/enhanced", response_class=JSONResponse)
+@app.get("/config/signal-weights/enhanced")
 async def get_enhanced_signal_weights():
     """Get current enhanced signal weights including sub-categories"""
     try:
@@ -1691,7 +1641,7 @@ async def get_enhanced_signal_weights():
         logger.error(f"Failed to get enhanced signal weights: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/signal-weights", response_class=JSONResponse)
+@app.get("/config/signal-weights")
 async def get_signal_weights():
     """Get current signal weights (backward compatibility)"""
     result = await get_enhanced_signal_weights()
@@ -1702,7 +1652,7 @@ async def get_signal_weights():
     else:
         return result
 
-@app.post("/config/signal-weights/enhanced", response_class=JSONResponse)
+@app.post("/config/signal-weights/enhanced")
 async def update_enhanced_signal_weights(weights: Dict[str, Any]):
     """Update enhanced signal weights with sub-categories"""
     try:
@@ -1749,7 +1699,7 @@ async def update_enhanced_signal_weights(weights: Dict[str, Any]):
         logger.error(f"Failed to update enhanced signal weights: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/config/signal-weights", response_class=JSONResponse)
+@app.post("/config/signal-weights")
 async def update_signal_weights(weights: dict):
     """Update signal weights - compatible with flat structure from frontend"""
     try:
@@ -1786,7 +1736,7 @@ async def update_signal_weights(weights: dict):
         logger.error(f"Failed to update signal weights: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/config/backtest-settings", response_class=JSONResponse)
+@app.get("/config/backtest-settings")
 async def get_backtest_settings():
     """Get current backtest configuration"""
     try:
@@ -1818,12 +1768,12 @@ async def get_backtest_settings():
         logger.error(f"Failed to get backtest settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/config/model", response_class=JSONResponse)
+@app.get("/config/model")
 async def get_model_config():
     """Get model configuration"""
     return model_config
 
-@app.post("/config/model", response_class=JSONResponse)
+@app.post("/config/model")
 async def update_model_config(config: dict):
     """Update model configuration"""
     global model_config
@@ -1838,12 +1788,12 @@ async def update_model_config(config: dict):
     
     return {"status": "success", "message": "Model configuration updated"}
 
-@app.get("/config/trading-rules", response_class=JSONResponse)
+@app.get("/config/trading-rules")
 async def get_trading_rules():
     """Get trading rules configuration"""
     return trading_rules
 
-@app.post("/config/trading-rules", response_class=JSONResponse)
+@app.post("/config/trading-rules")
 async def update_trading_rules(rules: dict):
     """Update trading rules"""
     global trading_rules
@@ -1851,7 +1801,7 @@ async def update_trading_rules(rules: dict):
     return {"status": "success", "message": "Trading rules updated"}
 
 # Model endpoints
-@app.post("/model/retrain/enhanced", response_class=JSONResponse)
+@app.post("/model/retrain/enhanced")
 async def trigger_enhanced_model_retrain():
     """Manually trigger enhanced model retraining with latest data"""
     try:
@@ -1875,13 +1825,13 @@ async def trigger_enhanced_model_retrain():
         logger.error(f"Enhanced model retraining failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/model/retrain", response_class=JSONResponse)
+@app.post("/model/retrain")
 async def trigger_model_retrain():
     """Manually trigger model retraining (backward compatibility)"""
     # Delegate to enhanced endpoint
     return await trigger_enhanced_model_retrain()
 
-@app.get("/model/info", response_class=JSONResponse)
+@app.get("/model/info")
 async def get_model_info():
     """Get model information"""
     try:
@@ -1912,173 +1862,105 @@ async def get_model_info():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Alias for feature importance
-@app.get("/model/feature-importance", response_class=JSONResponse)
+@app.get("/model/feature-importance")
 async def get_model_feature_importance_alias():
     """Alias for feature importance endpoint"""
     return await get_feature_importance()
 
 # System endpoints
-@app.get("/system/status", response_class=JSONResponse)
+@app.get("/system/status")
 async def get_system_status():
-    """Get comprehensive system status"""
+    """Get detailed system status"""
     try:
-        # Calculate portfolio value safely
-        portfolio_value = 0
-        portfolio_data = None
-        
-        if paper_trading:
-            try:
-                portfolio_data = paper_trading.get_portfolio()
-                current_price = 45000  # Default price
-                
-                if latest_btc_data is not None and len(latest_btc_data) > 0 and 'Close' in latest_btc_data.columns:
-                    current_price = float(latest_btc_data['Close'].iloc[-1])
-                
-                portfolio_value = portfolio_data['usd_balance'] + (portfolio_data['btc_balance'] * current_price)
-            except Exception as e:
-                logger.warning(f"Error calculating portfolio value: {e}")
-                portfolio_value = 0
-        
-        # Get system metrics using actual database methods
-        system_metrics = {}
-        try:
-            # Get trade counts from database
-            trades_df = db.get_trades(limit=1000)  # Get recent trades
-            system_metrics["total_trades"] = len(trades_df) if not trades_df.empty else 0
-            
-            # Count active trades (trades from last 24 hours)
-            if not trades_df.empty and 'timestamp' in trades_df.columns:
-                from datetime import timedelta
-                recent_time = datetime.now() - timedelta(hours=24)
-                recent_trades = trades_df[pd.to_datetime(trades_df['timestamp']) > recent_time]
-                system_metrics["active_trades"] = len(recent_trades)
-            else:
-                system_metrics["active_trades"] = 0
-                
-            # Get model accuracy from signals
-            signals_df = db.get_model_signals(limit=100)
-            if not signals_df.empty and 'confidence' in signals_df.columns:
-                system_metrics["model_accuracy"] = float(signals_df['confidence'].mean())
-            else:
-                system_metrics["model_accuracy"] = 0.0
-                
-        except Exception as e:
-            logger.warning(f"Error getting system metrics: {e}")
-            system_metrics = {
-                "active_trades": 0,
-                "total_trades": 0,
-                "model_accuracy": 0.0
-            }
-        
-        # Get latest signal info
-        latest_signal_info = None
-        if latest_enhanced_signal:
-            latest_signal_info = {
-                "signal": latest_enhanced_signal.get("signal"),
-                "confidence": latest_enhanced_signal.get("confidence"),
-                "timestamp": latest_enhanced_signal.get("timestamp")
-            }
-        
         return {
-            "status": "operational",
-            "timestamp": datetime.now(),  # This will be serialized properly now
-            "components": {
-                "database": "connected" if db else "disconnected",
-                "signal_generator": "active" if latest_signal else "inactive",
-                "paper_trading": "enabled" if paper_trading_enabled else "disabled",
-                "data_feed": "active" if latest_btc_data is not None else "inactive",
-                "comprehensive_signals": "active" if latest_comprehensive_signals is not None else "inactive"
-            },
-            "metrics": system_metrics,
-            "latest_signal": latest_signal_info,
-            "enhanced_features_enabled": {
-                "50_plus_indicators": True,
+            "api_status": "running",
+            "api_version": "2.1.0",
+            "timestamp": datetime.now(),
+            "signal_update_errors": signal_update_errors,
+            "latest_signal_time": latest_signal.get('timestamp') if latest_signal else None,
+            "enhanced_signal_time": latest_enhanced_signal.get('timestamp') if latest_enhanced_signal else None,
+            "data_cache_status": "available" if latest_btc_data is not None else "empty",
+            "comprehensive_signals_status": "available" if latest_comprehensive_signals is not None else "empty",
+            "database_status": "connected",
+            "signal_generator_status": "enhanced" if isinstance(signal_generator, AdvancedTradingSignalGenerator) else "basic",
+            "backtest_system_status": "enhanced" if isinstance(backtest_system, AdvancedIntegratedBacktestingSystem) else "basic",
+            "enhanced_features": {
+                "50_plus_signals": True,
+                "macro_indicators": True,
                 "sentiment_analysis": True,
-                "on_chain_data": True,
-                "macro_indicators": True
+                "on_chain_proxies": True,
+                "enhanced_backtesting": True,
+                "bayesian_optimization": True,
+                "feature_importance": True,
+                "confidence_intervals": True,
+                "websocket_support": True,  # NEW
+                "paper_trading": True,  # NEW
+                "monte_carlo": True  # NEW
             },
-            "paper_trading_status": {
+            "paper_trading_status": {  # NEW
                 "enabled": paper_trading_enabled,
-                "portfolio_value": portfolio_value,
-                "portfolio": portfolio_data
+                "portfolio_value": 0 if not paper_trading else (
+                    paper_trading.get_portfolio()['usd_balance'] + 
+                    (paper_trading.get_portfolio()['btc_balance'] * 
+                     (latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 45000))
+                )
             }
         }
     except Exception as e:
         logger.error(f"Failed to get system status: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/indicators/all", response_class=JSONResponse)
+# Indicator endpoints
+@app.get("/indicators/all")
 async def get_all_indicators():
     """Get all calculated indicators"""
     try:
-        # Check if we have data
-        if latest_comprehensive_signals is None:
-            return {
-                'message': 'No indicators calculated yet',
-                'status': 'waiting',
-                'timestamp': datetime.now().isoformat()
-            }
-        
-        # Safely convert to dict
-        indicators = {}
-        df = latest_comprehensive_signals
-        
-        for col in df.columns:
-            if col not in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                try:
-                    val = df[col].iloc[-1] if len(df) > 0 else None
-                    
-                    # Safe type conversion
-                    if val is None or pd.isna(val):
-                        indicators[col] = None
-                    elif callable(val):
-                        continue
-                    elif hasattr(val, 'item'):  # numpy scalar
-                        indicators[col] = float(val.item())
-                    elif isinstance(val, (bool, np.bool_, np.bool)):
-                        indicators[col] = bool(val)
-                    elif isinstance(val, (int, np.integer)):
-                        indicators[col] = int(val)
-                    elif isinstance(val, (float, np.floating)):
-                        indicators[col] = float(val)
-                    elif isinstance(val, dict):
-                        # Ensure dict values are serializable
-                        safe_dict = {}
-                        for k, v in val.items():
-                            if isinstance(v, (int, float, str, bool, type(None))):
-                                safe_dict[k] = v
-                            elif hasattr(v, 'item'):
-                                safe_dict[k] = float(v.item())
-                            else:
-                                safe_dict[k] = str(v)
-                        indicators[col] = safe_dict
-                    elif isinstance(val, (list, np.ndarray)):
-                        # Convert to list of floats
-                        indicators[col] = [float(x) for x in val][:10]
-                    else:
-                        indicators[col] = str(val)
+        # Get latest comprehensive signals
+        if latest_comprehensive_signals is not None:
+            # Convert to dict format expected by frontend
+            indicators = {}
+            
+            for col in latest_comprehensive_signals.columns:
+                if col not in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    try:
+                        val = latest_comprehensive_signals[col].iloc[-1]
                         
-                except Exception as e:
-                    logger.warning(f"Error processing indicator {col}: {str(e)}")
-                    continue
+                        # Skip callables and non-serializable objects
+                        if callable(val):
+                            continue
+                        elif hasattr(val, 'item'):  # numpy scalar
+                            indicators[col] = float(val.item())
+                        elif isinstance(val, (bool, np.bool_)):
+                            indicators[col] = bool(val)
+                        elif isinstance(val, (int, np.integer)):
+                            indicators[col] = int(val)
+                        elif isinstance(val, (float, np.floating)):
+                            indicators[col] = float(val)
+                        elif pd.isna(val):
+                            indicators[col] = None
+                        elif isinstance(val, dict):
+                            # Ensure dict values are also serializable
+                            indicators[col] = {k: float(v) if isinstance(v, (np.number, float, int)) else str(v) 
+                                             for k, v in val.items()}
+                        else:
+                            indicators[col] = str(val)
+                    except Exception as e:
+                        logger.warning(f"Error processing indicator {col}: {e}")
+                        continue
+            
+            return indicators
         
         return {
-            "indicators": indicators,
-            "count": len(indicators),
-            "timestamp": datetime.now().isoformat(),
-            "status": "success"
+            'message': 'No indicators calculated yet',
+            'status': 'waiting'
         }
         
     except Exception as e:
-        logger.error(f"Failed to get indicators: {type(e).__name__}: {str(e)}")
-        return {
-            "error": str(e),
-            "status": "error",
-            "timestamp": datetime.now().isoformat()
-        }
+        logger.error(f"Failed to get indicators: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/database/stats", response_class=JSONResponse)
+# Database endpoints
+@app.get("/database/stats")
 async def get_database_stats():
     """Get database statistics"""
     try:
@@ -2109,7 +1991,7 @@ async def get_database_stats():
             'limits_count': 0
         }
 
-@app.get("/database/export", response_class=JSONResponse)
+@app.get("/database/export")
 async def export_database():
     """Export database data"""
     try:
@@ -2138,7 +2020,7 @@ async def export_database():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Trading status endpoints (for compatibility)
-@app.get("/trading/status", response_class=JSONResponse)
+@app.get("/trading/status")
 async def get_trading_status():
     """Get trading status"""
     last_trade_time = None
@@ -2158,14 +2040,14 @@ async def get_trading_status():
         "last_trade_time": last_trade_time
     }
 
-@app.post("/trading/start", response_class=JSONResponse)
+@app.post("/trading/start")
 async def start_trading():
     """Start automated trading"""
     global paper_trading_enabled
     paper_trading_enabled = True
     return {"status": "success", "message": "Paper trading started"}
 
-@app.post("/trading/stop", response_class=JSONResponse)
+@app.post("/trading/stop")
 async def stop_trading():
     """Stop automated trading"""
     global paper_trading_enabled
@@ -2173,7 +2055,7 @@ async def stop_trading():
     return {"status": "success", "message": "Paper trading stopped"}
 
 # Trade execution endpoint
-@app.post("/trades/execute", response_class=JSONResponse)
+@app.post("/trades/execute")
 async def execute_trade(request: dict):
     """Execute a trade"""
     trade = TradeRequest(
@@ -2187,7 +2069,7 @@ async def execute_trade(request: dict):
     return await create_trade(trade)
 
 # Recent trades endpoint
-@app.get("/trades/recent", response_class=JSONResponse)
+@app.get("/trades/recent")
 async def get_recent_trades(limit: int = 10):
     """Get recent trades"""
     trades_df = db.get_trades(limit=limit)
@@ -2197,7 +2079,7 @@ async def get_recent_trades(limit: int = 10):
     return []
 
 # Portfolio positions endpoint
-@app.get("/portfolio/positions", response_class=JSONResponse)
+@app.get("/portfolio/positions")
 async def get_portfolio_positions():
     """Get portfolio positions"""
     return await get_positions()
@@ -2205,7 +2087,7 @@ async def get_portfolio_positions():
 # ============= NEW ENHANCED ENDPOINTS =============
 
 # Paper trading endpoints
-@app.get("/paper-trading/status", response_class=JSONResponse)
+@app.get("/paper-trading/status")
 async def get_paper_trading_status():
     """Get paper trading status and portfolio"""
     if not paper_trading:
@@ -2222,7 +2104,7 @@ async def get_paper_trading_status():
         "timestamp": datetime.now()
     }
 
-@app.post("/paper-trading/toggle", response_class=JSONResponse)
+@app.post("/paper-trading/toggle")
 async def toggle_paper_trading():
     """Toggle paper trading on/off"""
     global paper_trading_enabled
@@ -2238,7 +2120,7 @@ async def toggle_paper_trading():
         "message": f"Paper trading {'enabled' if paper_trading_enabled else 'disabled'}"
     }
 
-@app.post("/paper-trading/reset", response_class=JSONResponse)
+@app.post("/paper-trading/reset")
 async def reset_paper_trading():
     """Reset paper trading portfolio"""
     if not paper_trading:
@@ -2249,7 +2131,7 @@ async def reset_paper_trading():
     return {"status": "success", "message": "Paper trading portfolio reset"}
     
     
-@app.get("/paper-trading/history", response_class=JSONResponse)
+@app.get("/paper-trading/history")
 async def get_paper_trading_history(days: int = 30):
     """Get paper trading performance history"""
     if not paper_trading:
@@ -2263,7 +2145,7 @@ async def get_paper_trading_history(days: int = 30):
         return []
         
 # Monte Carlo simulation endpoint
-@app.post("/analytics/monte-carlo", response_class=JSONResponse)
+@app.post("/analytics/monte-carlo")
 async def run_monte_carlo_simulation(
     num_simulations: int = 1000,
     time_horizon_days: int = 30
@@ -2336,7 +2218,7 @@ async def run_monte_carlo_simulation(
         raise HTTPException(status_code=500, detail=str(e))
 
 # Multi-model ensemble endpoint
-@app.get("/models/ensemble/predict", response_class=JSONResponse)
+@app.get("/models/ensemble/predict")
 async def get_ensemble_prediction():
     """Get prediction from multiple models (placeholder for future implementation)"""
     # This is a placeholder for future multi-model implementation

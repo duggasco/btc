@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 import uuid
 from collections import deque
 from paper_trading_persistence import PersistentPaperTrading
+from external_data_fetcher import get_fetcher
 from database_models import DatabaseManager
 from lstm_model import TradingSignalGenerator
 
@@ -981,8 +982,9 @@ async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
             # Fetch enhanced data with all indicators
             btc_data = signal_generator.fetch_enhanced_btc_data(period=period, include_macro=False)
         else:
-            # Fetch basic data
-            btc_data = signal_generator.fetch_btc_data(period=period)
+            # Fetch basic data using external fetcher
+            fetcher = get_fetcher()
+            btc_data = fetcher.fetch_crypto_data('BTC', period)
         
         if btc_data is None or len(btc_data) == 0:
             raise ValueError("No BTC data available")
@@ -1078,11 +1080,11 @@ async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
 async def get_latest_btc_price():
     """Get latest BTC price"""
     try:
-        if latest_btc_data is not None and len(latest_btc_data) > 0:
-            latest_price = float(latest_btc_data['Close'].iloc[-1])
-            return {"latest_price": latest_price, "timestamp": datetime.now()}
-        else:
-            return {"latest_price": 45000.0, "timestamp": datetime.now(), "note": "Using default price"}
+        # Use external data fetcher for current price
+        fetcher = get_fetcher()
+        latest_price = fetcher.get_current_crypto_price('BTC')
+        
+        return {"latest_price": latest_price, "timestamp": datetime.now()}
     except Exception as e:
         logger.error(f"Failed to get latest BTC price: {e}")
         return {"latest_price": 45000.0, "timestamp": datetime.now(), "error": str(e)}

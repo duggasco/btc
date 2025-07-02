@@ -17,6 +17,7 @@ import json
 import logging
 import warnings
 warnings.filterwarnings('ignore')
+from external_data_fetcher import get_fetcher
 
 # Import enhanced components from backtesting_system (not enhanced_backtesting_system)
 from backtesting_system import (
@@ -62,21 +63,43 @@ class TradingSignalGenerator:
         self.cached_data = None
         self.last_fetch_time = None
         
+        # Initialize external data fetcher
+        self.data_fetcher = get_fetcher()
+        
         if model_path:
             self.load_model(model_path)
     
     def fetch_btc_data(self, period: str = "3mo") -> pd.DataFrame:
-        """Fetch BTC price data from Yahoo Finance"""
+        """Fetch BTC price data using external data fetcher"""
         try:
             logger.info(f"Fetching BTC data for period: {period}")
-            import yfinance as yf
             
-            btc = yf.Ticker("BTC-USD")
-            df = btc.history(period=period)
+            # Use external data fetcher with cascading sources
+            df = self.data_fetcher.fetch_crypto_data('BTC', period)
             
             if df.empty:
-                logger.warning("Empty dataframe received from yfinance")
+                logger.warning("Empty dataframe received from data fetcher")
                 return self.generate_dummy_data()
+            
+            # Add technical indicators
+            df = self.add_technical_indicators(df)
+            
+            logger.info(f"Fetched {len(df)} days of BTC data")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error fetching BTC data: {e}")
+            return self.generate_dummy_data()
+            
+            # Add technical indicators
+            df = self.add_technical_indicators(df)
+            
+            logger.info(f"Fetched {len(df)} days of BTC data")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error fetching BTC data: {e}")
+            return self.generate_dummy_data()
             
             # Add technical indicators
             df = self.add_technical_indicators(df)

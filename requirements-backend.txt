@@ -25,3 +25,26 @@ optuna-dashboard==0.14.0  # Optional for visualization
 # Additional dependencies for enhanced features
 ta==0.10.2  # Technical analysis library
 scipy==1.11.4  # For advanced calculations
+# External data fetching dependencies
+requests==2.31.0  # Already present, ensuring it's there
+pytrends==4.9.2  # Google Trends (optional)
+# yfinance==0.2.33  # Keep as fallback for macro data
+
+# Note: Some APIs require registration for free API keys:
+# - FRED API: https://fred.stlouisfed.org/docs/api/api_key.html
+# - NewsAPI: https://newsapi.org/register
+# - CryptoPanic: https://cryptopanic.com/developers/api/
+# - Glassnode: https://glassnode.com/api
+# - CryptoQuant: https://cryptoquant.com/data-api
+
+# External data fetching dependencies
+requests==2.31.0  # Already present, ensuring it's there
+pytrends==4.9.2  # Google Trends (optional)
+# yfinance==0.2.33  # Keep as fallback for macro data
+
+# Note: Some APIs require registration for free API keys:
+# - FRED API: https://fred.stlouisfed.org/docs/api/api_key.html
+# - NewsAPI: https://newsapi.org/register
+# - CryptoPanic: https://cryptopanic.com/developers/api/
+# - Glassnode: https://glassnode.com/api
+# - CryptoQuant: https://cryptoquant.com/data-api

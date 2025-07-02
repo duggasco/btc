@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.pytho
 # Copy application files
 COPY database_models.py .
 COPY lstm_model.py .
+COPY external_data_fetcher.py .
 COPY integration.py .
 COPY backtesting_system.py .
 COPY backend_api.py .

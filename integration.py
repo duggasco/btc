@@ -23,10 +23,10 @@ from datetime import datetime, timedelta
 import json
 import torch
 import traceback
-import yfinance as yf
 from sklearn.preprocessing import MinMaxScaler
 import warnings
 warnings.filterwarnings('ignore')
+from external_data_fetcher import get_fetcher
 
 # Enhanced logging
 logging.basicConfig(level=logging.INFO)
@@ -56,13 +56,16 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
         self.learning_rate = 0.001
         self.batch_size = 32
         
+        # Use external data fetcher
+        self.data_fetcher = get_fetcher()
+        
     def fetch_enhanced_btc_data(self, period: str = "2y", include_macro: bool = True) -> pd.DataFrame:
         """Fetch BTC data with additional market indicators"""
         try:
             logger.info(f"Fetching enhanced BTC data for period: {period}")
             
-            # Get basic BTC data
-            btc_data = self.fetch_btc_data(period=period)
+            # Get basic BTC data from external fetcher
+            btc_data = self.data_fetcher.fetch_crypto_data('BTC', period)
             
             if btc_data is None or len(btc_data) < self.sequence_length:
                 logger.warning("Insufficient BTC data, using fallback")
@@ -77,10 +80,10 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
                 logger.info("Fetching macro indicators...")
                 btc_data = self._add_macro_indicators(btc_data)
             
-            # Add sentiment proxies (simplified)
+            # Add sentiment proxies
             btc_data = self._add_sentiment_proxies(btc_data)
             
-            # Add on-chain proxies (simplified)
+            # Add on-chain proxies
             btc_data = self._add_onchain_proxies(btc_data)
             
             logger.info(f"Enhanced data shape: {btc_data.shape}")
@@ -125,35 +128,60 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
         return enhanced_data
     
     def _add_macro_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Add macroeconomic indicators"""
+        """Add macroeconomic indicators using external data fetcher"""
         try:
-            # Fetch related assets for correlation
+            # Fetch macro data from external fetcher
             end_date = data.index[-1]
             start_date = data.index[0]
+            period = self._estimate_period(start_date, end_date)
+            
+            # Get macro data
+            macro_data = self.data_fetcher.fetch_all_market_data(period)
             
             # S&P 500
-            spy = yf.download('^GSPC', start=start_date, end=end_date, progress=False)
-            if not spy.empty:
-                data['sp500_returns'] = spy['Close'].pct_change()
-                data['btc_sp500_corr'] = data['Close'].pct_change().rolling(30).corr(spy['Close'].pct_change())
+            if 'SPY' in macro_data and not macro_data['SPY'].empty:
+                spy_data = macro_data['SPY'].reindex(data.index)
+                spy_data = spy_data.interpolate(method='nearest')
+                data['sp500_returns'] = spy_data['Close'].pct_change()
+                data['btc_sp500_corr'] = data['Close'].pct_change().rolling(30).corr(spy_data['Close'].pct_change())
             
             # Gold
-            gold = yf.download('GLD', start=start_date, end=end_date, progress=False)
-            if not gold.empty:
-                data['gold_returns'] = gold['Close'].pct_change()
-                data['btc_gold_corr'] = data['Close'].pct_change().rolling(30).corr(gold['Close'].pct_change())
+            if 'GLD' in macro_data and not macro_data['GLD'].empty:
+                gold_data = macro_data['GLD'].reindex(data.index)
+                gold_data = gold_data.interpolate(method='nearest')
+                data['gold_returns'] = gold_data['Close'].pct_change()
+                data['btc_gold_corr'] = data['Close'].pct_change().rolling(30).corr(gold_data['Close'].pct_change())
             
-            # USD Index
-            dxy = yf.download('DX-Y.NYB', start=start_date, end=end_date, progress=False)
-            if not dxy.empty:
-                data['dxy_returns'] = dxy['Close'].pct_change()
-                data['btc_dxy_corr'] = data['Close'].pct_change().rolling(30).corr(dxy['Close'].pct_change())
+            # DXY
+            if 'DXY' in macro_data and not macro_data['DXY'].empty:
+                dxy_data = macro_data['DXY'].reindex(data.index)
+                dxy_data = dxy_data.interpolate(method='nearest')
+                data['dxy_returns'] = dxy_data['Close'].pct_change()
+                data['btc_dxy_corr'] = data['Close'].pct_change().rolling(30).corr(dxy_data['Close'].pct_change())
             
-            # VIX (fear gauge)
-            vix = yf.download('^VIX', start=start_date, end=end_date, progress=False)
-            if not vix.empty:
-                data['vix_level'] = vix['Close']
-                data['vix_change'] = vix['Close'].pct_change()
+            # VIX
+            if 'VIX' in macro_data and not macro_data['VIX'].empty:
+                vix_data = macro_data['VIX'].reindex(data.index)
+                vix_data = vix_data.interpolate(method='nearest')
+                data['vix_level'] = vix_data['Close']
+                data['vix_change'] = vix_data['Close'].pct_change()
+            
+            # Add real sentiment data
+            sentiment_data = self.data_fetcher.fetch_sentiment_data()
+            if sentiment_data:
+                # Add latest sentiment values
+                data['fear_greed_index'] = sentiment_data['fear_greed'].get('value', 50)
+                data['social_sentiment'] = sentiment_data['social'].get('overall_sentiment', 0.5)
+                data['news_sentiment'] = sentiment_data['news'].get('news_sentiment', 0.5)
+            
+            # Add real on-chain data
+            onchain_data = self.data_fetcher.fetch_onchain_data()
+            if onchain_data and 'network' in onchain_data:
+                network = onchain_data['network']
+                # Add as scalar values (pandas will broadcast)
+                data['active_addresses'] = network.get('active_addresses', 0)
+                data['transaction_count'] = network.get('transaction_count', 0)
+                data['hash_rate'] = network.get('hash_rate', 0)
             
         except Exception as e:
             logger.warning(f"Error fetching macro data: {e}")
@@ -165,29 +193,172 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
         
         return data.fillna(0)
     
+    def _estimate_period(self, start_date, end_date) -> str:
+        """Estimate period string from date range"""
+        days = (end_date - start_date).days
+        if days <= 7:
+            return '7d'
+        elif days <= 30:
+            return '1mo'
+        elif days <= 90:
+            return '3mo'
+        elif days <= 180:
+            return '6mo'
+        elif days <= 365:
+            return '1y'
+        elif days <= 730:
+            return '2y'
+        else:
+            return 'max'
+    
+    def _estimate_period(self, start_date, end_date) -> str:
+        """Estimate period string from date range"""
+        days = (end_date - start_date).days
+        if days <= 7:
+            return '7d'
+        elif days <= 30:
+            return '1mo'
+        elif days <= 90:
+            return '3mo'
+        elif days <= 180:
+            return '6mo'
+        elif days <= 365:
+            return '1y'
+        elif days <= 730:
+            return '2y'
+        else:
+            return 'max'
+    
     def _add_sentiment_proxies(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Add sentiment proxy indicators"""
+        """Add sentiment indicators from real sources"""
+        try:
+            # Fetch real sentiment data
+            sentiment_data = self.data_fetcher.fetch_sentiment_data()
+            
+            if sentiment_data:
+                # Use real fear & greed index
+                fear_greed = sentiment_data['fear_greed']
+                data['fear_greed_value'] = fear_greed.get('value', 50)
+                data['fear_proxy'] = (100 - fear_greed.get('value', 50)) / 100
+                data['greed_proxy'] = fear_greed.get('value', 50) / 100
+                
+                # Use real social sentiment
+                social = sentiment_data['social']
+                data['twitter_sentiment'] = social.get('twitter_sentiment', 0.5)
+                data['reddit_sentiment'] = social.get('reddit_sentiment', 0.5)
+                data['news_sentiment'] = social.get('news_sentiment', 0.5)
+                data['overall_sentiment'] = social.get('overall_sentiment', 0.5)
+                
+                # Google trends
+                google = sentiment_data.get('google', {})
+                data['google_trend'] = google.get('google_trend_normalized', 0.5)
+            else:
+                # Fallback to proxies
+                return self._add_sentiment_proxies_fallback(data)
+                
+        except Exception as e:
+            logger.warning(f"Error fetching real sentiment data: {e}")
+            return self._add_sentiment_proxies_fallback(data)
+        
+        return data.fillna(0.5)
+    
+    def _add_sentiment_proxies_fallback(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Fallback sentiment proxies"""
         # Volume-based sentiment proxy
         if 'Volume' in data.columns:
-            data['volume_sentiment'] = data['Volume'].rolling(24).mean() / data['Volume'].rolling(168).mean()
+            data['volume_sentiment'] = data['Volume'].rolling(24).mean() / (data['Volume'].rolling(168).mean() + 1e-8)
+        else:
+            data['volume_sentiment'] = 1.0
         
-        # Price momentum as sentiment proxy
+        # Price momentum as sentiment
         data['momentum_sentiment'] = data['Close'].pct_change(24) / (data['Close'].pct_change(24).rolling(30).std() + 1e-8)
         
-        # Volatility-based fear proxy
-        data['fear_proxy'] = data.get('volatility_20', 0.3) / 0.3  # Normalized to typical BTC vol
+        # Simplified proxies
+        data['fear_proxy'] = data.get('volatility_20', 0.3) / 0.3
+        data['greed_proxy'] = (data['Close'] - data['Close'].rolling(30).min()) / (data['Close'].rolling(30).max() - data['Close'].rolling(30).min() + 1e-8)
         
-        # Simple trend strength as greed proxy
-        data['greed_proxy'] = (data['Close'] - data['Close'].rolling(30).min()) / \
-                              (data['Close'].rolling(30).max() - data['Close'].rolling(30).min() + 1e-8)
+        return data.fillna(0.5)
+    
+    def _add_sentiment_proxies_fallback(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Fallback sentiment proxies"""
+        # Volume-based sentiment proxy
+        if 'Volume' in data.columns:
+            data['volume_sentiment'] = data['Volume'].rolling(24).mean() / (data['Volume'].rolling(168).mean() + 1e-8)
+        else:
+            data['volume_sentiment'] = 1.0
         
-        # Funding rate proxy (simplified)
-        data['funding_proxy'] = data['Close'].pct_change() * data.get('volume_ratio', 1)
+        # Price momentum as sentiment
+        data['momentum_sentiment'] = data['Close'].pct_change(24) / (data['Close'].pct_change(24).rolling(30).std() + 1e-8)
+        
+        # Simplified proxies
+        data['fear_proxy'] = data.get('volatility_20', 0.3) / 0.3
+        data['greed_proxy'] = (data['Close'] - data['Close'].rolling(30).min()) / (data['Close'].rolling(30).max() - data['Close'].rolling(30).min() + 1e-8)
         
         return data.fillna(0.5)
     
     def _add_onchain_proxies(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Add on-chain proxy indicators"""
+        """Add on-chain indicators from real sources"""
+        try:
+            # Fetch real on-chain data
+            onchain_data = self.data_fetcher.fetch_onchain_data()
+            
+            if onchain_data:
+                # Network metrics
+                network = onchain_data.get('network', {})
+                
+                # Ensure scalar values are properly assigned
+                for key, value in network.items():
+                    if key in ['active_addresses', 'transaction_count', 'hash_rate', 'difficulty', 'mempool_size']:
+                        if isinstance(value, (int, float)):
+                            data[key] = value  # Pandas will broadcast automatically
+                        else:
+                            logger.warning(f"Non-scalar value for {key}: {type(value)}")
+                            data[key] = 0
+                
+                # NVT Ratio
+                if 'nvt_ratio' in network:
+                    data['nvt_ratio'] = network['nvt_ratio']
+                elif 'market_cap_usd' in network and 'transaction_count' in network:
+                    # Calculate NVT if not provided
+                    daily_tx_vol = network['transaction_count'] * network.get('market_price_usd', 45000)
+                    data['nvt_ratio'] = network['market_cap_usd'] / (daily_tx_vol * 365 + 1e-8)
+                
+                # Exchange flows
+                flows = onchain_data.get('flows', {})
+                flow_metrics = {
+                    'exchange_inflow': flows.get('exchange_inflow', 0),
+                    'exchange_outflow': flows.get('exchange_outflow', 0),
+                    'net_exchange_flow': flows.get('net_flow', 0),
+                    'whale_activity': flows.get('whale_inflow', 0) + flows.get('whale_outflow', 0)
+                }
+                
+                # Add flow metrics as scalars
+                for key, value in flow_metrics.items():
+                    if isinstance(value, (int, float)):
+                        data[key] = value
+                    else:
+                        data[key] = 0
+                
+                # Calculate derived metrics
+                if 'Volume' in data.columns and network.get('transaction_count', 0) > 0:
+                    data['nvt_proxy'] = data['Close'] * data['Volume'].rolling(30).sum() / (network['transaction_count'] * 7 + 1e-8)
+                
+                # HODL proxy based on low velocity
+                if network.get('active_addresses', 0) > 0:
+                    velocity = network.get('transaction_count', 0) / network['active_addresses']
+                    data['hodl_proxy'] = 1 / (1 + velocity / 10)
+                
+            else:
+                return self._add_onchain_proxies_fallback(data)
+                
+        except Exception as e:
+            logger.warning(f"Error fetching real on-chain data: {e}")
+            return self._add_onchain_proxies_fallback(data)
+        
+        return data.fillna(0)
+    
+    def _add_onchain_proxies_fallback(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Fallback on-chain proxies"""
         # Network value proxy using price and volume
         if 'Volume' in data.columns:
             data['nvt_proxy'] = data['Close'] * data['Volume'].rolling(30).sum() / (data['Volume'].rolling(7).sum() + 1e-8)
@@ -201,7 +372,26 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
         # Simple whale proxy based on large volume spikes
         if 'Volume' in data.columns:
             volume_zscore = (data['Volume'] - data['Volume'].rolling(30).mean()) / (data['Volume'].rolling(30).std() + 1e-8)
-            data['whale_proxy'] = volume_zscore > 2
+            data['whale_proxy'] = (volume_zscore > 2).astype(float)
+        
+        return data.fillna(0)
+    
+    def _add_onchain_proxies_fallback(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Fallback on-chain proxies"""
+        # Network value proxy using price and volume
+        if 'Volume' in data.columns:
+            data['nvt_proxy'] = data['Close'] * data['Volume'].rolling(30).sum() / (data['Volume'].rolling(7).sum() + 1e-8)
+        
+        # HODL proxy based on low volatility periods
+        data['hodl_proxy'] = 1 / (1 + data['Close'].pct_change().rolling(30).std())
+        
+        # Accumulation proxy
+        data['accumulation_proxy'] = ((data['Close'] - data['Low']) / (data['High'] - data['Low'] + 1e-8)).rolling(30).mean()
+        
+        # Simple whale proxy based on large volume spikes
+        if 'Volume' in data.columns:
+            volume_zscore = (data['Volume'] - data['Volume'].rolling(30).mean()) / (data['Volume'].rolling(30).std() + 1e-8)
+            data['whale_proxy'] = (volume_zscore > 2).astype(float)
         
         return data.fillna(0)
     

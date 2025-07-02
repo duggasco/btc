@@ -17,15 +17,22 @@ import sqlite3
 from contextlib import asynccontextmanager
 import uuid
 from collections import deque
-from paper_trading_persistence import PersistentPaperTrading
-from external_data_fetcher import get_fetcher
-from database_models import DatabaseManager
-from lstm_model import TradingSignalGenerator
+from models.paper_trading import PersistentPaperTrading
+from services.data_fetcher import get_fetcher
+from models.database import DatabaseManager
+from models.lstm import TradingSignalGenerator
+
+
+# Import compatibility layer
+try:
+    import import_compat
+except ImportError:
+    pass  # Not needed in Docker environment
 
 # Import the ENHANCED classes from integration module
 from integration import AdvancedIntegratedBacktestingSystem, AdvancedTradingSignalGenerator
 # Import from backtesting_system (corrected from enhanced_backtesting_system)
-from backtesting_system import (
+from services.backtesting import (
     BacktestConfig, SignalWeights, EnhancedSignalWeights, EnhancedBacktestingPipeline,
     ComprehensiveSignalCalculator, EnhancedPerformanceMetrics,
     EnhancedWalkForwardBacktester, EnhancedBayesianOptimizer, AdaptiveRetrainingScheduler,

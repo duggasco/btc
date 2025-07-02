@@ -17,10 +17,10 @@ import json
 import logging
 import warnings
 warnings.filterwarnings('ignore')
-from external_data_fetcher import get_fetcher
+from services.data_fetcher import get_fetcher
 
 # Import enhanced components from backtesting_system (not enhanced_backtesting_system)
-from backtesting_system import (
+from services.backtesting import (
     SignalWeights, EnhancedSignalWeights, 
     ComprehensiveSignalCalculator, BacktestConfig
 )

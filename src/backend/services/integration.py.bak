@@ -8,9 +8,9 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from typing import Dict, Tuple, Optional, List, Any
 
-from lstm_model import TradingSignalGenerator
-from database_models import DatabaseManager
-from backtesting_system import (
+from models.lstm import TradingSignalGenerator
+from models.database import DatabaseManager
+from services.backtesting import (
     BacktestConfig, SignalWeights, EnhancedSignalWeights,
     EnhancedBacktestingPipeline, AdaptiveRetrainingScheduler,
     EnhancedBayesianOptimizer, EnhancedWalkForwardBacktester,
@@ -26,7 +26,7 @@ import traceback
 from sklearn.preprocessing import MinMaxScaler
 import warnings
 warnings.filterwarnings('ignore')
-from external_data_fetcher import get_fetcher
+from services.data_fetcher import get_fetcher
 
 # Enhanced logging
 logging.basicConfig(level=logging.INFO)

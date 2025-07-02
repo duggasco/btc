@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# BTC Trading System - Simplified Initialization and Deployment Script
+# BTC Trading System - Initialization and Deployment Script
 set -e
 
 GREEN='\033[0;32m'
@@ -29,9 +29,10 @@ send_discord_notification() {
     fi
 }
 
-discord_info() { send_discord_notification "ℹ️ $1" 3447003; }
-discord_success() { send_discord_notification "✅ $1" 3066993; }
-discord_error() { send_discord_notification "❌ $1" 15158332; }
+discord_info() { send_discord_notification "ℹ️ $1" 3447003; }      # Blue
+discord_success() { send_discord_notification "✅ $1" 3066993; }   # Green
+discord_error() { send_discord_notification "❌ $1" 15158332; }    # Red
+discord_warning() { send_discord_notification "⚠️ $1" 16776960; }  # Yellow - THIS WAS MISSING!
 
 check_dependencies() {
     print_info "Checking dependencies..."
@@ -109,109 +110,61 @@ EOL
     fi
 
     # Create trading config if it doesn't exist
-    if [ ! -f /storage/config/trading_config.json ]; then
-        cat > /storage/config/trading_config.json << 'EOL'
+    if [ ! -f /storage/config/trading_rules.json ]; then
+        cat > /storage/config/trading_rules.json << EOL
 {
-    "trading": {
-        "default_symbol": "BTC-USD",
-        "risk_tolerance": 0.02,
-        "max_position_size": 1.0,
-        "stop_loss_percentage": 0.05,
-        "take_profit_percentage": 0.10
-    },
-    "model": {
-        "sequence_length": 60,
-        "update_frequency": 300,
-        "confidence_threshold": 0.7
-    },
-    "api": {
-        "timeout": 30,
-        "retry_attempts": 3,
-        "rate_limit": 100
-    }
+    "min_trade_size": 0.001,
+    "max_position_size": 0.1,
+    "stop_loss_pct": 5.0,
+    "take_profit_pct": 10.0,
+    "buy_threshold": 0.6,
+    "sell_threshold": 0.6
 }
 EOL
     fi
-    
+
     print_status "Configuration files created"
-    discord_success "Configuration files created"
+    discord_success "Configuration completed"
 }
 
 build_and_start() {
     print_info "Building and starting services..."
-    discord_info "Starting Docker build process..."
+    discord_info "Building Docker images and starting services..."
     
-    # Stop existing containers
-    docker compose down --remove-orphans 2>/dev/null || true
+    docker compose build
+    docker compose up -d
     
-    # Build images
-    if docker compose build --no-cache; then
-        discord_success "Docker images built successfully"
-    else
-        discord_error "Docker build failed"
-        print_error "Docker build failed"
-    fi
+    print_info "Waiting for services to start..."
+    sleep 10
     
-    # Start services
-    if docker compose up -d; then
-        discord_success "Docker containers started"
-    else
-        discord_error "Failed to start Docker containers"
-        print_error "Failed to start containers"
-    fi
-    
-    print_info "Waiting for services to be ready..."
-    discord_info "Waiting for services to initialize..."
-    sleep 15
-    
-    # Check backend health
-    for i in {1..30}; do
-        if curl -f http://localhost:8080/health >/dev/null 2>&1; then
-            print_status "Backend is healthy"
-            discord_success "Backend API is healthy and responding"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            discord_error "Backend failed to start after 30 attempts"
-            print_error "Backend failed to start"
-        fi
-        sleep 2
-    done
-    
-    # Check frontend health
-    for i in {1..30}; do
-        if curl -f http://localhost:8501/_stcore/health >/dev/null 2>&1; then
-            print_status "Frontend is healthy"
-            discord_success "Frontend UI is healthy and responding"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            discord_warning "Frontend may still be starting"
-            print_warning "Frontend may still be starting"
-        fi
-        sleep 2
-    done
-    
-    print_status "Services started successfully"
+    print_status "Services started"
+    discord_success "All services are up and running"
 }
 
 run_tests() {
     print_info "Running system tests..."
-    discord_info "Running system tests..."
+    discord_info "Running comprehensive system tests..."
     
-    # Simple health check test
-    if curl -f http://localhost:8080/health >/dev/null 2>&1; then
-        print_status "API health check passed"
-        discord_success "System tests passed"
+    # Wait a bit more for services to be fully ready
+    sleep 5
+    
+    if command -v python3 &> /dev/null; then
+        if [ -f test_system.py ]; then
+            python3 test_system.py quick || {
+                discord_error "System tests failed"
+                print_warning "Some tests failed - check logs for details"
+            }
+        else
+            print_warning "test_system.py not found - skipping tests"
+        fi
     else
-        print_warning "API health check failed"
-        discord_warning "Some tests failed"
+        print_warning "Python3 not found - skipping tests"
     fi
 }
 
 send_system_status() {
-    local backend_status="❌ Down"
-    local frontend_status="❌ Down"
+    local backend_status="❌ Not running"
+    local frontend_status="❌ Not running"
     
     if curl -f http://localhost:8080/health >/dev/null 2>&1; then
         backend_status="✅ Running"

@@ -912,7 +912,7 @@ def show_trading():
                     return 'background-color: #dc3545; color: white'
                 return ''
             
-            styled_df = trades_df[['timestamp', 'trade_type', 'price', 'size', 'value', 'reason']].style.applymap(
+            styled_df = trades_df[['timestamp', 'trade_type', 'price', 'size', 'value', 'reason']].style.map(
                 style_trade_type, subset=['trade_type']
             )
             
@@ -1152,7 +1152,7 @@ def show_signals():
                     return 'background-color: #dc3545; color: white'
                 return 'background-color: #6c757d; color: white'
             
-            styled_df = signals_df.style.applymap(style_interpretation, subset=['Interpretation'])
+            styled_df = signals_df.style.map(style_interpretation, subset=['Interpretation'])
             st.dataframe(styled_df, hide_index=True, use_container_width=True)
             
             # Summary
@@ -3339,7 +3339,7 @@ def show_paper_trading():
             else:
                 return 'background-color: #3a1e1e; color: #f44336'
         
-        styled_df = trades_df.style.applymap(style_type, subset=['Type'])
+        styled_df = trades_df.style.map(style_type, subset=['Type'])
         
         st.dataframe(
             styled_df,

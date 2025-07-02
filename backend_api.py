@@ -1986,10 +1986,21 @@ async def export_database():
 @app.get("/trading/status")
 async def get_trading_status():
     """Get trading status"""
+    last_trade_time = None
+    
+    # Get last trade time from paper trading if enabled
+    if paper_trading and paper_trading_enabled:
+        try:
+            portfolio = paper_trading.get_portfolio()
+            if portfolio.get('trades') and len(portfolio['trades']) > 0:
+                last_trade_time = portfolio['trades'][-1].get('timestamp')
+        except Exception as e:
+            logger.warning(f"Could not get last trade time: {e}")
+    
     return {
-        "is_active": paper_trading_enabled,  # Enhanced with paper trading
+        "is_active": paper_trading_enabled,
         "mode": "paper" if paper_trading_enabled else "manual",
-        "last_trade_time": paper_portfolio['trades'][-1]['timestamp'] if paper_portfolio['trades'] else None
+        "last_trade_time": last_trade_time
     }
 
 @app.post("/trading/start")

@@ -24,8 +24,6 @@ COPY streamlit_app.py .
 RUN mkdir -p ~/.streamlit /app/logs /app/config
 
 RUN echo "\
-[general]\n\
-email = \"\"\n\
 [server]\n\
 headless = true\n\
 enableCORS = false\n\

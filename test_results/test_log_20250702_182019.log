@@ -1,0 +1,41 @@
+[2025-07-02 18:20:19] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;35mBTC Trading System - Comprehensive Test Suite[0m
+[2025-07-02 18:20:20] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;36mℹ Test mode: all[0m
+[2025-07-02 18:20:20] [0;36mℹ Timestamp: 20250702_182019[0m
+[2025-07-02 18:20:20] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;35mTesting Docker Prerequisites[0m
+[2025-07-02 18:20:20] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;32m✓ Docker is installed: Docker version 28.2.2, build e6534b4[0m
+[2025-07-02 18:20:20] [0;32m✓ Docker Compose v2 is installed[0m
+[2025-07-02 18:20:20] [0;32m✓ Docker daemon is running[0m
+[2025-07-02 18:20:20] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;35mTesting Docker Containers[0m
+[2025-07-02 18:20:20] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;34m>>> Backend Container Tests[0m
+[2025-07-02 18:20:20] [0;32m✓ Backend container exists[0m
+[2025-07-02 18:20:20] [0;32m✓ Backend container is running[0m
+[2025-07-02 18:20:20] [0;36mℹ Container status: running[0m
+[2025-07-02 18:20:20] [0;36mℹ Container health: healthy[0m
+[2025-07-02 18:20:20] [1;33m⚠ Backend container logs contain errors[0m
+[2025-07-02 18:20:20] [0;34m>>> Frontend Container Tests[0m
+[2025-07-02 18:20:20] [0;32m✓ Frontend container exists[0m
+[2025-07-02 18:20:20] [0;32m✓ Frontend container is running[0m
+[2025-07-02 18:20:20] [1;33m⚠ Streamlit process not found[0m
+[2025-07-02 18:20:20] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;35mTesting All API Endpoints[0m
+[2025-07-02 18:20:20] [0;35m========================================[0m
+[2025-07-02 18:20:20] [0;36mℹ Waiting for Backend API to be ready...[0m
+[2025-07-02 18:20:20] [0;32m✓ Backend API is ready[0m
+[2025-07-02 18:20:20] [0;34m>>> Core Endpoints[0m
+[2025-07-02 18:20:20] [0;32m✓ Root health check - Status: 200[0m
+[2025-07-02 18:20:20] [0;32m✓ Detailed health status - Status: 200[0m
+[2025-07-02 18:20:20] [0;34m>>> Trading Signal Endpoints[0m
+[2025-07-02 18:20:20] [0;32m✓ Latest trading signal - Status: 200[0m
+[2025-07-02 18:20:20] [0;32m✓ Enhanced signal with 50+ indicators - Status: 200[0m
+[2025-07-02 18:20:20] [0;32m✓ Signal history - Status: 200[0m
+[2025-07-02 18:20:20] [0;32m✓ All 50+ calculated signals - Status: 200[0m
+[2025-07-02 18:20:20] [0;34m>>> Trading Operation Endpoints[0m
+[2025-07-02 18:20:21] [0;32m✓ Create new trade - Status: 200[0m
+[2025-07-02 18:20:21] [0;32m✓ Get all trades - Status: 200[0m
+[2025-07-02 18:20:21] [0;31m✗ Trade statistics - Expected: 200, Got: 404[0m

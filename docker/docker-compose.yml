@@ -7,10 +7,11 @@ services:
     ports:
       - "8080:8000"
     volumes:
-      - ./storage/data:/app/data
-      - ./storage/models:/app/models
-      - ./storage/logs/backend:/app/logs
-      - ./storage/config:/app/config
+      # Map to /storage instead of ./storage
+      - /storage/data:/app/data
+      - /storage/models:/app/models
+      - /storage/logs/backend:/app/logs
+      - /storage/config:/app/config
       # Mount the Python files for hot reloading
       - ./backend_api.py:/app/backend_api.py:ro
       - ./database_models.py:/app/database_models.py:ro
@@ -60,8 +61,9 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./storage/logs/frontend:/app/logs
-      - ./storage/config:/app/config
+      # Map to /storage instead of ./storage
+      - /storage/logs/frontend:/app/logs
+      - /storage/config:/app/config
       # Mount streamlit app for hot reloading
       - ./streamlit_app.py:/app/streamlit_app.py:ro
     environment:

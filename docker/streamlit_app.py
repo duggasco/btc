@@ -18,6 +18,15 @@ import queue
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# MUST BE THE FIRST STREAMLIT COMMAND
+st.set_page_config(
+    page_title="BTC Trading System - UltraThink Enhanced",
+    page_icon="₿",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# NOW add the custom CSS
 st.markdown("""
 <style>
 /* Paper trading specific styles */
@@ -51,14 +60,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-
-st.set_page_config(
-    page_title="BTC Trading System - UltraThink Enhanced",
-    page_icon="₿",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Use backend service name when running in Docker, fallback to localhost
 # Fixed port to 8080 to match backend_api.py
@@ -911,7 +912,7 @@ def show_trading():
                     return 'background-color: #dc3545; color: white'
                 return ''
             
-            styled_df = trades_df[['timestamp', 'trade_type', 'price', 'size', 'value', 'reason']].style.applymap(
+            styled_df = trades_df[['timestamp', 'trade_type', 'price', 'size', 'value', 'reason']].style.map(
                 style_trade_type, subset=['trade_type']
             )
             
@@ -1151,7 +1152,7 @@ def show_signals():
                     return 'background-color: #dc3545; color: white'
                 return 'background-color: #6c757d; color: white'
             
-            styled_df = signals_df.style.applymap(style_interpretation, subset=['Interpretation'])
+            styled_df = signals_df.style.map(style_interpretation, subset=['Interpretation'])
             st.dataframe(styled_df, hide_index=True, use_container_width=True)
             
             # Summary
@@ -3338,7 +3339,7 @@ def show_paper_trading():
             else:
                 return 'background-color: #3a1e1e; color: #f44336'
         
-        styled_df = trades_df.style.applymap(style_type, subset=['Type'])
+        styled_df = trades_df.style.map(style_type, subset=['Type'])
         
         st.dataframe(
             styled_df,

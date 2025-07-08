@@ -16,13 +16,73 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+class InsufficientFundsError(Exception):
+    """Raised when trying to buy with insufficient USD balance"""
+    pass
+
+
+class InsufficientBTCError(Exception):
+    """Raised when trying to sell with insufficient BTC balance"""
+    pass
+
+
 class PersistentPaperTrading:
     """Persistent paper trading with database storage"""
     
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, initial_balance: float = 10000.0):
         self.db_path = db_path
+        self.initial_balance = initial_balance
+        self.enabled = True
         self._init_database()
         self.portfolio = self._load_portfolio()
+    
+    @property
+    def current_balance(self) -> float:
+        """Get current USD balance"""
+        return self.portfolio['usd_balance']
+    
+    @property
+    def btc_balance(self) -> float:
+        """Get current BTC balance"""
+        return self.portfolio['btc_balance']
+    
+    @property
+    def trades(self) -> List[Dict]:
+        """Get list of trades"""
+        return self.portfolio['trades']
+    
+    def enable(self):
+        """Enable paper trading"""
+        self.enabled = True
+    
+    def disable(self):
+        """Disable paper trading"""
+        self.enabled = False
+    
+    def reset(self):
+        """Reset portfolio to initial state"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Reset portfolio
+            cursor.execute('''
+                UPDATE paper_portfolio
+                SET btc_balance = 0, usd_balance = ?, total_pnl = 0, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (self.initial_balance, self.portfolio['id']))
+            
+            # Delete all trades
+            cursor.execute('DELETE FROM paper_trades WHERE portfolio_id = ?', (self.portfolio['id'],))
+            
+            conn.commit()
+            
+            # Reload portfolio
+            self.portfolio = self._load_portfolio()
+            
+        finally:
+            conn.close()
         
     def _init_database(self):
         """Initialize paper trading tables"""
@@ -140,8 +200,27 @@ class PersistentPaperTrading:
                 'trades': []
             }
     
-    def execute_trade(self, trade_type: str, price: float, amount: float, value: float) -> str:
+    def execute_trade(self, trade_type: str, price: float, amount: float, lot_id: Optional[str] = None) -> Dict:
         """Execute and persist a paper trade"""
+        # Validate amount
+        if amount <= 0:
+            raise ValueError("Trade amount must be positive")
+        
+        # Minimum trade size (0.0001 BTC)
+        if amount < 0.0001:
+            raise ValueError("Trade amount must be at least 0.0001 BTC")
+        
+        # Calculate trade value
+        value = price * amount
+        
+        # Validate trade
+        if trade_type == 'buy':
+            if self.portfolio['usd_balance'] < value:
+                raise InsufficientFundsError(f"Insufficient USD balance. Available: ${self.portfolio['usd_balance']:.2f}, Required: ${value:.2f}")
+        elif trade_type == 'sell':
+            if self.portfolio['btc_balance'] < amount:
+                raise InsufficientBTCError(f"Insufficient BTC balance. Available: {self.portfolio['btc_balance']:.6f}, Required: {amount:.6f}")
+        
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -174,6 +253,16 @@ class PersistentPaperTrading:
             ''', (self.portfolio['btc_balance'], self.portfolio['usd_balance'], 
                   self.portfolio['total_pnl'], self.portfolio['id']))
             
+            # Calculate P&L for sell trades
+            pnl = 0
+            pnl_pct = 0
+            if trade_type == 'sell':
+                # Simple P&L calculation (would be more complex with lot tracking)
+                avg_buy_price = self._get_average_buy_price()
+                if avg_buy_price > 0:
+                    pnl = (price - avg_buy_price) * amount
+                    pnl_pct = ((price / avg_buy_price) - 1) * 100
+            
             # Add to trades list
             self.portfolio['trades'].append({
                 'id': trade_id,
@@ -181,7 +270,9 @@ class PersistentPaperTrading:
                 'type': trade_type,
                 'price': price,
                 'amount': amount,
-                'value': value
+                'value': value,
+                'pnl': pnl,
+                'balance_after': self.portfolio['usd_balance']
             })
             
             # Keep only last 100 trades in memory
@@ -191,18 +282,109 @@ class PersistentPaperTrading:
             conn.commit()
             logger.info(f"Paper trade executed: {trade_type} {amount:.6f} BTC at ${price:.2f}")
             
+            # Return trade details
+            return {
+                'id': trade_id,
+                'type': trade_type,
+                'price': price,
+                'size': amount,
+                'value': value,
+                'balance_after': self.portfolio['usd_balance'],
+                'btc_balance_after': self.portfolio['btc_balance'],
+                'timestamp': datetime.now().isoformat(),
+                'lot_id': lot_id,
+                'pnl': pnl,
+                'pnl_pct': pnl_pct
+            }
+            
         except Exception as e:
             conn.rollback()
             logger.error(f"Failed to execute paper trade: {e}")
             raise
         finally:
             conn.close()
+    
+    def _get_average_buy_price(self) -> float:
+        """Calculate average buy price from trades"""
+        buy_trades = [t for t in self.portfolio['trades'] if t['type'] == 'buy']
+        if not buy_trades:
+            return 0
         
-        return trade_id
+        total_value = sum(t['value'] for t in buy_trades)
+        total_amount = sum(t['amount'] for t in buy_trades)
+        
+        return total_value / total_amount if total_amount > 0 else 0
     
     def get_portfolio(self) -> Dict:
         """Get current portfolio state"""
         return self.portfolio.copy()
+    
+    def get_metrics(self, current_btc_price: float) -> Dict:
+        """Calculate portfolio metrics"""
+        # Calculate total value
+        total_value = self.portfolio['usd_balance'] + (self.portfolio['btc_balance'] * current_btc_price)
+        total_pnl = total_value - self.initial_balance
+        total_pnl_pct = (total_pnl / self.initial_balance) * 100
+        
+        # Calculate trade statistics
+        trades = self.portfolio['trades']
+        total_trades = len(trades)
+        
+        if total_trades == 0:
+            return {
+                'total_trades': 0,
+                'profitable_trades': 0,
+                'win_rate': 0,
+                'total_value': total_value,
+                'total_pnl': total_pnl,
+                'total_pnl_pct': total_pnl_pct,
+                'sharpe_ratio': 0,
+                'max_drawdown': 0
+            }
+        
+        # Count profitable trades (sells only)
+        sell_trades = [t for t in trades if t['type'] == 'sell']
+        profitable_trades = len([t for t in sell_trades if t.get('pnl', 0) > 0])
+        # Win rate is profitable trades divided by total trades (not just sells)
+        win_rate = profitable_trades / total_trades if total_trades > 0 else 0
+        
+        # Calculate Sharpe ratio (simplified)
+        returns = []
+        if len(trades) > 1:
+            # Calculate returns between trades
+            for i in range(1, len(trades)):
+                prev_value = self.initial_balance  # Simplified
+                curr_value = total_value
+                returns.append((curr_value - prev_value) / prev_value)
+        
+        if returns:
+            avg_return = np.mean(returns)
+            std_return = np.std(returns)
+            sharpe_ratio = (avg_return / std_return) * np.sqrt(252) if std_return > 0 else 0
+        else:
+            sharpe_ratio = 0
+        
+        # Calculate max drawdown (simplified)
+        max_drawdown = 0
+        peak_value = self.initial_balance
+        for trade in trades:
+            # Track portfolio value after each trade
+            curr_value = trade.get('balance_after', self.initial_balance)
+            if curr_value > peak_value:
+                peak_value = curr_value
+            drawdown = (peak_value - curr_value) / peak_value
+            max_drawdown = max(max_drawdown, drawdown)
+        
+        return {
+            'total_trades': total_trades,
+            'profitable_trades': profitable_trades,
+            'win_rate': win_rate,
+            'total_value': total_value,
+            'total_pnl': total_pnl,
+            'total_pnl_pct': total_pnl_pct,
+            'sharpe_ratio': sharpe_ratio,
+            'max_drawdown': -max_drawdown  # Negative for convention
+        }
     
     def calculate_performance_metrics(self, current_price: float) -> Dict:
         """Calculate performance metrics"""

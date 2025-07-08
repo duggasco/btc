@@ -75,7 +75,7 @@ from services.backtesting import (
 
 # Import Discord notifications if available
 try:
-    from discord_notifications import DiscordNotifier
+    from services.notifications import DiscordNotifier
     discord_notifier = DiscordNotifier()
 except ImportError:
     discord_notifier = None

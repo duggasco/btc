@@ -8,10 +8,10 @@ services:
       - "8080:8000"
     volumes:
       # Map persistent storage - Docker will create these directories
-      - /storage/data:/app/data
-      - /storage/models:/app/models
-      - /storage/logs/backend:/app/logs
-      - /storage/config:/app/config
+      - ./storage/data:/app/data
+      - ./storage/models:/app/models
+      - ./storage/logs/backend:/app/logs
+      - ./storage/config:/app/config
       # Mount source code to /app/src (not /app) to avoid conflicts
       - ./src/backend:/app/src:ro
     environment:
@@ -56,8 +56,8 @@ services:
       - "8501:8501"
     volumes:
       # Map persistent storage
-      - /storage/logs/frontend:/app/logs
-      - /storage/config:/app/config
+      - ./storage/logs/frontend:/app/logs
+      - ./storage/config:/app/config
       # Mount source code to /app/src
       - ./src/frontend:/app/src:ro
     environment:

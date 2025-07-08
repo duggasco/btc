@@ -1,0 +1,44 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy all source code
+COPY src /app/src
+
+# Copy tests
+COPY tests /app/tests
+COPY pytest.ini /app/
+COPY run_tests.py /app/
+
+# Install backend dependencies
+COPY src/backend/requirements.txt /tmp/backend-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/backend-requirements.txt
+
+# Install frontend dependencies
+COPY src/frontend/requirements.txt /tmp/frontend-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/frontend-requirements.txt
+
+# Install test dependencies
+COPY tests/requirements.txt /tmp/test-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/test-requirements.txt
+
+# Set Python path
+ENV PYTHONPATH=/app/src/backend:/app/src/frontend:/app
+ENV PYTHONUNBUFFERED=1
+
+# Create directories for test artifacts
+RUN mkdir -p /app/htmlcov /app/storage/data /app/storage/models /app/storage/config /app/storage/logs
+
+# Set working directory
+WORKDIR /app
+
+# Default command runs all tests
+CMD ["python", "run_tests.py", "all"]

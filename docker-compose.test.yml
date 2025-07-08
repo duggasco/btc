@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: btc-test-runner
+    volumes:
+      # Mount source code for live updates
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./pytest.ini:/app/pytest.ini:ro
+      - ./run_tests.py:/app/run_tests.py:ro
+      # Mount output directories
+      - ./test-results:/app/test-results
+      - ./htmlcov:/app/htmlcov
+    environment:
+      - PYTHONPATH=/app/src/backend:/app/src/frontend:/app
+      - DATABASE_PATH=/app/storage/data/test_trading_system.db
+      - MODEL_PATH=/app/storage/models
+      - CONFIG_PATH=/app/storage/config
+      - DISCORD_WEBHOOK_URL=
+    networks:
+      - test-network
+    command: ["python", "run_tests.py", "all"]
+
+networks:
+  test-network:
+    driver: bridge

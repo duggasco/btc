@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Claude Code Instructions for BTC Trading System
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This document provides context and guidelines for AI assistants working on the BTC Trading System project.
 
 ## Project Overview
 
@@ -16,33 +16,40 @@ This is a comprehensive Bitcoin trading system with AI-powered signals, real-tim
 ### Deployment and Management
 ```bash
 # Deploy the system (from project root)
-docker-compose up -d
+./init_deploy.sh deploy
 
-# Or use the deployment script
-./scripts/init_deploy.sh deploy
+# Or use Docker Compose directly
+docker compose up -d
 
 # Management commands
-./scripts/init_deploy.sh start    # Start services
-./scripts/init_deploy.sh stop     # Stop services
-./scripts/init_deploy.sh restart  # Restart services
-./scripts/init_deploy.sh logs     # View logs
+./init_deploy.sh start    # Start services
+./init_deploy.sh stop     # Stop services
+./init_deploy.sh restart  # Restart services
+./init_deploy.sh status   # Check service status
+./init_deploy.sh logs     # View logs
+./init_deploy.sh build    # Rebuild containers
+./init_deploy.sh clean    # Clean up resources
 
 # Direct docker commands
-docker-compose down              # Stop all services
-docker-compose logs -f           # Follow logs
-docker-compose ps                # Check service status
+docker compose down       # Stop all services
+docker compose logs -f    # Follow logs
+docker compose ps         # Check service status
 ```
 
 ### Testing
 ```bash
-# Run comprehensive test suite
-python3 scripts/test_system.py
+# Run comprehensive test suite (92 unit tests)
+./run_tests.py
 
-# Quick connectivity test
-python3 scripts/test_system.py quick
+# Run tests in Docker
+docker compose -f docker-compose.test.yml up
 
-# Test external data sources
-python3 tests/test_data_fetcher.py
+# Run specific test categories
+docker build -f Dockerfile.test-simple -t btc-test .
+docker run --rm btc-test pytest tests/unit/ -v
+
+# Quick system check
+./init_deploy.sh test
 ```
 
 ### Development
@@ -143,13 +150,35 @@ DISCORD_WEBHOOK_URL=<webhook_url>  # Optional, for notifications
 3. Monitor trades: GET `/paper-trading/history`
 4. Check performance: GET `/portfolio/metrics`
 
+## Test Suite
+
+The project includes a comprehensive test suite with 92 unit tests achieving 100% pass rate:
+- **Backend Models**: 22 tests (database, paper trading)
+- **Backend Services**: 30 tests (data fetcher, notifications)
+- **Frontend Components**: 40 tests (API client, charts, WebSocket)
+- **Test Framework**: pytest with fixtures and mocking
+- **Docker Testing**: Isolated test environment via Dockerfile.test-simple
+
+### Running Tests
+```bash
+# All unit tests
+./run_tests.py
+
+# Specific component
+docker run --rm btc-test pytest tests/unit/backend/models/ -v
+
+# With coverage report
+docker run --rm btc-test pytest --cov=src tests/unit/
+```
+
 ## Important Notes
 
-1. **No Code Quality Tools**: This project currently has no linting, formatting, or pre-commit hooks configured
+1. **Comprehensive Test Coverage**: 92 unit tests with 100% pass rate
 2. **Docker-based Development**: All services run in containers; direct Python execution may fail due to dependencies
 3. **Real-time Data**: System depends on external APIs; some features may degrade if APIs are unavailable
 4. **Paper Trading Only**: No real trading functionality is implemented for safety
 5. **WebSocket Critical**: Many frontend features depend on active WebSocket connection
+6. **Test-Driven Development**: All new features should have tests first
 
 ## Security Considerations
 

@@ -288,11 +288,34 @@ case "${1:-deploy}" in
         echo ""
         show_status
         ;;
+    "test-enhanced")
+        discord_info "Running enhanced LSTM tests..."
+        print_info "Testing enhanced LSTM modules..."
+        print_info "Note: This may take 5-10 minutes due to TA-Lib compilation..."
+        
+        # Build and run enhanced tests with extended timeout
+        export DOCKER_BUILDKIT_TIMEOUT=600
+        export COMPOSE_HTTP_TIMEOUT=600
+        
+        docker compose -f docker-compose.test-enhanced.yml build --no-cache
+        docker compose -f docker-compose.test-enhanced.yml up --abort-on-container-exit --timeout 600
+        docker compose -f docker-compose.test-enhanced.yml down
+        
+        # If system is running, test the endpoints
+        if docker compose ps | grep -q "Up"; then
+            print_info "Testing enhanced LSTM endpoints..."
+            docker run --rm --network=btc_default -v $(pwd)/scripts:/scripts python:3.11-slim \
+                bash -c "pip install requests && python /scripts/test_enhanced_system.py"
+        fi
+        
+        discord_success "Enhanced LSTM tests completed"
+        ;;
     *)
-        echo "Usage: $0 {deploy|start|stop|restart|logs|build|test|clean|status}"
+        echo "Usage: $0 {deploy|start|stop|restart|logs|build|test|test-enhanced|clean|status}"
         echo ""
         echo "Commands:"
-        echo "  deploy    - Full deployment (default)"
+        echo "  deploy        - Full deployment (default)"
+        echo "  test-enhanced - Test enhanced LSTM modules"
         echo "  start     - Start services"
         echo "  stop      - Stop services"
         echo "  restart   - Restart services"

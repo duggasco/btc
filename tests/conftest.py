@@ -164,6 +164,7 @@ def api_client(mock_db_path, mock_model_path, mock_config_path):
     os.environ['MODEL_PATH'] = mock_model_path
     os.environ['CONFIG_PATH'] = mock_config_path
     os.environ['DISCORD_WEBHOOK_URL'] = ''  # Disable Discord
+    os.environ['TESTING'] = 'true'  # Disable signal updater for tests
     
     # Import app after setting env vars
     from api.main import app

@@ -11,7 +11,7 @@ import sys
 from datetime import datetime
 
 # Configuration
-API_BASE_URL = "http://localhost:8080"
+API_BASE_URL = "http://localhost:8090"
 FRONTEND_URL = "http://localhost:8501"
 
 class Colors:

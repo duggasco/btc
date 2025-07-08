@@ -1,0 +1,28 @@
+# Dockerfile for testing frontend functionality
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    curl \
+    netcat-traditional \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy test dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir requests websocket-client
+
+# Copy test scripts
+COPY scripts/test_frontend_functionality.py /app/
+COPY scripts/test_frontend_simple.py /app/
+COPY scripts/test_all_endpoints.py /app/
+
+# Make scripts executable
+RUN chmod +x /app/*.py
+
+# Create reports directory
+RUN mkdir -p /app/reports
+
+# Default to running the comprehensive test
+CMD ["python", "/app/test_all_endpoints.py"]

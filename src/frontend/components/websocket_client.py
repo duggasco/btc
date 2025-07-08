@@ -25,6 +25,10 @@ class EnhancedWebSocketClient:
         self.connection_start = None
         self.messages_received = 0
         
+        # Message type handlers
+        self.on_price_update = None
+        self.on_signal_update = None
+        
     def on_message(self, ws, message):
         try:
             data = json.loads(message)
@@ -43,6 +47,18 @@ class EnhancedWebSocketClient:
                     self.callbacks[msg_type](data)
                 except Exception as e:
                     logger.error(f"Callback error for {msg_type}: {e}")
+            
+            # Handle message type specific handlers
+            if msg_type == "price_update" and self.on_price_update:
+                try:
+                    self.on_price_update(data.get("data", {}))
+                except Exception as e:
+                    logger.error(f"Price update handler error: {e}")
+            elif msg_type == "signal_update" and self.on_signal_update:
+                try:
+                    self.on_signal_update(data.get("data", {}))
+                except Exception as e:
+                    logger.error(f"Signal update handler error: {e}")
                     
         except json.JSONDecodeError:
             logger.warning(f"Invalid WebSocket message: {message}")

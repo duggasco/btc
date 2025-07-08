@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  test-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-frontend
+    container_name: btc-test-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - btc-network
+    environment:
+      - API_BASE_URL=http://backend:8000
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./test_reports:/app/reports
+    command: >
+      bash -c "
+        echo 'Waiting for services to be ready...' &&
+        sleep 5 &&
+        echo 'Running comprehensive API tests...' &&
+        python /app/test_all_endpoints.py &&
+        echo 'Tests completed. Check reports in ./test_reports/'
+      "
+
+  backend:
+    image: btc-backend
+    container_name: btc-trading-backend-test
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      - DATABASE_PATH=/app/data/trading_system.db
+      - MODEL_PATH=/app/models
+      - CONFIG_PATH=/app/config
+      - LOG_PATH=/app/logs
+      - PYTHONPATH=/app
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+    volumes:
+      - test_data:/app/data
+      - test_models:/app/models
+      - test_config:/app/config
+      - test_logs:/app/logs
+    ports:
+      - "8090:8000"
+    networks:
+      - btc-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+
+networks:
+  btc-network:
+    driver: bridge
+
+volumes:
+  test_data:
+  test_models:
+  test_config:
+  test_logs:

@@ -1357,6 +1357,12 @@ class ExternalDataFetcher:
     
     def fetch_current_price(self, symbol: str = "BTC") -> Optional[Dict[str, float]]:
         """Fetch current price data for testing compatibility"""
+        # Check cache first
+        cache_key = self._get_cache_key('price', symbol, 'current')
+        cached_data = self._get_from_cache(cache_key)
+        if cached_data is not None:
+            return cached_data
+            
         try:
             # Try CoinGecko first
             response = self.session.get(
@@ -1373,12 +1379,15 @@ class ExternalDataFetcher:
             if response.status_code == 200:
                 data = response.json()
                 bitcoin_data = data.get('bitcoin', {})
-                return {
+                result = {
                     'price': bitcoin_data.get('usd', 0),
                     'volume': bitcoin_data.get('usd_24h_vol', 0),
                     'change_24h': bitcoin_data.get('usd_24h_change', 0),
                     'timestamp': datetime.now().isoformat()
                 }
+                # Cache for shorter duration (60 seconds for price data)
+                self._save_to_cache(cache_key, result, duration=self.cache_duration)
+                return result
         except Exception as e:
             logger.error(f"Error fetching current price: {e}")
         
@@ -1392,12 +1401,15 @@ class ExternalDataFetcher:
             
             if response.status_code == 200:
                 data = response.json()
-                return {
+                result = {
                     'price': float(data.get('lastPrice', 0)),
                     'volume': float(data.get('volume', 0)),
                     'change_24h': float(data.get('priceChangePercent', 0)),
                     'timestamp': datetime.now().isoformat()
                 }
+                # Cache the result
+                self._save_to_cache(cache_key, result, duration=self.cache_duration)
+                return result
         except Exception as e:
             logger.error(f"Binance fallback also failed: {e}")
         
@@ -1457,6 +1469,65 @@ class ExternalDataFetcher:
             'price': self.fetch_current_price(),
             'fear_greed': self.fetch_fear_greed_index(),
             'network_stats': self.fetch_network_stats()
+        }
+    
+    def _fetch_sp500_data(self) -> Dict[str, float]:
+        """Fetch S&P 500 data"""
+        try:
+            df = self.fetch_macro_data('SPY', '1d')
+            if not df.empty:
+                current_price = float(df['Close'].iloc[-1])
+                prev_price = float(df['Close'].iloc[-2]) if len(df) > 1 else current_price
+                change = ((current_price - prev_price) / prev_price * 100) if prev_price > 0 else 0
+                return {
+                    'value': current_price,
+                    'change': change
+                }
+        except Exception as e:
+            logger.error(f"Error fetching S&P 500 data: {e}")
+        
+        return {'value': 450, 'change': 0}
+    
+    def _fetch_gold_data(self) -> Dict[str, float]:
+        """Fetch Gold data"""
+        try:
+            df = self.fetch_macro_data('GLD', '1d')
+            if not df.empty:
+                current_price = float(df['Close'].iloc[-1])
+                prev_price = float(df['Close'].iloc[-2]) if len(df) > 1 else current_price
+                change = ((current_price - prev_price) / prev_price * 100) if prev_price > 0 else 0
+                return {
+                    'value': current_price,
+                    'change': change
+                }
+        except Exception as e:
+            logger.error(f"Error fetching Gold data: {e}")
+        
+        return {'value': 180, 'change': 0}
+    
+    def _fetch_dxy_data(self) -> Dict[str, float]:
+        """Fetch US Dollar Index data"""
+        try:
+            df = self.fetch_macro_data('DXY', '1d')
+            if not df.empty:
+                current_price = float(df['Close'].iloc[-1])
+                prev_price = float(df['Close'].iloc[-2]) if len(df) > 1 else current_price
+                change = ((current_price - prev_price) / prev_price * 100) if prev_price > 0 else 0
+                return {
+                    'value': current_price,
+                    'change': change
+                }
+        except Exception as e:
+            logger.error(f"Error fetching DXY data: {e}")
+        
+        return {'value': 105, 'change': 0}
+    
+    def fetch_macro_indicators(self) -> Dict[str, Dict[str, float]]:
+        """Fetch all macro indicators"""
+        return {
+            'sp500': self._fetch_sp500_data(),
+            'gold': self._fetch_gold_data(),
+            'dxy': self._fetch_dxy_data()
         }
     
     def _get_cache_key(self, data_type: str, symbol: str, period: str) -> str:

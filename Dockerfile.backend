@@ -28,6 +28,11 @@ RUN update-ca-certificates
 
 # Copy requirements first for better caching
 COPY src/backend/requirements.txt /tmp/requirements.txt
+
+# Install numpy first (needed by TA-Lib)
+RUN pip install --no-cache-dir numpy==1.24.3
+
+# Then install the rest
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r /tmp/requirements.txt
 
 # Don't create directories that will be volume mounts

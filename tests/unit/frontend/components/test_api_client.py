@@ -72,46 +72,52 @@ class TestAPIClient:
         assert result == {"status": "success"}
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="get_current_price method not implemented")
     def test_caching_mechanism(self, api_client):
         """Test request caching"""
-        with patch.object(api_client, '_get') as mock_get:
-            mock_get.return_value = {"price": 50000}
+        # Mock the session.request to track actual HTTP calls
+        with patch.object(api_client.session, 'request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"price": 50000}
+            mock_response.headers = {}
+            mock_request.return_value = mock_response
             
             # First call - should hit API
-            result1 = api_client.get_current_price()
-            assert mock_get.call_count == 1
+            result1 = api_client.get("/price/current")
+            assert mock_request.call_count == 1
             assert result1 == {"price": 50000}
             
             # Second call within cache duration - should use cache
-            result2 = api_client.get_current_price()
-            assert mock_get.call_count == 1  # No additional call
+            result2 = api_client.get("/price/current")
+            assert mock_request.call_count == 1  # No additional call
             assert result2 == {"price": 50000}
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="get_current_price method not implemented")
     def test_cache_expiration(self, api_client):
         """Test cache expiration"""
         # Reduce cache duration for testing
-        api_client.cache_duration = 0.1  # 0.1 seconds
+        api_client._cache_ttl = 0.1  # 0.1 seconds
         
-        with patch.object(api_client, '_get') as mock_get:
-            mock_get.return_value = {"price": 50000}
+        with patch.object(api_client.session, 'request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"price": 50000}
+            mock_response.headers = {}
+            mock_request.return_value = mock_response
             
             # First call
-            api_client.get_current_price()
+            api_client.get("/price/current")
             
             # Wait for cache to expire
             import time
             time.sleep(0.2)
             
             # Second call - should hit API again
-            api_client.get_current_price()
-            assert mock_get.call_count == 2
+            api_client.get("/price/current")
+            assert mock_request.call_count == 2
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="get_current_price method not implemented")
-    @patch.object(APIClient, '_get')
+    @patch.object(APIClient, 'get')
     def test_get_current_price(self, mock_get, api_client):
         """Test get current price method"""
         mock_get.return_value = {
@@ -126,8 +132,7 @@ class TestAPIClient:
         mock_get.assert_called_with("/price/current")
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="get_latest_signal method not implemented")
-    @patch.object(APIClient, '_get')
+    @patch.object(APIClient, 'get')
     def test_get_latest_signal(self, mock_get, api_client):
         """Test get latest signal method"""
         mock_get.return_value = {
@@ -143,8 +148,7 @@ class TestAPIClient:
         mock_get.assert_called_with("/signals/enhanced/latest")
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="get_portfolio_metrics method not implemented")
-    @patch.object(APIClient, '_get')
+    @patch.object(APIClient, 'get')
     def test_get_portfolio_metrics(self, mock_get, api_client):
         """Test get portfolio metrics method"""
         mock_get.return_value = {

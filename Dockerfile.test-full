@@ -1,0 +1,34 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y gcc g++ && rm -rf /var/lib/apt/lists/*
+
+# Copy all requirements
+COPY src/backend/requirements.txt /tmp/backend-requirements.txt
+COPY src/frontend/requirements.txt /tmp/frontend-requirements.txt
+COPY tests/requirements.txt /tmp/test-requirements.txt
+
+# Install all dependencies including PyTorch
+RUN pip install --no-cache-dir -r /tmp/backend-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/frontend-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/test-requirements.txt
+
+# Copy source and tests
+COPY src /app/src
+COPY tests /app/tests
+COPY pytest.ini /app/
+COPY run_tests.py /app/
+
+# Set Python path
+ENV PYTHONPATH=/app/src/backend:/app/src/frontend:/app
+ENV PYTHONUNBUFFERED=1
+
+# Create necessary directories
+RUN mkdir -p /app/storage/data /app/storage/models /app/storage/config /app/storage/logs/backend /app/storage/logs/frontend
+
+WORKDIR /app
+
+# Run all tests by default
+CMD ["python", "-m", "pytest", "-v"]

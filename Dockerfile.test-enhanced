@@ -1,0 +1,32 @@
+# Dockerfile for testing enhanced LSTM modules
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install numpy first (needed by TA-Lib)
+RUN pip install --no-cache-dir numpy==1.24.3
+
+# Then install the rest
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY src/ ./src/
+COPY tests/ ./tests/
+COPY pytest.ini .
+COPY test_enhanced_imports.py .
+
+# Set Python path
+ENV PYTHONPATH=/app/src/backend
+
+# Default command - run import test
+CMD ["python", "test_enhanced_imports.py"]

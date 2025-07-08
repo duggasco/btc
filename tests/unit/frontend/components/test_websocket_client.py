@@ -195,7 +195,6 @@ class TestWebSocketClient:
         # which is executed in a separate thread
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="Handler properties not implemented in current version")
     def test_message_handlers(self, ws_client):
         """Test message type handlers"""
         price_handler_called = False
@@ -216,19 +215,20 @@ class TestWebSocketClient:
         ws_client.on_signal_update = signal_handler
         
         # Simulate messages
-        ws_client._on_message(Mock(), json.dumps({
+        ws_client.on_message(Mock(), json.dumps({
             "type": "price_update",
             "data": {"price": 50000}
         }))
         
-        ws_client._on_message(Mock(), json.dumps({
+        ws_client.on_message(Mock(), json.dumps({
             "type": "signal_update",
             "data": {"signal": "buy"}
         }))
         
         # Process messages
-        price_msg = ws_client.get_message()
-        signal_msg = ws_client.get_message()
+        messages = ws_client.get_messages(2)
+        price_msg = messages[0] if messages else None
+        signal_msg = messages[1] if len(messages) > 1 else None
         
         # Handlers would be called in real implementation
         # Here we just verify messages were queued correctly

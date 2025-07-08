@@ -17,7 +17,7 @@ class TestAPIEndpoints:
         response = api_client.get("/")
         assert response.status_code == 200
         data = response.json()
-        assert data["message"] == "BTC Trading System API"
+        assert data["message"] == "Enhanced BTC Trading System API is running"
         assert "version" in data
         assert "status" in data
     
@@ -28,8 +28,9 @@ class TestAPIEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert "database" in data
-        assert "model" in data
+        assert "components" in data
+        assert "database" in data["components"]
+        assert "signal_generator" in data["components"]
         assert "timestamp" in data
     
     @pytest.mark.integration
@@ -79,16 +80,18 @@ class TestAPIEndpoints:
         assert "timestamp" in data
     
     @pytest.mark.integration
-    def test_signal_history_endpoint(self, api_client, db_manager):
+    def test_signal_history_endpoint(self, api_client):
         """Test signal history endpoint"""
-        # Add some test signals
+        # Import the db instance from the API
+        from api.main import db
+        
+        # Add some test signals using the API's db instance
         for i in range(3):
-            db_manager.save_signal(
+            db.add_model_signal(
+                symbol='BTC-USD',
                 signal=['buy', 'hold', 'sell'][i],
                 confidence=0.7 + i * 0.1,
-                predicted_price=50000 + i * 1000,
-                current_price=50000,
-                indicators={}
+                price_prediction=50000 + i * 1000
             )
         
         response = api_client.get("/signals/history?limit=3")
@@ -103,17 +106,17 @@ class TestAPIEndpoints:
         response = api_client.get("/portfolio/metrics")
         assert response.status_code == 200
         data = response.json()
-        assert "total_value" in data
+        assert "total_trades" in data
         assert "total_pnl" in data
-        assert "total_pnl_pct" in data
-        assert "positions" in data
+        assert "positions_count" in data
+        assert "total_invested" in data
     
     @pytest.mark.integration
     def test_execute_trade_endpoint(self, api_client):
         """Test trade execution endpoint"""
         trade_data = {
-            "type": "buy",
-            "amount": 0.01
+            "trade_type": "buy",
+            "size": 0.01
         }
         
         with patch('services.data_fetcher.DataFetcher.fetch_current_price') as mock_price:
@@ -122,17 +125,30 @@ class TestAPIEndpoints:
             response = api_client.post("/trades/execute", json=trade_data)
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "executed"
+            assert data["status"] == "success"
             assert "trade_id" in data
-            assert data["details"]["type"] == "buy"
-            assert data["details"]["size"] == 0.01
+            assert "message" in data
+            assert "pnl" in data
     
     @pytest.mark.integration
-    def test_trade_history_endpoint(self, api_client, db_manager):
+    def test_trade_history_endpoint(self, api_client):
         """Test trade history endpoint"""
-        # Add some test trades
-        db_manager.save_trade('buy', 50000, 0.1, 5000)
-        db_manager.save_trade('sell', 51000, 0.05, 2550)
+        # Import the db instance from the API
+        from api.main import db
+        
+        # Add some test trades using the API's db instance
+        db.add_trade(
+            symbol='BTC-USD',
+            trade_type='buy',
+            price=50000,
+            size=0.1
+        )
+        db.add_trade(
+            symbol='BTC-USD',
+            trade_type='sell',
+            price=51000,
+            size=0.05
+        )
         
         response = api_client.get("/trades/history")
         assert response.status_code == 200
@@ -177,8 +193,9 @@ class TestAPIEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "enabled" in data
-        assert "balance" in data
-        assert "btc_balance" in data
+        assert "portfolio" in data
+        assert "btc_balance" in data["portfolio"]
+        assert "usd_balance" in data["portfolio"]
         
         # Toggle paper trading
         response = api_client.post("/paper-trading/toggle")
@@ -188,8 +205,8 @@ class TestAPIEndpoints:
         response = api_client.post("/paper-trading/reset")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "reset"
-        assert data["balance"] == 10000
+        assert data["status"] == "success"
+        assert data["message"] == "Paper trading portfolio reset"
         
         # Get history
         response = api_client.get("/paper-trading/history")

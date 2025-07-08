@@ -143,7 +143,6 @@ class TestDataFetcher:
         assert result['fees_usd'] == 10
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="Caching not implemented in DataFetcher")
     def test_cache_functionality(self):
         """Test caching mechanism"""
         fetcher = DataFetcher()
@@ -212,7 +211,6 @@ class TestDataFetcher:
         assert result is None or 'price' in result
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="Macro indicator methods not implemented")
     def test_fetch_macro_indicators(self):
         """Test fetching macro indicators (mocked)"""
         fetcher = DataFetcher()
@@ -230,7 +228,6 @@ class TestDataFetcher:
             pass
     
     @pytest.mark.unit
-    @pytest.mark.skip(reason="Caching not implemented, concurrent requests would all hit API")
     @patch('requests.Session.get')
     def test_concurrent_requests(self, mock_get):
         """Test handling concurrent API requests"""

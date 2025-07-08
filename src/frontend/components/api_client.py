@@ -220,4 +220,16 @@ class APIClient:
     def toggle_paper_trading(self) -> Optional[Dict[str, Any]]:
         """Toggle paper trading on/off"""
         return self.post("/paper-trading/toggle", {})
+    
+    def get_current_price(self) -> Optional[Dict[str, Any]]:
+        """Get current Bitcoin price with caching"""
+        return self.get("/price/current")
+    
+    def get_latest_signal(self) -> Optional[Dict[str, Any]]:
+        """Get latest trading signal"""
+        return self.get("/signals/enhanced/latest")
+    
+    def get_portfolio_metrics(self) -> Optional[Dict[str, Any]]:
+        """Get portfolio performance metrics"""
+        return self.get("/portfolio/metrics")
 

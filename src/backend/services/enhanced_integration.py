@@ -338,8 +338,12 @@ class EnhancedTradingSystem:
             avg_confidence = np.mean(confidences)
             prediction_std = np.std(predictions)
             
-            # Current price
-            current_price = float(latest_data['Close'].iloc[-1])
+            # Get real-time current price instead of using historical data
+            try:
+                current_price = self.data_fetcher.get_current_btc_price()
+            except Exception as e:
+                logger.warning(f"Failed to get real-time price, falling back to latest historical: {e}")
+                current_price = float(latest_data['Close'].iloc[-1])
             
             # Log prediction details for debugging
             logger.info(f"Current price: ${current_price:,.2f}")
@@ -468,8 +472,12 @@ class EnhancedTradingSystem:
                 'note': 'No data available'
             }
             
-        # Simple technical rules
-        close = data['Close'].iloc[-1]
+        # Get real-time current price
+        try:
+            close = self.data_fetcher.get_current_btc_price()
+        except Exception as e:
+            logger.warning(f"Failed to get real-time price in rule-based signal, using historical: {e}")
+            close = data['Close'].iloc[-1]
         sma_20 = data['Close'].rolling(20).mean().iloc[-1] if len(data) >= 20 else close
         sma_50 = data['Close'].rolling(50).mean().iloc[-1] if len(data) >= 50 else close
         

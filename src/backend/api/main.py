@@ -198,6 +198,32 @@ rate_limiter = RateLimiter()
 paper_trading_enabled = False
 paper_trading = None  # Will be initialized in lifespan
 
+# Helper function to get current BTC price
+def get_current_btc_price() -> float:
+    """
+    Get current BTC price from real-time sources or fall back to historical data
+    """
+    global enhanced_trading_system, latest_btc_data
+    
+    # Try to get real-time price from enhanced trading system's data fetcher
+    if enhanced_trading_system is not None and hasattr(enhanced_trading_system, 'data_fetcher'):
+        try:
+            price = enhanced_trading_system.data_fetcher.get_current_btc_price()
+            logger.info(f"Got real-time BTC price: ${price:,.2f}")
+            return price
+        except Exception as e:
+            logger.warning(f"Failed to get real-time price: {e}")
+    
+    # Fall back to latest historical data
+    if latest_btc_data is not None and len(latest_btc_data) > 0:
+        price = float(latest_btc_data['Close'].iloc[-1])
+        logger.warning(f"Using historical BTC price: ${price:,.2f}")
+        return price
+    
+    # Last resort default
+    logger.error("No price data available, using default")
+    return 108000.0  # Updated default to realistic current price
+
 def execute_paper_trade(signal: str, confidence: float):
     """Execute paper trades based on signals with persistence"""
     global paper_trading
@@ -209,7 +235,7 @@ def execute_paper_trade(signal: str, confidence: float):
     if not latest_btc_data or len(latest_btc_data) == 0:
         return
     
-    current_price = float(latest_btc_data['Close'].iloc[-1])
+    current_price = get_current_btc_price()
     
     # Get current portfolio state
     portfolio = paper_trading.get_portfolio()
@@ -396,7 +422,7 @@ class SignalUpdater:
                 
                 if paper_trading_enabled and paper_trading and latest_btc_data is not None:
                     try:
-                        current_price = float(latest_btc_data['Close'].iloc[-1])
+                        current_price = get_current_btc_price()
                         paper_trading.save_performance_snapshot(current_price)
                         logger.debug("Paper trading performance snapshot saved")
                     except Exception as e:
@@ -422,7 +448,7 @@ class SignalUpdater:
         
         if latest_btc_data is not None and len(latest_btc_data) > 0:
             price_data = {
-                "price": float(latest_btc_data['Close'].iloc[-1]),
+                "price": get_current_btc_price(),
                 "timestamp": datetime.now().isoformat()
             }
             await manager.broadcast_price_update(price_data)
@@ -536,7 +562,7 @@ class SignalUpdater:
             
             # Send Discord notification if signal changed
             if discord_notifier and hasattr(discord_notifier, 'last_signal') and discord_notifier.last_signal != signal:
-                discord_notifier.notify_signal_update(signal, confidence, predicted_price, btc_data['Close'].iloc[-1])
+                discord_notifier.notify_signal_update(signal, confidence, predicted_price, get_current_btc_price())
             
             # Execute paper trades if enabled (NEW)
             if paper_trading_enabled:
@@ -682,7 +708,7 @@ async def lifespan(app: FastAPI):
     # Save initial paper trading snapshot if enabled
     if paper_trading_enabled and paper_trading and latest_btc_data is not None:
         try:
-            current_price = float(latest_btc_data['Close'].iloc[-1])
+            current_price = get_current_btc_price()
             paper_trading.save_performance_snapshot(current_price)
             logger.info("Initial paper trading performance snapshot saved")
         except Exception as e:
@@ -705,7 +731,7 @@ async def lifespan(app: FastAPI):
     # Save final paper trading snapshot
     if paper_trading and latest_btc_data is not None:
         try:
-            current_price = float(latest_btc_data['Close'].iloc[-1])
+            current_price = get_current_btc_price()
             paper_trading.save_performance_snapshot(current_price)
             
             # Log final portfolio state
@@ -1226,7 +1252,7 @@ async def create_limit_order(limit_order: LimitOrder):
         
         # Send Discord notification
         if discord_notifier:
-            current_price = latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None else 0
+            current_price = get_current_btc_price() if latest_btc_data is not None else 0
             discord_notifier.notify_limit_triggered(
                 limit_order.limit_type, limit_order.price, current_price, limit_order.size
             )
@@ -1303,7 +1329,7 @@ async def get_portfolio_metrics():
         # Add current BTC price if available
         if latest_btc_data is not None and len(latest_btc_data) > 0:
             try:
-                metrics['current_btc_price'] = float(latest_btc_data['Close'].iloc[-1])
+                metrics['current_btc_price'] = get_current_btc_price()
             except Exception as e:
                 logger.warning(f"Failed to get current BTC price: {e}")
                 metrics['current_btc_price'] = None
@@ -1435,7 +1461,7 @@ async def get_market_data():
         price_data = fetcher.fetch_current_price()
         if not price_data:
             price_data = {
-                "price": latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None else 50000,
+                "price": get_current_btc_price() if latest_btc_data is not None else 108000,
                 "volume": 0,
                 "change_24h": 0
             }
@@ -1550,7 +1576,7 @@ async def get_current_price():
         else:
             # Fallback to latest known price
             if latest_btc_data is not None and len(latest_btc_data) > 0:
-                current_price = float(latest_btc_data['Close'].iloc[-1])
+                current_price = get_current_btc_price()
                 return {
                     "price": current_price,
                     "volume": 0,
@@ -2372,7 +2398,7 @@ async def get_system_status():
                 current_price = 45000  # Default price
                 
                 if latest_btc_data is not None and len(latest_btc_data) > 0 and 'Close' in latest_btc_data.columns:
-                    current_price = float(latest_btc_data['Close'].iloc[-1])
+                    current_price = get_current_btc_price()
                 
                 portfolio_value = portfolio_data['usd_balance'] + (portfolio_data['btc_balance'] * current_price)
             except Exception as e:
@@ -2630,7 +2656,7 @@ async def execute_trade(request: dict):
     trade = TradeRequest(
         symbol=request.get("symbol", "BTC-USD"),
         trade_type=trade_type,
-        price=latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None else 45000.0,
+        price=get_current_btc_price() if latest_btc_data is not None else 108000.0,
         size=request.get("size", 0.001),
         lot_id=request.get("lot_id"),
         notes=request.get("reason", "manual")
@@ -2683,7 +2709,7 @@ async def get_paper_trading_status():
         raise HTTPException(status_code=500, detail="Paper trading not initialized")
     
     portfolio = paper_trading.get_portfolio()
-    current_price = latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 45000
+    current_price = get_current_btc_price() if latest_btc_data is not None and len(latest_btc_data) > 0 else 108000
     metrics = paper_trading.calculate_performance_metrics(current_price)
     
     return {
@@ -2778,7 +2804,7 @@ async def run_monte_carlo_simulation(
         simulations = []
         for _ in range(num_simulations):
             daily_returns = np.random.normal(mean_return, std_return, time_horizon_days)
-            price_path = [latest_btc_data['Close'].iloc[-1]]
+            price_path = [get_current_btc_price()]
             
             for ret in daily_returns:
                 price_path.append(price_path[-1] * (1 + ret))
@@ -2790,7 +2816,7 @@ async def run_monte_carlo_simulation(
         percentiles = np.percentile(simulations, [5, 25, 50, 75, 95])
         
         return {
-            "current_price": float(latest_btc_data['Close'].iloc[-1]),
+            "current_price": get_current_btc_price(),
             "simulations": num_simulations,
             "time_horizon_days": time_horizon_days,
             "statistics": {
@@ -2806,7 +2832,7 @@ async def run_monte_carlo_simulation(
                     "95%": float(percentiles[4])
                 }
             },
-            "probability_profit": float((simulations > latest_btc_data['Close'].iloc[-1]).mean())
+            "probability_profit": float((simulations > get_current_btc_price()).mean())
         }
         
     except Exception as e:
@@ -3147,7 +3173,7 @@ async def get_enhanced_lstm_prediction():
             "signal": fallback_signal.get("signal", "hold").upper(),
             "confidence": fallback_signal.get("confidence", 0.5),
             "predicted_price": fallback_signal.get("predicted_price", 45000.0),
-            "current_price": latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 45000.0,
+            "current_price": get_current_btc_price() if latest_btc_data is not None and len(latest_btc_data) > 0 else 108000.0,
             "message": "Enhanced LSTM model not trained. Using standard LSTM signals.",
             "timestamp": datetime.now(),
             "source": "lstm_fallback",
@@ -3290,7 +3316,7 @@ async def get_btc_metrics():
         returns = latest_btc_data['Close'].pct_change().dropna()
         
         # Safe calculations with bounds checking
-        current_price = float(latest_btc_data['Close'].iloc[-1])
+        current_price = get_current_btc_price()
         high_24h = float(latest_btc_data['High'].tail(1).iloc[0]) if len(latest_btc_data) >= 1 else current_price
         low_24h = float(latest_btc_data['Low'].tail(1).iloc[0]) if len(latest_btc_data) >= 1 else current_price
         
@@ -3298,21 +3324,21 @@ async def get_btc_metrics():
         change_24h = 0.0
         if len(latest_btc_data) > 1:
             try:
-                change_24h = ((latest_btc_data['Close'].iloc[-1] / latest_btc_data['Close'].iloc[-2]) - 1) * 100
+                change_24h = ((get_current_btc_price() / latest_btc_data['Close'].iloc[-2]) - 1) * 100
             except:
                 change_24h = 0.0
         
         change_7d = 0.0
         if len(latest_btc_data) > 7:
             try:
-                change_7d = ((latest_btc_data['Close'].iloc[-1] / latest_btc_data['Close'].iloc[-7]) - 1) * 100
+                change_7d = ((get_current_btc_price() / latest_btc_data['Close'].iloc[-7]) - 1) * 100
             except:
                 change_7d = 0.0
         
         change_30d = 0.0
         if len(latest_btc_data) > 30:
             try:
-                change_30d = ((latest_btc_data['Close'].iloc[-1] / latest_btc_data['Close'].iloc[-30]) - 1) * 100
+                change_30d = ((get_current_btc_price() / latest_btc_data['Close'].iloc[-30]) - 1) * 100
             except:
                 change_30d = 0.0
         
@@ -3457,7 +3483,7 @@ async def get_technical_indicators():
         # If no signals or empty, calculate from latest data
         if not signals and latest_btc_data is not None and len(latest_btc_data) > 0:
             try:
-                current_price = float(latest_btc_data['Close'].iloc[-1])
+                current_price = get_current_btc_price()
                 signals = {
                     "sma_20": float(latest_btc_data['Close'].tail(20).mean()) if len(latest_btc_data) > 20 else current_price,
                     "sma_50": float(latest_btc_data['Close'].tail(50).mean()) if len(latest_btc_data) > 50 else current_price,
@@ -3657,7 +3683,7 @@ async def get_portfolio_positions():
         return {"positions": [], "summary": {}}
     
     portfolio = paper_trading.get_portfolio()
-    current_price = latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 0
+    current_price = get_current_btc_price() if latest_btc_data is not None and len(latest_btc_data) > 0 else 0
     
     positions = []
     if portfolio['btc_balance'] > 0:
@@ -3720,7 +3746,7 @@ async def execute_paper_trade(request: dict):
     amount = request.get("amount")
     order_type = request.get("order_type", "market")
     
-    current_price = latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 0
+    current_price = get_current_btc_price() if latest_btc_data is not None and len(latest_btc_data) > 0 else 0
     
     if current_price <= 0:
         raise HTTPException(status_code=400, detail="Invalid price data")
@@ -3797,7 +3823,7 @@ async def close_paper_position():
             "portfolio": portfolio
         }
     
-    current_price = latest_btc_data['Close'].iloc[-1] if latest_btc_data is not None and len(latest_btc_data) > 0 else 0
+    current_price = get_current_btc_price() if latest_btc_data is not None and len(latest_btc_data) > 0 else 0
     
     success, message = paper_trading.execute_trade("sell", current_price, portfolio['btc_balance'])
     
@@ -4083,7 +4109,7 @@ async def get_market_regime():
     # Calculate regime indicators
     returns = latest_btc_data['Close'].pct_change().dropna()
     volatility = returns.std() * np.sqrt(365)
-    trend = "up" if latest_btc_data['Close'].iloc[-1] > latest_btc_data['Close'].iloc[-20] else "down"
+    trend = "up" if get_current_btc_price() > latest_btc_data['Close'].iloc[-20] else "down"
     
     # Determine regime
     if volatility < 0.4:
@@ -4101,7 +4127,7 @@ async def get_market_regime():
             "trend": trend,
             "volatility": volatility,
             "volatility_regime": vol_regime,
-            "sma_position": "above" if latest_btc_data['Close'].iloc[-1] > latest_btc_data['Close'].tail(50).mean() else "below",
+            "sma_position": "above" if get_current_btc_price() > latest_btc_data['Close'].tail(50).mean() else "below",
             "momentum": "positive" if returns.tail(10).mean() > 0 else "negative"
         },
         "recommendations": {

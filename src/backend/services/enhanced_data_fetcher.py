@@ -570,3 +570,48 @@ class EnhancedDataFetcher:
         ) / 3
         
         return df
+    
+    def get_current_btc_price(self) -> float:
+        """
+        Fetch current BTC price from multiple sources with fallbacks
+        Returns the most recent price in USD
+        """
+        logger.info("Fetching current BTC price")
+        
+        # Try Binance first (most reliable)
+        try:
+            response = self.session.get(self.free_apis['binance_spot'], timeout=5)
+            if response.status_code == 200:
+                price = float(response.json()['price'])
+                logger.info(f"Current BTC price from Binance: ${price:,.2f}")
+                return price
+        except Exception as e:
+            logger.warning(f"Failed to get price from Binance: {e}")
+        
+        # Try CoinGecko as fallback
+        try:
+            url = "https://api.coingecko.com/api/v3/simple/price"
+            params = {'ids': 'bitcoin', 'vs_currencies': 'usd'}
+            response = self.session.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                price = float(response.json()['bitcoin']['usd'])
+                logger.info(f"Current BTC price from CoinGecko: ${price:,.2f}")
+                return price
+        except Exception as e:
+            logger.warning(f"Failed to get price from CoinGecko: {e}")
+        
+        # Try CryptoCompare as last resort
+        try:
+            url = "https://min-api.cryptocompare.com/data/price"
+            params = {'fsym': 'BTC', 'tsyms': 'USD'}
+            response = self.session.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                price = float(response.json()['USD'])
+                logger.info(f"Current BTC price from CryptoCompare: ${price:,.2f}")
+                return price
+        except Exception as e:
+            logger.warning(f"Failed to get price from CryptoCompare: {e}")
+        
+        # If all sources fail, raise an error
+        logger.error("Failed to get current BTC price from all sources")
+        raise Exception("Unable to fetch current BTC price from any source")

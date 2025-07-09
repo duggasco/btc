@@ -7,12 +7,30 @@ import json
 import time
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any, Dict, Optional, List, Tuple
 from functools import wraps
 import pandas as pd
 import pickle
 import base64
+import numpy as np
+
+# Custom JSON encoder for datetime and numpy types
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif hasattr(obj, 'item'):  # numpy scalars
+            return obj.item()
+        elif isinstance(obj, (np.integer, np.floating)):
+            return float(obj)
+        elif isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
+            return None
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
 
 logger = logging.getLogger(__name__)
 
@@ -776,16 +794,24 @@ class CacheService:
     
     def _serialize(self, data: Any) -> Tuple[str, str]:
         """Serialize data for storage"""
-        if isinstance(data, pd.DataFrame):
-            # Serialize DataFrame as pickle
-            pickled = pickle.dumps(data)
-            encoded = base64.b64encode(pickled).decode('utf-8')
-            return encoded, 'dataframe'
-        elif isinstance(data, (dict, list)):
-            # Serialize as JSON
-            return json.dumps(data), 'json'
-        else:
-            # Serialize other types as pickle
+        try:
+            # Check if it's a pandas DataFrame
+            if pd is not None and isinstance(data, pd.DataFrame):
+                # Serialize DataFrame as pickle
+                pickled = pickle.dumps(data)
+                encoded = base64.b64encode(pickled).decode('utf-8')
+                return encoded, 'dataframe'
+            elif isinstance(data, (dict, list)):
+                # Serialize as JSON
+                return json.dumps(data, cls=DateTimeEncoder), 'json'
+            else:
+                # Serialize other types as pickle
+                pickled = pickle.dumps(data)
+                encoded = base64.b64encode(pickled).decode('utf-8')
+                return encoded, 'pickle'
+        except Exception as e:
+            logger.error(f"Serialization error: {e}")
+            # Fallback to pickle for any serialization errors
             pickled = pickle.dumps(data)
             encoded = base64.b64encode(pickled).decode('utf-8')
             return encoded, 'pickle'

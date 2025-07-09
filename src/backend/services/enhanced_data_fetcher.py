@@ -15,7 +15,6 @@ import aiohttp
 from concurrent.futures import ThreadPoolExecutor
 import json
 from functools import lru_cache
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +90,16 @@ class EnhancedDataFetcher:
             logger.info(f"Successfully fetched {len(df)} days from Binance")
             return df
             
-        # Fallback to Yahoo Finance
-        df = self._fetch_yahoo_finance(days)
+        # Fallback to CoinGecko
+        df = self._fetch_coingecko_historical(days)
         if df is not None and len(df) > days * 0.8:
-            logger.info(f"Successfully fetched {len(df)} days from Yahoo Finance")
+            logger.info(f"Successfully fetched {len(df)} days from CoinGecko")
+            return df
+            
+        # Fallback to CryptoCompare
+        df = self._fetch_cryptocompare_historical(days)
+        if df is not None and len(df) > days * 0.8:
+            logger.info(f"Successfully fetched {len(df)} days from CryptoCompare")
             return df
             
         # Fallback to cached data if available
@@ -195,32 +200,149 @@ class EnhancedDataFetcher:
             logger.error(f"Error fetching Binance data: {e}")
             return None
     
-    def _fetch_yahoo_finance(self, days: int) -> Optional[pd.DataFrame]:
-        """Fetch from Yahoo Finance as fallback"""
+    def _fetch_coingecko_historical(self, days: int) -> Optional[pd.DataFrame]:
+        """Fetch from CoinGecko as fallback"""
         try:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
+            # CoinGecko API endpoint
+            base_url = "https://api.coingecko.com/api/v3"
             
-            # Try multiple tickers
-            for ticker in ['BTC-USD', 'BTCUSD=X']:
-                try:
-                    btc = yf.Ticker(ticker)
-                    df = btc.history(start=start_date, end=end_date, interval='1d')
-                    
-                    if not df.empty:
-                        # Ensure we have the required columns
-                        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-                        if all(col in df.columns for col in required_cols):
-                            return df[required_cols]
-                except Exception as e:
-                    logger.warning(f"Yahoo Finance failed for {ticker}: {e}")
-                    continue
-                    
-            return None
+            # For historical data, use market_chart endpoint
+            url = f"{base_url}/coins/bitcoin/market_chart"
+            params = {
+                'vs_currency': 'usd',
+                'days': days,
+                'interval': 'daily'
+            }
             
+            response = self.session.get(url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Extract price data
+                prices = data.get('prices', [])
+                volumes = data.get('total_volumes', [])
+                
+                if prices:
+                    # Convert to DataFrame
+                    df_prices = pd.DataFrame(prices, columns=['timestamp', 'price'])
+                    df_prices['timestamp'] = pd.to_datetime(df_prices['timestamp'], unit='ms')
+                    df_prices.set_index('timestamp', inplace=True)
+                    
+                    # Add volume data if available
+                    if volumes:
+                        df_volumes = pd.DataFrame(volumes, columns=['timestamp', 'volume'])
+                        df_volumes['timestamp'] = pd.to_datetime(df_volumes['timestamp'], unit='ms')
+                        df_volumes.set_index('timestamp', inplace=True)
+                        df_prices['Volume'] = df_volumes['volume']
+                    else:
+                        df_prices['Volume'] = 0
+                    
+                    # Create OHLC from daily prices (CoinGecko only provides close prices)
+                    df = pd.DataFrame(index=df_prices.index)
+                    df['Close'] = df_prices['price']
+                    df['Open'] = df['Close'].shift(1).fillna(df['Close'])
+                    df['High'] = df['Close'] * 1.01  # Approximate daily high
+                    df['Low'] = df['Close'] * 0.99   # Approximate daily low
+                    df['Volume'] = df_prices['Volume']
+                    
+                    # Get more accurate OHLC data if available
+                    ohlc_url = f"{base_url}/coins/bitcoin/ohlc"
+                    ohlc_params = {
+                        'vs_currency': 'usd',
+                        'days': min(days, 90)  # CoinGecko limits OHLC to 90 days
+                    }
+                    
+                    ohlc_response = self.session.get(ohlc_url, params=ohlc_params, timeout=30)
+                    
+                    if ohlc_response.status_code == 200:
+                        ohlc_data = ohlc_response.json()
+                        if ohlc_data:
+                            ohlc_df = pd.DataFrame(ohlc_data, columns=['timestamp', 'open', 'high', 'low', 'close'])
+                            ohlc_df['timestamp'] = pd.to_datetime(ohlc_df['timestamp'], unit='ms')
+                            ohlc_df.set_index('timestamp', inplace=True)
+                            
+                            # Update with real OHLC data where available
+                            for col, new_col in [('open', 'Open'), ('high', 'High'), ('low', 'Low'), ('close', 'Close')]:
+                                if col in ohlc_df.columns:
+                                    df.loc[ohlc_df.index, new_col] = ohlc_df[col]
+                    
+                    # Sort and clean
+                    df.sort_index(inplace=True)
+                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+                    
+                    logger.info(f"Successfully fetched {len(df)} days from CoinGecko")
+                    return df
+                    
+            elif response.status_code == 429:
+                logger.warning("CoinGecko rate limit hit")
+            else:
+                logger.error(f"CoinGecko API error: {response.status_code}")
+                
         except Exception as e:
-            logger.error(f"Error fetching Yahoo Finance data: {e}")
-            return None
+            logger.error(f"Error fetching CoinGecko data: {e}")
+            
+        return None
+    
+    def _fetch_cryptocompare_historical(self, days: int) -> Optional[pd.DataFrame]:
+        """Fetch from CryptoCompare as another fallback"""
+        try:
+            base_url = "https://min-api.cryptocompare.com/data/v2"
+            
+            # Determine endpoint based on days
+            if days <= 1:
+                endpoint = "histominute"
+                limit = 1440  # 24 hours of minutes
+            elif days <= 7:
+                endpoint = "histohour"
+                limit = days * 24
+            else:
+                endpoint = "histoday"
+                limit = min(days, 2000)  # API limit
+            
+            url = f"{base_url}/{endpoint}"
+            params = {
+                'fsym': 'BTC',
+                'tsym': 'USD',
+                'limit': limit
+            }
+            
+            response = self.session.get(url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('Response') == 'Success':
+                    df = pd.DataFrame(data['Data']['Data'])
+                    df['timestamp'] = pd.to_datetime(df['time'], unit='s')
+                    df.set_index('timestamp', inplace=True)
+                    
+                    # Rename columns
+                    df.rename(columns={
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close',
+                        'volumefrom': 'Volume'
+                    }, inplace=True)
+                    
+                    # Resample to daily if needed
+                    if endpoint != "histoday":
+                        df = df.resample('D').agg({
+                            'Open': 'first',
+                            'High': 'max',
+                            'Low': 'min',
+                            'Close': 'last',
+                            'Volume': 'sum'
+                        })
+                    
+                    df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+                    logger.info(f"Successfully fetched {len(df)} days from CryptoCompare")
+                    return df
+                    
+        except Exception as e:
+            logger.error(f"Error fetching CryptoCompare data: {e}")
+            
+        return None
     
     def _enhance_with_additional_sources(self, price_data: pd.DataFrame) -> pd.DataFrame:
         """Enhance price data with additional sources"""

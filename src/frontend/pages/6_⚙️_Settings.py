@@ -733,6 +733,14 @@ def show_settings():
         
         col1, col2 = st.columns(2)
         
+        # Mapping between interval labels and seconds
+        interval_mapping = {
+            "Daily": 86400,      # 24 hours
+            "Weekly": 604800,    # 7 days
+            "Bi-weekly": 1209600,  # 14 days
+            "Monthly": 2592000   # 30 days
+        }
+        
         with col1:
             auto_retrain = st.checkbox(
                 "Enable Auto-Retraining",
@@ -741,12 +749,17 @@ def show_settings():
             )
             
             if auto_retrain:
+                # Reverse mapping for display
+                reverse_mapping = {v: k for k, v in interval_mapping.items()}
+                
+                # Get current interval value from config (in seconds)
+                current_interval_seconds = current_config.get('model', {}).get('retrain_interval', 604800)
+                current_interval_label = reverse_mapping.get(current_interval_seconds, 'Weekly')
+                
                 retrain_interval = st.selectbox(
                     "Retraining Interval",
                     ["Daily", "Weekly", "Bi-weekly", "Monthly"],
-                    index=["Daily", "Weekly", "Bi-weekly", "Monthly"].index(
-                        current_config.get('model', {}).get('retrain_interval', 'Weekly')
-                    )
+                    index=["Daily", "Weekly", "Bi-weekly", "Monthly"].index(current_interval_label)
                 )
                 
                 retrain_time = st.time_input(
@@ -827,7 +840,8 @@ def show_settings():
                 }
                 
                 if auto_retrain:
-                    model_config["model"]["retrain_interval"] = retrain_interval
+                    # Convert interval label back to seconds for storage
+                    model_config["model"]["retrain_interval"] = interval_mapping.get(retrain_interval, 604800)
                     model_config["model"]["retrain_time"] = retrain_time.strftime('%H:%M')
                 
                 if early_stopping:

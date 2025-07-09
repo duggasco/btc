@@ -316,40 +316,307 @@ class FREDSource(MacroSource):
         }
         return period_map.get(period, 90)
 
-class YahooFinanceMacroSource(MacroSource):
-    """Yahoo Finance for macro data (Free, no API key)"""
+class AlphaVantageMacroSource(MacroSource):
+    """Alpha Vantage for macro data (Free tier: 500 requests/day, 5/minute)"""
+    
+    BASE_URL = "https://www.alphavantage.co/query"
+    API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', 'demo')
     
     def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
         try:
-            import yfinance as yf
+            # Map period to Alpha Vantage parameters
+            outputsize = 'full' if self._period_to_days(period) > 100 else 'compact'
             
-            # Map symbols to Yahoo tickers
-            symbol_map = {
-                'SPY': 'SPY',           # S&P 500 ETF
-                'GLD': 'GLD',           # Gold ETF
-                'DXY': 'DX-Y.NYB',      # Dollar Index
-                'VIX': '^VIX',          # Volatility Index
-                'TLT': 'TLT',           # 20+ Year Treasury
-                'M2': 'M2SL',           # M2 Money Supply (if available)
+            params = {
+                'function': 'TIME_SERIES_DAILY',
+                'symbol': symbol,
+                'apikey': self.API_KEY,
+                'outputsize': outputsize,
+                'datatype': 'json'
             }
             
-            ticker = symbol_map.get(symbol, symbol)
-            data = yf.download(ticker, period=period, progress=False)
+            response = requests.get(self.BASE_URL, params=params, timeout=30)
+            response.raise_for_status()
             
-            if not data.empty:
-                return data[['Open', 'High', 'Low', 'Close', 'Volume']]
-            else:
-                raise Exception(f"No data returned for {ticker}")
-                
+            data = response.json()
+            
+            # Check for API errors
+            if 'Error Message' in data:
+                raise Exception(f"API Error: {data['Error Message']}")
+            if 'Note' in data:  # Rate limit message
+                raise Exception(f"Rate limit: {data['Note']}")
+            
+            # Extract time series data
+            time_series = data.get('Time Series (Daily)', {})
+            if not time_series:
+                raise Exception("No time series data in response")
+            
+            # Convert to DataFrame
+            df = pd.DataFrame.from_dict(time_series, orient='index')
+            df.index = pd.to_datetime(df.index)
+            df.sort_index(inplace=True)
+            
+            # Rename columns
+            df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            
+            # Convert to numeric
+            for col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Filter by period
+            days = self._period_to_days(period)
+            if days < len(df):
+                df = df.iloc[-days:]
+            
+            return df
+            
         except Exception as e:
-            logger.error(f"Yahoo Finance macro fetch failed: {e}")
+            logger.error(f"Alpha Vantage fetch failed for {symbol}: {e}")
             raise
     
     def get_current_price(self, symbol: str) -> float:
+        try:
+            params = {
+                'function': 'GLOBAL_QUOTE',
+                'symbol': symbol,
+                'apikey': self.API_KEY
+            }
+            
+            response = requests.get(self.BASE_URL, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            quote = data.get('Global Quote', {})
+            price = float(quote.get('05. price', 0))
+            
+            if price > 0:
+                return price
+            
+            # Fallback to daily data
+            df = self.fetch(symbol, '7d')
+            if not df.empty:
+                return float(df['Close'].iloc[-1])
+                
+        except Exception as e:
+            logger.error(f"Alpha Vantage price fetch failed: {e}")
+            
+        raise Exception(f"No current price for {symbol}")
+    
+    def _period_to_days(self, period: str) -> int:
+        period_map = {
+            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
+            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+        }
+        return period_map.get(period, 90)
+
+class TwelveDataMacroSource(MacroSource):
+    """Twelve Data for macro data (Free tier: 800 requests/day)"""
+    
+    BASE_URL = "https://api.twelvedata.com"
+    API_KEY = os.getenv('TWELVE_DATA_API_KEY', 'demo')
+    
+    def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
+        try:
+            # Calculate date range
+            end_date = datetime.now()
+            days = self._period_to_days(period)
+            start_date = end_date - timedelta(days=days)
+            
+            # Map period to interval
+            interval = '1day'
+            if days <= 7:
+                interval = '1h'
+            elif days <= 30:
+                interval = '4h'
+            
+            params = {
+                'symbol': symbol,
+                'interval': interval,
+                'start_date': start_date.strftime('%Y-%m-%d'),
+                'end_date': end_date.strftime('%Y-%m-%d'),
+                'apikey': self.API_KEY,
+                'format': 'JSON'
+            }
+            
+            url = f"{self.BASE_URL}/time_series"
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Check for errors
+            if 'code' in data and data['code'] != 200:
+                raise Exception(f"API Error: {data.get('message', 'Unknown error')}")
+            
+            # Extract values
+            values = data.get('values', [])
+            if not values:
+                raise Exception("No data returned")
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(values)
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            df.set_index('datetime', inplace=True)
+            df.sort_index(inplace=True)
+            
+            # Rename columns
+            df.columns = [col.title() for col in df.columns]
+            
+            # Convert to numeric
+            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Resample to daily if needed
+            if interval != '1day':
+                df = df.resample('D').agg({
+                    'Open': 'first',
+                    'High': 'max',
+                    'Low': 'min',
+                    'Close': 'last',
+                    'Volume': 'sum'
+                }).dropna()
+            
+            return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+            
+        except Exception as e:
+            logger.error(f"Twelve Data fetch failed for {symbol}: {e}")
+            raise
+    
+    def get_current_price(self, symbol: str) -> float:
+        try:
+            url = f"{self.BASE_URL}/quote"
+            params = {
+                'symbol': symbol,
+                'apikey': self.API_KEY
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            price = float(data.get('close', 0))
+            
+            if price > 0:
+                return price
+                
+        except Exception as e:
+            logger.error(f"Twelve Data price fetch failed: {e}")
+        
+        # Fallback to time series
         df = self.fetch(symbol, '7d')
         if not df.empty:
             return float(df['Close'].iloc[-1])
+        
         raise Exception(f"No current price for {symbol}")
+    
+    def _period_to_days(self, period: str) -> int:
+        period_map = {
+            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
+            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+        }
+        return period_map.get(period, 90)
+
+class FinnhubMacroSource(MacroSource):
+    """Finnhub for macro data (Free tier: 60 requests/minute)"""
+    
+    BASE_URL = "https://finnhub.io/api/v1"
+    API_KEY = os.getenv('FINNHUB_API_KEY', 'demo')
+    
+    def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
+        try:
+            # Calculate date range
+            end_date = int(datetime.now().timestamp())
+            days = self._period_to_days(period)
+            start_date = int((datetime.now() - timedelta(days=days)).timestamp())
+            
+            # Determine resolution based on period
+            resolution = 'D'  # Daily
+            if days <= 7:
+                resolution = '60'  # Hourly
+            elif days <= 1:
+                resolution = '5'   # 5-minute
+            
+            params = {
+                'symbol': symbol,
+                'resolution': resolution,
+                'from': start_date,
+                'to': end_date,
+                'token': self.API_KEY
+            }
+            
+            url = f"{self.BASE_URL}/stock/candle"
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Check for valid response
+            if data.get('s') != 'ok':
+                raise Exception(f"API Error: {data.get('s', 'no data')}")
+            
+            # Convert to DataFrame
+            df = pd.DataFrame({
+                'timestamp': pd.to_datetime(data['t'], unit='s'),
+                'Open': data['o'],
+                'High': data['h'],
+                'Low': data['l'],
+                'Close': data['c'],
+                'Volume': data['v']
+            })
+            
+            df.set_index('timestamp', inplace=True)
+            df.sort_index(inplace=True)
+            
+            # Resample to daily if needed
+            if resolution != 'D':
+                df = df.resample('D').agg({
+                    'Open': 'first',
+                    'High': 'max',
+                    'Low': 'min',
+                    'Close': 'last',
+                    'Volume': 'sum'
+                }).dropna()
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Finnhub fetch failed for {symbol}: {e}")
+            raise
+    
+    def get_current_price(self, symbol: str) -> float:
+        try:
+            url = f"{self.BASE_URL}/quote"
+            params = {
+                'symbol': symbol,
+                'token': self.API_KEY
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            price = float(data.get('c', 0))  # 'c' is current price
+            
+            if price > 0:
+                return price
+                
+        except Exception as e:
+            logger.error(f"Finnhub price fetch failed: {e}")
+        
+        # Fallback to candle data
+        df = self.fetch(symbol, '7d')
+        if not df.empty:
+            return float(df['Close'].iloc[-1])
+        
+        raise Exception(f"No current price for {symbol}")
+    
+    def _period_to_days(self, period: str) -> int:
+        period_map = {
+            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
+            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+        }
+        return period_map.get(period, 90)
 
 class WorldBankSource(MacroSource):
     """World Bank API for global economic indicators (Free)"""
@@ -1102,9 +1369,11 @@ class ExternalDataFetcher:
         ]
         
         self.macro_sources = [
-            YahooFinanceMacroSource(),  # Primary: most reliable for macro
-            FREDSource(),               # Secondary: official data but needs key
-            WorldBankSource(),          # Tertiary: limited but reliable
+            AlphaVantageMacroSource(),  # Primary: comprehensive stock/ETF data
+            TwelveDataMacroSource(),    # Secondary: good alternative with free tier
+            FinnhubMacroSource(),       # Tertiary: reliable with high rate limits
+            FREDSource(),               # Quaternary: official data for economic indicators
+            WorldBankSource(),          # Quinary: limited but reliable
         ]
         
         self.sentiment_source = SentimentDataSource()

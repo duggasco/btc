@@ -60,7 +60,7 @@
         "default_period": "3mo",
         "max_history_days": 365,
         "min_data_points": 100,
-        "data_sources": ["yfinance", "binance", "coinbase"],
+        "data_sources": ["binance", "coingecko", "cryptocompare", "alphavantage", "twelvedata"],
         "fallback_enabled": true,
         "cache": {
             "enabled": true,

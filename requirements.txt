@@ -12,7 +12,6 @@ numpy==1.24.3
 
 # Data fetching
 requests==2.31.0
-yfinance==0.2.33  # Fallback for macro data
 pytrends==4.9.2  # Google Trends (optional)
 
 # Technical Analysis
@@ -37,7 +36,10 @@ pytest-cov==4.1.0
 httpx==0.25.2  # For FastAPI test client
 
 # Note: Some APIs require registration for free API keys:
-# - FRED API: https://fred.stlouisfed.org/docs/api/api_key.html
+# - Alpha Vantage: https://www.alphavantage.co/support/#api-key (Free tier: 500 req/day)
+# - Twelve Data: https://twelvedata.com/apikey (Free tier: 800 req/day)
+# - Finnhub: https://finnhub.io/register (Free tier: 60 req/minute)
+# - FRED API: https://fred.stlouisfed.org/docs/api/api_key.html (Completely free)
 # - NewsAPI: https://newsapi.org/register
 # - CryptoPanic: https://cryptopanic.com/developers/api/
 # - Glassnode: https://glassnode.com/api

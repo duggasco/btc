@@ -73,3 +73,29 @@ def aggregate_signals(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
         "distribution": signal_counts,
         "agreement": signal_counts[dominant_signal] / total_signals
     }
+
+def calculate_sharpe_ratio(returns: Union[pd.Series, np.ndarray], risk_free_rate: float = 0.02) -> float:
+    """
+    Calculate Sharpe ratio for given returns
+    
+    Args:
+        returns: Daily returns as pandas Series or numpy array
+        risk_free_rate: Annual risk-free rate (default 2%)
+        
+    Returns:
+        Annualized Sharpe ratio
+    """
+    if isinstance(returns, pd.Series):
+        returns = returns.values
+    
+    if len(returns) == 0 or np.std(returns) == 0:
+        return 0.0
+    
+    # Calculate excess returns
+    daily_rf_rate = risk_free_rate / 365
+    excess_returns = returns - daily_rf_rate
+    
+    # Annualized Sharpe ratio
+    sharpe = np.sqrt(365) * np.mean(excess_returns) / np.std(returns)
+    
+    return sharpe

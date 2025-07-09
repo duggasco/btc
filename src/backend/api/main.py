@@ -21,6 +21,7 @@ from models.paper_trading import PersistentPaperTrading
 from services.data_fetcher import get_fetcher
 from models.database import DatabaseManager
 from models.lstm import TradingSignalGenerator
+from services.cache_maintenance import get_maintenance_manager
 
 
 # Custom JSON encoder for datetime serialization
@@ -626,6 +627,15 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Signal updater disabled for testing")
     
+    # Start cache maintenance
+    if os.getenv("TESTING") != "true":
+        try:
+            cache_maintenance = get_maintenance_manager()
+            cache_maintenance.start()
+            logger.info("Cache maintenance started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start cache maintenance: {e}")
+    
     # Initialize paper trading with persistence
     try:
         paper_trading = PersistentPaperTrading(db_path)
@@ -730,6 +740,15 @@ async def lifespan(app: FastAPI):
         logger.info("Signal updater stopped")
     except Exception as e:
         logger.error(f"Error stopping signal updater: {e}")
+    
+    # Stop cache maintenance
+    if os.getenv("TESTING") != "true":
+        try:
+            cache_maintenance = get_maintenance_manager()
+            cache_maintenance.stop()
+            logger.info("Cache maintenance stopped")
+        except Exception as e:
+            logger.error(f"Error stopping cache maintenance: {e}")
     
     # Save final paper trading snapshot
     if paper_trading and latest_btc_data is not None:
@@ -4704,6 +4723,273 @@ async def restore_backup(backup_id: str):
         "message": "System restored from backup",
         "timestamp": datetime.now()
     }
+
+# ============= CACHE MANAGEMENT ENDPOINTS =============
+
+@app.get("/cache/stats", response_class=JSONResponse)
+async def get_cache_stats():
+    """Get detailed cache statistics"""
+    try:
+        from services.cache_service import get_cache_service
+        cache = get_cache_service()
+        stats = cache.get_detailed_stats()
+        
+        return JSONResponse(
+            content=stats,
+            headers={"X-Cache-Status": "active"}
+        )
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/cache/entries", response_class=JSONResponse)
+async def get_cache_entries(
+    data_type: Optional[str] = None,
+    api_source: Optional[str] = None,
+    limit: int = 100
+):
+    """Get cache entries with optional filtering"""
+    try:
+        from services.cache_service import get_cache_service
+        cache = get_cache_service()
+        entries = cache.get_entries(
+            data_type=data_type,
+            api_source=api_source,
+            limit=limit
+        )
+        
+        return {
+            "entries": entries,
+            "count": len(entries),
+            "filters": {
+                "data_type": data_type,
+                "api_source": api_source,
+                "limit": limit
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting cache entries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/invalidate", response_class=JSONResponse)
+async def invalidate_cache(
+    pattern: Optional[str] = None,
+    data_type: Optional[str] = None,
+    api_source: Optional[str] = None,
+    reason: str = "Manual invalidation via API"
+):
+    """Invalidate cache entries matching criteria"""
+    try:
+        from services.cache_service import get_cache_service
+        cache = get_cache_service()
+        
+        entries_removed = cache.invalidate(
+            pattern=pattern,
+            data_type=data_type,
+            api_source=api_source,
+            reason=reason
+        )
+        
+        return {
+            "entries_removed": entries_removed,
+            "pattern": pattern,
+            "data_type": data_type,
+            "api_source": api_source,
+            "reason": reason,
+            "timestamp": datetime.now()
+        }
+    except Exception as e:
+        logger.error(f"Error invalidating cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/clear-expired", response_class=JSONResponse)
+async def clear_expired_cache():
+    """Clear all expired cache entries"""
+    try:
+        from services.cache_service import get_cache_service
+        cache = get_cache_service()
+        
+        entries_removed = cache.clear_expired()
+        
+        return {
+            "entries_removed": entries_removed,
+            "timestamp": datetime.now()
+        }
+    except Exception as e:
+        logger.error(f"Error clearing expired cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/optimize", response_class=JSONResponse)
+async def optimize_cache():
+    """Optimize cache by removing low-value entries"""
+    try:
+        from services.cache_service import get_cache_service
+        cache = get_cache_service()
+        
+        report = cache.optimize_cache()
+        
+        return report
+    except Exception as e:
+        logger.error(f"Error optimizing cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/cache/metrics/{format}")
+async def export_cache_metrics(format: str = "json"):
+    """Export cache metrics in various formats"""
+    try:
+        from services.cache_service import get_cache_service
+        cache = get_cache_service()
+        
+        if format not in ["json", "prometheus"]:
+            raise HTTPException(status_code=400, detail="Format must be 'json' or 'prometheus'")
+        
+        metrics = cache.export_metrics(format=format)
+        
+        if format == "prometheus":
+            from fastapi.responses import PlainTextResponse
+            return PlainTextResponse(content=metrics, media_type="text/plain")
+        else:
+            return JSONResponse(content=json.loads(metrics))
+            
+    except Exception as e:
+        logger.error(f"Error exporting cache metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/warm", response_class=JSONResponse)
+async def warm_cache(
+    symbols: List[str] = ["BTC", "BTCUSDT", "bitcoin"],
+    periods: List[str] = ["1h", "1d", "7d", "30d"],
+    sources: List[str] = ["binance", "coingecko"]
+):
+    """Warm cache with common data requests"""
+    try:
+        from services.cache_integration import warm_cache
+        
+        # Get data sources
+        data_sources = []
+        fetcher = get_fetcher()
+        
+        for source_name in sources:
+            if source_name == "binance":
+                data_sources.extend([s for s in fetcher.crypto_sources if s.name == "binance"])
+            elif source_name == "coingecko":
+                data_sources.extend([s for s in fetcher.crypto_sources if s.name == "coingecko"])
+        
+        # Run cache warming in background
+        import asyncio
+        loop = asyncio.get_event_loop()
+        loop.create_task(
+            loop.run_in_executor(
+                None,
+                warm_cache,
+                data_sources,
+                symbols,
+                periods
+            )
+        )
+        
+        return {
+            "status": "warming started",
+            "sources": sources,
+            "symbols": symbols,
+            "periods": periods,
+            "timestamp": datetime.now()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error warming cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/cache/info", response_class=JSONResponse)
+async def get_cache_information():
+    """Get comprehensive cache information"""
+    try:
+        from services.cache_integration import get_cache_info
+        info = get_cache_info()
+        
+        return info
+    except Exception as e:
+        logger.error(f"Error getting cache info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============= CACHE MAINTENANCE ENDPOINTS =============
+
+@app.get("/cache/maintenance/status", response_class=JSONResponse)
+async def get_maintenance_status():
+    """Get cache maintenance status"""
+    try:
+        from services.cache_maintenance import get_maintenance_status
+        status = get_maintenance_status()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting maintenance status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/maintenance/start", response_class=JSONResponse)
+async def start_maintenance():
+    """Start cache maintenance tasks"""
+    try:
+        from services.cache_maintenance import start_cache_maintenance
+        start_cache_maintenance()
+        return {"status": "started", "timestamp": datetime.now()}
+    except Exception as e:
+        logger.error(f"Error starting maintenance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/maintenance/stop", response_class=JSONResponse)
+async def stop_maintenance():
+    """Stop cache maintenance tasks"""
+    try:
+        from services.cache_maintenance import stop_cache_maintenance
+        stop_cache_maintenance()
+        return {"status": "stopped", "timestamp": datetime.now()}
+    except Exception as e:
+        logger.error(f"Error stopping maintenance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/maintenance/warm", response_class=JSONResponse)
+async def trigger_cache_warm(aggressive: bool = False):
+    """Manually trigger cache warming"""
+    try:
+        from services.cache_maintenance import get_maintenance_manager
+        manager = get_maintenance_manager()
+        
+        # Run in background
+        import asyncio
+        loop = asyncio.get_event_loop()
+        loop.create_task(
+            loop.run_in_executor(
+                None,
+                manager.trigger_warm_cache,
+                aggressive
+            )
+        )
+        
+        return {
+            "status": "warming triggered",
+            "aggressive": aggressive,
+            "timestamp": datetime.now()
+        }
+    except Exception as e:
+        logger.error(f"Error triggering cache warm: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/cache/maintenance/config", response_class=JSONResponse)
+async def update_maintenance_config(config_updates: Dict[str, Any]):
+    """Update cache maintenance configuration"""
+    try:
+        from services.cache_maintenance import get_maintenance_manager
+        manager = get_maintenance_manager()
+        manager.update_config(config_updates)
+        
+        return {
+            "status": "config updated",
+            "updates": config_updates,
+            "timestamp": datetime.now()
+        }
+    except Exception as e:
+        logger.error(f"Error updating maintenance config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Helper functions for analytics
 def calculate_current_drawdown(prices):

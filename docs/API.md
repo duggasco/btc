@@ -894,5 +894,144 @@ curl -X POST http://localhost:8080/trades/ \
 curl -X POST http://localhost:8080/paper-trading/toggle
 ```
 
+## Cache Management
+
+The system includes a comprehensive SQLite-based caching layer to reduce API calls and improve performance.
+
+### GET /cache/stats
+Get detailed cache statistics including hit rates, size, and performance metrics.
+
+**Response:**
+```json
+{
+  "total_entries": 150,
+  "total_size_mb": 2.5,
+  "session_stats": {
+    "hits": 1250,
+    "misses": 45,
+    "writes": 195,
+    "hit_rate": 0.965
+  },
+  "cache_efficiency": {
+    "total_api_calls_saved": 1250,
+    "estimated_time_saved_seconds": 625.0
+  }
+}
+```
+
+### GET /cache/entries
+Query cache entries with optional filtering.
+
+**Query Parameters:**
+- `data_type` (optional): Filter by data type (e.g., 'ohlcv', 'price', 'sentiment')
+- `api_source` (optional): Filter by API source (e.g., 'binance', 'coingecko')
+- `limit` (optional): Maximum entries to return (default: 100)
+
+### POST /cache/invalidate
+Invalidate cache entries matching specified criteria.
+
+**Query Parameters:**
+- `pattern` (optional): Pattern to match cache keys
+- `data_type` (optional): Invalidate by data type
+- `api_source` (optional): Invalidate by API source
+- `reason` (optional): Reason for invalidation
+
+### POST /cache/clear-expired
+Remove all expired cache entries.
+
+### POST /cache/optimize
+Optimize cache by removing low-value entries and analyzing usage patterns.
+
+### GET /cache/metrics/{format}
+Export cache metrics in JSON or Prometheus format.
+
+**Path Parameters:**
+- `format`: Either 'json' or 'prometheus'
+
+### POST /cache/warm
+Pre-populate cache with commonly requested data.
+
+**Request Body:**
+```json
+{
+  "symbols": ["BTC", "BTCUSDT"],
+  "periods": ["1h", "1d", "7d"],
+  "sources": ["binance", "coingecko"]
+}
+```
+
+### GET /cache/info
+Get comprehensive cache information including data distribution and performance metrics.
+
+## Cache Maintenance
+
+The system includes automated cache maintenance that starts with the API and runs periodic jobs.
+
+### GET /cache/maintenance/status
+Get current cache maintenance status including scheduled jobs and configuration.
+
+**Response:**
+```json
+{
+  "is_running": true,
+  "config": {
+    "warm_on_startup": true,
+    "warm_interval_minutes": 30,
+    "optimize_interval_hours": 6,
+    "clear_expired_interval_hours": 1,
+    "monitor_interval_minutes": 5,
+    "hit_rate_threshold": 0.7,
+    "cache_size_limit_mb": 1000
+  },
+  "cache_stats": {
+    "total_entries": 150,
+    "session_stats": {
+      "hit_rate": 0.965
+    }
+  },
+  "scheduled_jobs": [
+    {
+      "name": "warm_cache",
+      "interval_minutes": 30,
+      "next_run": "2025-01-01T12:30:00"
+    },
+    {
+      "name": "optimize_cache",
+      "interval_hours": 6,
+      "next_run": "2025-01-01T18:00:00"
+    },
+    {
+      "name": "clear_expired",
+      "interval_hours": 1,
+      "next_run": "2025-01-01T13:00:00"
+    }
+  ]
+}
+```
+
+### POST /cache/maintenance/start
+Manually start cache maintenance tasks (normally starts automatically with API).
+
+### POST /cache/maintenance/stop
+Stop cache maintenance tasks.
+
+### POST /cache/maintenance/warm
+Manually trigger cache warming.
+
+**Query Parameters:**
+- `aggressive` (optional): If true, performs comprehensive warming of all data sources
+
+### PUT /cache/maintenance/config
+Update cache maintenance configuration.
+
+**Request Body:**
+```json
+{
+  "warm_interval_minutes": 60,
+  "hit_rate_threshold": 0.8,
+  "cache_size_limit_mb": 2000
+}
+```
+
 ## Interactive Documentation
 Visit http://localhost:8080/docs for interactive Swagger UI documentation with try-it-out functionality for all endpoints.

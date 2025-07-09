@@ -16,9 +16,13 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from functools import lru_cache
 
+# Import cache integration
+from .cache_service import get_cache_service
+from .cache_integration import cached_api_call, CachedDataFetcher
+
 logger = logging.getLogger(__name__)
 
-class EnhancedDataFetcher:
+class EnhancedDataFetcher(CachedDataFetcher):
     """
     Fetches data from multiple sources as recommended in the LSTM whitepaper:
     - Price data with sufficient history (2+ years)
@@ -29,6 +33,9 @@ class EnhancedDataFetcher:
     """
     
     def __init__(self, cache_dir: str = "/app/data/cache"):
+        # Initialize SQLite cache service
+        super().__init__()
+        
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
         
@@ -482,24 +489,65 @@ class EnhancedDataFetcher:
         return df
     
     def _save_cached_data(self, df: pd.DataFrame, name: str):
-        """Save data to cache"""
+        """Save data to SQLite cache"""
         try:
-            cache_file = os.path.join(self.cache_dir, f"{name}.pkl")
-            df.to_pickle(cache_file)
-            logger.info(f"Cached {name} with {len(df)} rows")
+            # Use SQLite cache with appropriate TTL
+            cache_key = f"enhanced_df_{name}"
+            ttl = 3600  # 1 hour default
+            
+            # Adjust TTL based on data type
+            if 'price' in name.lower():
+                ttl = 300  # 5 minutes for price data
+            elif 'historical' in name.lower():
+                ttl = 3600  # 1 hour for historical data
+            elif 'signals' in name.lower():
+                ttl = 600  # 10 minutes for signals
+                
+            self.cache.set(
+                cache_key, 
+                df, 
+                data_type='dataframe',
+                api_source='enhanced_data_fetcher',
+                ttl=ttl,
+                metadata={'name': name, 'shape': str(df.shape), 'rows': len(df)}
+            )
+            logger.info(f"Cached {name} with {len(df)} rows to SQLite (TTL: {ttl}s)")
         except Exception as e:
-            logger.error(f"Failed to cache data: {e}")
+            logger.error(f"Failed to save to SQLite cache: {e}")
+            # Fallback to file cache
+            try:
+                cache_file = os.path.join(self.cache_dir, f"{name}.pkl")
+                df.to_pickle(cache_file)
+                logger.info(f"Cached {name} to file (fallback)")
+            except Exception as e2:
+                logger.error(f"Failed to save file cache: {e2}")
     
     def _load_cached_data(self, name: str) -> Optional[pd.DataFrame]:
-        """Load data from cache"""
+        """Load data from SQLite cache"""
+        try:
+            # Try SQLite cache first
+            cache_key = f"enhanced_df_{name}"
+            cached_df = self.cache.get(cache_key)
+            
+            if cached_df is not None and isinstance(cached_df, pd.DataFrame):
+                logger.info(f"Loaded {name} from SQLite cache with {len(cached_df)} rows")
+                return cached_df
+                
+        except Exception as e:
+            logger.error(f"Failed to load from SQLite cache: {e}")
+            
+        # Fallback to file cache
         try:
             cache_file = os.path.join(self.cache_dir, f"{name}.pkl")
             if os.path.exists(cache_file):
                 df = pd.read_pickle(cache_file)
-                logger.info(f"Loaded {name} from cache with {len(df)} rows")
+                logger.info(f"Loaded {name} from file cache with {len(df)} rows (fallback)")
+                # Migrate to SQLite cache
+                self._save_cached_data(df, name)
                 return df
         except Exception as e:
-            logger.error(f"Failed to load cached data: {e}")
+            logger.error(f"Failed to load file cache: {e}")
+            
         return None
     
     def fetch_50_trading_signals(self, df: pd.DataFrame) -> pd.DataFrame:

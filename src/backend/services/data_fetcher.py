@@ -20,6 +20,10 @@ import hashlib
 import os
 from urllib.parse import urlencode
 
+# Import cache integration
+from .cache_service import get_cache_service
+from .cache_integration import cached_api_call, CachedDataFetcher
+
 logger = logging.getLogger(__name__)
 
 class DataSource(ABC):
@@ -51,6 +55,7 @@ class CoinGeckoSource(CryptoSource):
     def __init__(self):
         self.name = "coingecko"
     
+    @cached_api_call(data_type='ohlcv', cache_on_error=True)
     def fetch(self, symbol: str = "bitcoin", period: str = "3mo", **kwargs) -> pd.DataFrame:
         days = self._period_to_days(period)
         
@@ -108,6 +113,7 @@ class CoinGeckoSource(CryptoSource):
             logger.error(f"CoinGecko fetch failed: {e}")
             raise
     
+    @cached_api_call(data_type='real_time_price', ttl=30, cache_on_error=True)
     def get_current_price(self, symbol: str = "bitcoin") -> float:
         url = f"{self.BASE_URL}/simple/price"
         params = {'ids': symbol, 'vs_currencies': 'usd'}
@@ -138,6 +144,7 @@ class BinanceSource(CryptoSource):
     def __init__(self):
         self.name = "binance"
     
+    @cached_api_call(data_type='ohlcv', cache_on_error=True)
     def fetch(self, symbol: str = "BTCUSDT", period: str = "3mo", **kwargs) -> pd.DataFrame:
         interval_map = {
             '5m': ('5m', 288), '15m': ('15m', 96), '1h': ('1h', 24), '4h': ('4h', 6), '24h': ('1h', 24),
@@ -196,6 +203,7 @@ class BinanceSource(CryptoSource):
             logger.error(f"Binance fetch failed: {e}")
             raise
     
+    @cached_api_call(data_type='real_time_price', ttl=30, cache_on_error=True)
     def get_current_price(self, symbol: str = "BTCUSDT") -> float:
         url = f"{self.BASE_URL}/ticker/price"
         params = {'symbol': symbol}
@@ -211,6 +219,7 @@ class CryptoCompareSource(CryptoSource):
     def __init__(self):
         self.name = "cryptocompare"
     
+    @cached_api_call(data_type='ohlcv', cache_on_error=True)
     def fetch(self, symbol: str = "BTC", period: str = "3mo", **kwargs) -> pd.DataFrame:
         # Map period to API parameters
         period_map = {
@@ -263,6 +272,7 @@ class CryptoCompareSource(CryptoSource):
             logger.error(f"CryptoCompare fetch failed: {e}")
             raise
     
+    @cached_api_call(data_type='real_time_price', ttl=30, cache_on_error=True)
     def get_current_price(self, symbol: str = "BTC") -> float:
         url = "https://min-api.cryptocompare.com/data/price"
         params = {'fsym': symbol, 'tsyms': 'USD'}
@@ -289,6 +299,7 @@ class FREDSource(MacroSource):
         'GOLD': 'GOLDAMGBD228NLBM' # Gold Price
     }
     
+    @cached_api_call(data_type='macro_indicators', ttl=3600, cache_on_error=True)
     def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
         series_id = self.SERIES_MAP.get(symbol, symbol)
         
@@ -332,6 +343,7 @@ class FREDSource(MacroSource):
             logger.error(f"FRED fetch failed: {e}")
             raise
     
+    @cached_api_call(data_type='macro_indicators', ttl=3600, cache_on_error=True)
     def get_current_price(self, symbol: str) -> float:
         # Get most recent value
         df = self.fetch(symbol, '7d')
@@ -354,6 +366,7 @@ class AlphaVantageMacroSource(MacroSource):
     BASE_URL = "https://www.alphavantage.co/query"
     API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', 'demo')
     
+    @cached_api_call(data_type='macro_indicators', ttl=3600, cache_on_error=True)
     def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
         try:
             # Map period to Alpha Vantage parameters
@@ -406,6 +419,7 @@ class AlphaVantageMacroSource(MacroSource):
             logger.error(f"Alpha Vantage fetch failed for {symbol}: {e}")
             raise
     
+    @cached_api_call(data_type='real_time_price', ttl=300, cache_on_error=True)
     def get_current_price(self, symbol: str) -> float:
         try:
             params = {
@@ -449,6 +463,7 @@ class TwelveDataMacroSource(MacroSource):
     BASE_URL = "https://api.twelvedata.com"
     API_KEY = os.getenv('TWELVE_DATA_API_KEY', 'demo')
     
+    @cached_api_call(data_type='macro_indicators', ttl=3600, cache_on_error=True)
     def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
         try:
             # Calculate date range
@@ -517,6 +532,7 @@ class TwelveDataMacroSource(MacroSource):
             logger.error(f"Twelve Data fetch failed for {symbol}: {e}")
             raise
     
+    @cached_api_call(data_type='real_time_price', ttl=300, cache_on_error=True)
     def get_current_price(self, symbol: str) -> float:
         try:
             url = f"{self.BASE_URL}/quote"
@@ -559,6 +575,7 @@ class FinnhubMacroSource(MacroSource):
     BASE_URL = "https://finnhub.io/api/v1"
     API_KEY = os.getenv('FINNHUB_API_KEY', 'demo')
     
+    @cached_api_call(data_type='macro_indicators', ttl=3600, cache_on_error=True)
     def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
         try:
             # Calculate date range
@@ -620,6 +637,7 @@ class FinnhubMacroSource(MacroSource):
             logger.error(f"Finnhub fetch failed for {symbol}: {e}")
             raise
     
+    @cached_api_call(data_type='real_time_price', ttl=300, cache_on_error=True)
     def get_current_price(self, symbol: str) -> float:
         try:
             url = f"{self.BASE_URL}/quote"
@@ -668,6 +686,7 @@ class WorldBankSource(MacroSource):
         'INTEREST': 'FR.INR.RINR',              # Real interest rate
     }
     
+    @cached_api_call(data_type='macro_indicators', ttl=7200, cache_on_error=True)
     def fetch(self, symbol: str, period: str, **kwargs) -> pd.DataFrame:
         indicator = self.INDICATOR_MAP.get(symbol, symbol)
         country = kwargs.get('country', 'US')
@@ -732,6 +751,7 @@ class WorldBankSource(MacroSource):
 class SentimentDataSource:
     """Fetch sentiment data from various sources"""
     
+    @cached_api_call(data_type='sentiment', ttl=1800, cache_on_error=True)
     def fetch_fear_greed_index(self) -> Dict[str, Any]:
         """Fetch crypto fear & greed index from Alternative.me (Free)"""
         try:
@@ -768,6 +788,7 @@ class SentimentDataSource:
                 'historical': pd.DataFrame()
             }
     
+    @cached_api_call(data_type='sentiment', ttl=1800, cache_on_error=True)
     def fetch_reddit_sentiment(self, subreddit: str = "cryptocurrency") -> Dict[str, float]:
         """Fetch Reddit sentiment using pushshift.io (Free)"""
         try:
@@ -846,6 +867,7 @@ class SentimentDataSource:
             'reddit_engagement': 0
         }
     
+    @cached_api_call(data_type='sentiment', ttl=900, cache_on_error=True)
     def fetch_twitter_sentiment(self) -> Dict[str, float]:
         """Fetch Twitter/X sentiment (Limited without API key)"""
         # Note: Twitter API now requires paid access
@@ -947,6 +969,7 @@ class SentimentDataSource:
             'google_trend_normalized': 0.5
         }
     
+    @cached_api_call(data_type='news', ttl=900, cache_on_error=True)
     def fetch_news_sentiment(self) -> Dict[str, float]:
         """Fetch news sentiment from NewsAPI or CryptoPanic"""
         try:
@@ -1037,6 +1060,7 @@ class SentimentDataSource:
 class OnChainDataSource:
     """Fetch on-chain metrics from various blockchain APIs"""
     
+    @cached_api_call(data_type='onchain_metrics', ttl=1800, cache_on_error=True)
     def fetch_blockchain_info_metrics(self) -> Dict[str, Any]:
         """Fetch basic metrics from Blockchain.info (Free)"""
         try:
@@ -1147,6 +1171,7 @@ class OnChainDataSource:
         
         return pd.DataFrame()
     
+    @cached_api_call(data_type='onchain_metrics', ttl=1800, cache_on_error=True)
     def fetch_glassnode_metrics(self) -> Dict[str, Any]:
         """Fetch metrics from Glassnode (limited free tier)"""
         # Note: Requires API key for most metrics
@@ -1224,6 +1249,7 @@ class OnChainDataSource:
         
         return metrics
     
+    @cached_api_call(data_type='onchain_metrics', ttl=1800, cache_on_error=True)
     def fetch_exchange_flows(self) -> Dict[str, float]:
         """Fetch exchange flow data"""
         # Note: Most exchange flow APIs require paid subscriptions
@@ -1395,10 +1421,13 @@ class SyntheticDataGenerator:
 
 # ========== MAIN EXTERNAL DATA FETCHER ==========
 
-class ExternalDataFetcher:
-    """Main external data fetcher with cascading sources and caching"""
+class ExternalDataFetcher(CachedDataFetcher):
+    """Main external data fetcher with cascading sources and SQLite caching"""
     
     def __init__(self):
+        # Initialize cache service
+        super().__init__()
+        
         # Initialize data sources with proper fallback order
         self.crypto_sources = [
             CoinGeckoSource(),      # Primary: comprehensive and free
@@ -1418,19 +1447,7 @@ class ExternalDataFetcher:
         self.onchain_source = OnChainDataSource()
         self.synthetic_generator = SyntheticDataGenerator()
         
-        # Cache configuration with different TTLs for different data types
-        self._cache = {}
-        self._cache_durations = {
-            'price': 60,        # 1 minute for price data
-            'crypto': 300,      # 5 minutes for OHLC data
-            'macro': 3600,      # 1 hour for macro data
-            'sentiment': 1800,  # 30 minutes for sentiment
-            'onchain': 1800,    # 30 minutes for on-chain data
-        }
-        self._default_cache_duration = 300  # 5 minutes default
-        self._cache_lock = threading.Lock()
-        
-        # Rate limiting configuration
+        # Rate limiting configuration (keep existing rate limiting logic)
         self._rate_limits = {
             'coingecko': {'calls': 10, 'period': 60, 'last_reset': time.time(), 'count': 0},
             'binance': {'calls': 20, 'period': 60, 'last_reset': time.time(), 'count': 0},
@@ -1444,7 +1461,11 @@ class ExternalDataFetcher:
         self.cache_duration = 60  # For test compatibility
         self.session = requests.Session()  # HTTP session for requests
         
-        logger.info("External Data Fetcher initialized with rate limiting and enhanced caching")
+        # Legacy cache support for backward compatibility
+        self._cache = {}  # Keep for any code that directly accesses _cache
+        self._cache_lock = threading.Lock()
+        
+        logger.info("External Data Fetcher initialized with SQLite caching and rate limiting")
     
     def _check_rate_limit(self, source_name: str) -> bool:
         """Check if we can make an API call to the given source"""
@@ -1981,35 +2002,65 @@ class ExternalDataFetcher:
         return hashlib.md5(key_string.encode()).hexdigest()
     
     def _get_from_cache(self, key: str) -> Any:
-        """Get data from cache"""
-        with self._cache_lock:
-            cached = self._cache.get(key)
-            if cached and cached['expires'] > time.time():
-                return cached['data']
-            elif cached:
-                del self._cache[key]
-        return None
+        """Get data from cache using SQLite cache service"""
+        try:
+            # Use SQLite cache
+            return self.cache.get(key)
+        except Exception as e:
+            logger.warning(f"Cache read error, falling back to in-memory: {e}")
+            # Fallback to in-memory cache for backward compatibility
+            with self._cache_lock:
+                cached = self._cache.get(key)
+                if cached and cached['expires'] > time.time():
+                    return cached['data']
+                elif cached:
+                    del self._cache[key]
+            return None
     
     def _save_to_cache(self, key: str, data: Any, data_type: str = None):
-        """Save data to cache with appropriate TTL based on data type"""
-        with self._cache_lock:
-            # Determine cache duration based on data type
-            if data_type and data_type in self._cache_durations:
-                duration = self._cache_durations[data_type]
-            else:
-                duration = self._default_cache_duration
+        """Save data to cache using SQLite cache service"""
+        try:
+            # Determine TTL based on data type
+            ttl = None
+            if data_type == 'price':
+                ttl = 60  # 1 minute
+            elif data_type == 'crypto':
+                ttl = 300  # 5 minutes
+            elif data_type == 'macro':
+                ttl = 3600  # 1 hour
+            elif data_type == 'sentiment':
+                ttl = 1800  # 30 minutes
+            elif data_type == 'onchain':
+                ttl = 1800  # 30 minutes
             
-            self._cache[key] = {
-                'data': data,
-                'expires': time.time() + duration
-            }
-            
-            # Clean old cache entries
-            if len(self._cache) > 100:
-                # Remove expired entries
-                expired_keys = [k for k, v in self._cache.items() if v['expires'] < time.time()]
-                for k in expired_keys:
-                    del self._cache[k]
+            # Use SQLite cache
+            self.cache.set(
+                key, 
+                data, 
+                data_type=data_type or 'default',
+                api_source='external_data_fetcher',
+                ttl=ttl
+            )
+        except Exception as e:
+            logger.warning(f"Cache write error, falling back to in-memory: {e}")
+            # Fallback to in-memory cache for backward compatibility
+            with self._cache_lock:
+                duration = 300  # Default 5 minutes
+                if data_type and data_type in ['price', 'crypto', 'macro', 'sentiment', 'onchain']:
+                    duration = {'price': 60, 'crypto': 300, 'macro': 3600, 
+                               'sentiment': 1800, 'onchain': 1800}[data_type]
+                
+                self._cache[key] = {
+                    'data': data,
+                    'expires': time.time() + duration
+                }
+                
+                # Clean old cache entries
+                if len(self._cache) > 100:
+                    # Remove expired entries
+                    expired_keys = [k for k, v in self._cache.items() if v['expires'] < time.time()]
+                    for k in expired_keys:
+                        del self._cache[k]
 
 # Singleton instance
 _fetcher_instance = None

@@ -1470,12 +1470,12 @@ async def get_latest_btc_price():
         # Get current price data
         price_data = fetcher.fetch_current_price()
         
-        # Get recent market data for additional metrics
+        # Get recent market data for additional metrics - last 24 hours
         recent_data = fetcher.fetch_crypto_data('BTC', '24h')
         
         # Get the latest price from price_data first, fallback to direct fetch
         latest_price = None
-        if price_data and price_data.get("price"):
+        if price_data and isinstance(price_data, dict) and price_data.get("price"):
             latest_price = price_data.get("price")
         else:
             latest_price = fetcher.get_current_crypto_price('BTC')
@@ -1483,21 +1483,40 @@ async def get_latest_btc_price():
         result = {
             "latest_price": latest_price,
             "timestamp": datetime.now(),
-            "price_change_percentage_24h": price_data.get("change_24h", 0) if price_data else 0
+            "price_change_percentage_24h": price_data.get("change_24h", 0) if price_data and isinstance(price_data, dict) else 0
         }
         
         # Add 24h high/low and volume from recent data if available
         if recent_data is not None and len(recent_data) > 0:
-            result.update({
-                "high_24h": float(recent_data['High'].max()),
-                "low_24h": float(recent_data['Low'].min()),
-                "total_volume": float(recent_data['Volume'].sum()) if 'Volume' in recent_data else price_data.get("volume", 0)
-            })
+            # Filter to only the last 24 hours of data
+            now = datetime.now()
+            last_24h = now - timedelta(hours=24)
+            
+            # Ensure index is datetime
+            if not isinstance(recent_data.index, pd.DatetimeIndex):
+                recent_data.index = pd.to_datetime(recent_data.index)
+            
+            # Filter data to last 24 hours
+            recent_24h = recent_data[recent_data.index >= last_24h]
+            
+            if len(recent_24h) > 0:
+                result.update({
+                    "high_24h": float(recent_24h['High'].max()),
+                    "low_24h": float(recent_24h['Low'].min()),
+                    "total_volume": float(recent_24h['Volume'].sum()) if 'Volume' in recent_24h else price_data.get("volume", 0)
+                })
+            else:
+                # Fallback if no 24h data
+                result.update({
+                    "high_24h": float(recent_data['High'].max()),
+                    "low_24h": float(recent_data['Low'].min()),
+                    "total_volume": float(recent_data['Volume'].sum()) if 'Volume' in recent_data else price_data.get("volume", 0)
+                })
         else:
             result.update({
                 "high_24h": result["latest_price"] * 1.02,  # Estimate 2% higher
                 "low_24h": result["latest_price"] * 0.98,   # Estimate 2% lower
-                "total_volume": price_data.get("volume", 1000000000) if price_data else 1000000000
+                "total_volume": price_data.get("volume", 1000000000) if price_data and isinstance(price_data, dict) else 1000000000
             })
         
         # Add market cap (estimated based on ~19.5M BTC supply)

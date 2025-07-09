@@ -123,7 +123,7 @@ class CoinGeckoSource(CryptoSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1, '24h': 1,  # Intraday periods default to 1 day
             '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
             '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
             'all': 1825, 'max': 1825
@@ -140,6 +140,7 @@ class BinanceSource(CryptoSource):
     
     def fetch(self, symbol: str = "BTCUSDT", period: str = "3mo", **kwargs) -> pd.DataFrame:
         interval_map = {
+            '5m': ('5m', 288), '15m': ('15m', 96), '1h': ('1h', 24), '4h': ('4h', 6), '24h': ('1h', 24),
             '1d': ('1h', 24), '7d': ('1h', 168), '1mo': ('4h', 180),
             '3mo': ('1d', 90), '6mo': ('1d', 180), '1y': ('1d', 365),
             '2y': ('1d', 730), 'max': ('1d', 1000)
@@ -179,8 +180,8 @@ class BinanceSource(CryptoSource):
                 'close': 'Close', 'volume': 'Volume'
             })
             
-            # Resample to daily if needed
-            if interval != '1d':
+            # Resample to daily if needed - but only for periods > 1 day
+            if interval != '1d' and period not in ['5m', '15m', '1h', '4h', '24h', '1d']:
                 df = df.resample('D').agg({
                     'Open': 'first',
                     'High': 'max',
@@ -213,6 +214,11 @@ class CryptoCompareSource(CryptoSource):
     def fetch(self, symbol: str = "BTC", period: str = "3mo", **kwargs) -> pd.DataFrame:
         # Map period to API parameters
         period_map = {
+            '5m': ('histominute', 288),  # 24 hours in 5-minute intervals
+            '15m': ('histominute', 96),  # 24 hours in 15-minute intervals
+            '1h': ('histohour', 24),     # 24 hours
+            '4h': ('histohour', 6),      # 24 hours in 4-hour intervals
+            '24h': ('histohour', 24),    # 24 hours
             '1d': ('histohour', 24),
             '7d': ('histohour', 168),
             '1mo': ('histoday', 30),
@@ -335,7 +341,7 @@ class FREDSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1, '24h': 1,  # Intraday periods default to 1 day
             '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
             '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
             'all': 1825, 'max': 1825
@@ -430,7 +436,7 @@ class AlphaVantageMacroSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1, '24h': 1,  # Intraday periods default to 1 day
             '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
             '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
             'all': 1825, 'max': 1825
@@ -540,7 +546,7 @@ class TwelveDataMacroSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1, '24h': 1,  # Intraday periods default to 1 day
             '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
             '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
             'all': 1825, 'max': 1825
@@ -643,7 +649,7 @@ class FinnhubMacroSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1, '24h': 1,  # Intraday periods default to 1 day
             '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
             '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
             'all': 1825, 'max': 1825
@@ -1600,7 +1606,12 @@ class ExternalDataFetcher:
                 continue
             
             try:
-                mapped_symbol = 'bitcoin' if symbol == 'BTC' else symbol.lower()
+                # Map symbols correctly for each source
+                symbol_map = {
+                    'BTC': {'coingecko': 'bitcoin', 'binance': 'BTCUSDT', 'cryptocompare': 'BTC'},
+                    'ETH': {'coingecko': 'ethereum', 'binance': 'ETHUSDT', 'cryptocompare': 'ETH'},
+                }
+                mapped_symbol = symbol_map.get(symbol, {}).get(source_name, symbol)
                 
                 # Add small delay
                 self._add_api_delay(source_name)

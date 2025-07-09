@@ -188,33 +188,6 @@ while True:
                 # Price chart
                 st.markdown("### 📊 BTC Price Chart")
                 
-                # Technical indicators
-                with st.expander("📈 Technical Indicators", expanded=True):
-                    indicator_cols = st.columns(6)
-                    selected_indicators = []
-                    
-                    with indicator_cols[0]:
-                        if st.checkbox("SMA 20", value="sma_20" in st.session_state.selected_indicators, key="sma20_checkbox"):
-                            selected_indicators.append("sma_20")
-                    with indicator_cols[1]:
-                        if st.checkbox("SMA 50", value="sma_50" in st.session_state.selected_indicators, key="sma50_checkbox"):
-                            selected_indicators.append("sma_50")
-                    with indicator_cols[2]:
-                        if st.checkbox("EMA 12", value="ema_12" in st.session_state.selected_indicators, key="ema12_checkbox"):
-                            selected_indicators.append("ema_12")
-                    with indicator_cols[3]:
-                        if st.checkbox("EMA 26", value="ema_26" in st.session_state.selected_indicators, key="ema26_checkbox"):
-                            selected_indicators.append("ema_26")
-                    with indicator_cols[4]:
-                        if st.checkbox("BB", value="bb_upper" in st.session_state.selected_indicators, key="bb_checkbox"):
-                            selected_indicators.extend(["bb_upper", "bb_middle", "bb_lower"])
-                    with indicator_cols[5]:
-                        if st.checkbox("VWAP", value="vwap" in st.session_state.selected_indicators, key="vwap_checkbox"):
-                            selected_indicators.append("vwap")
-                    
-                    # Update session state
-                    st.session_state.selected_indicators = selected_indicators
-                
                 # Main chart
                 if market_data and "data" in market_data:
                     df = pd.DataFrame(market_data["data"])

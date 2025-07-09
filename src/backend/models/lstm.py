@@ -351,6 +351,10 @@ class TradingSignalGenerator:
         # Convert prediction to signal
         predicted_change = prediction.item()
         current_price = features['Close'].iloc[-1]
+        
+        # Sanity check: ensure predicted change is reasonable (cap at ±20%)
+        predicted_change = np.clip(predicted_change, -0.2, 0.2)
+        
         predicted_price = current_price * (1 + predicted_change)
         
         # Calculate confidence based on prediction magnitude
@@ -866,11 +870,28 @@ class IntegratedTradingSignalGenerator(TradingSignalGenerator):
         
         # Analyze predictions
         pred_array = np.array(predictions)
+        current_price = features['price'].iloc[-1]
+        
+        # Apply sanity checks to predictions
+        # Remove outliers (prices that are more than 50% different from current)
+        valid_predictions = []
+        for pred in predictions:
+            if 0.5 * current_price <= pred <= 1.5 * current_price:
+                valid_predictions.append(pred)
+        
+        # If no valid predictions, use current price with small adjustment
+        if not valid_predictions:
+            logger.warning("No valid predictions, using conservative estimate")
+            valid_predictions = [current_price * 1.01, current_price * 0.99]
+        
+        pred_array = np.array(valid_predictions)
         mean_price = np.mean(pred_array)
         std_price = np.std(pred_array)
         
+        # Ensure predicted price is reasonable (within 20% of current price)
+        mean_price = np.clip(mean_price, current_price * 0.8, current_price * 1.2)
+        
         # Determine signal
-        current_price = features['price'].iloc[-1]
         price_change_pct = (mean_price - current_price) / current_price
         
         if price_change_pct > 0.02:

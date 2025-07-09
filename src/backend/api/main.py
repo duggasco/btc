@@ -501,11 +501,14 @@ class SignalUpdater:
                     
                     # Create enhanced analysis
                     analysis = {
-                        'lstm_confidence': enhanced_result['confidence'],
-                        'prediction_range': enhanced_result['prediction_range'],
-                        'price_change_pct': enhanced_result['price_change_pct'],
-                        'combined_score': enhanced_result['combined_score'],
-                        'components': enhanced_result['components'],
+                        'lstm_confidence': enhanced_result.get('confidence', confidence),
+                        'prediction_range': enhanced_result.get('prediction_range', {
+                            'lower': predicted_price * 0.98,
+                            'upper': predicted_price * 1.02
+                        }),
+                        'price_change_pct': enhanced_result.get('price_change_pct', 0.0),
+                        'combined_score': enhanced_result.get('combined_score', confidence),
+                        'components': enhanced_result.get('components', {}),
                         'model_type': 'enhanced_lstm_ensemble'
                     }
                     logger.info(f"Enhanced LSTM signal generated: {signal} (confidence: {confidence:.2%})")
@@ -963,15 +966,18 @@ async def get_enhanced_latest_signal():
                         
                         latest_enhanced_signal = {
                             "symbol": "BTC-USD",
-                            "signal": enhanced_result['signal'],
-                            "confidence": enhanced_result['confidence'],
-                            "predicted_price": enhanced_result['predicted_price'],
-                            "timestamp": enhanced_result['timestamp'],
+                            "signal": enhanced_result.get('signal', 'hold'),
+                            "confidence": enhanced_result.get('confidence', 0.5),
+                            "predicted_price": enhanced_result.get('predicted_price', 0.0),
+                            "timestamp": enhanced_result.get('timestamp', datetime.now().isoformat()),
                             "analysis": {
-                                "prediction_range": enhanced_result['prediction_range'],
-                                "price_change_pct": enhanced_result['price_change_pct'],
-                                "combined_score": enhanced_result['combined_score'],
-                                "components": enhanced_result['components'],
+                                "prediction_range": enhanced_result.get('prediction_range', {
+                                    'lower': enhanced_result.get('predicted_price', 0.0) * 0.98,
+                                    'upper': enhanced_result.get('predicted_price', 0.0) * 1.02
+                                }),
+                                "price_change_pct": enhanced_result.get('price_change_pct', 0.0),
+                                "combined_score": enhanced_result.get('combined_score', 0.5),
+                                "components": enhanced_result.get('components', {}),
                                 "model_type": "enhanced_lstm_ensemble"
                             },
                             "comprehensive_signals": latest_comprehensive_signals if 'latest_comprehensive_signals' in globals() else {}

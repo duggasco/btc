@@ -532,7 +532,7 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
             
             # Create sequences
             X, y = self.create_sequences(
-                np.column_stack([scaled_features, scaled_target[:-1]])
+                np.column_stack([scaled_target, scaled_features])
             )
             
             if len(X) == 0:
@@ -549,6 +549,18 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
             y_train = torch.FloatTensor(y_train).unsqueeze(1)
             X_val = torch.FloatTensor(X_val)
             y_val = torch.FloatTensor(y_val).unsqueeze(1)
+            
+            # Update model with correct input size
+            input_size = X_train.shape[2]  # Number of features
+            if self.model.lstm.input_size != input_size:
+                logger.info(f"Recreating model with input_size={input_size} (was {self.model.lstm.input_size})")
+                from models.lstm import LSTMTradingModel
+                self.model = LSTMTradingModel(
+                    input_size=input_size,
+                    hidden_size=50,
+                    num_layers=2,
+                    dropout=self.dropout_rate
+                )
             
             # Enhanced training with early stopping
             optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)

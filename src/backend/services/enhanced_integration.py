@@ -352,32 +352,45 @@ class EnhancedTradingSystem:
             logger.info(f"Raw model prediction: ${avg_prediction:,.2f}")
             logger.info(f"Prediction std: ${prediction_std:,.2f}")
             
-            # Check if current price is outside training range and adjust
+            # Improved prediction adjustment using relative changes
             adjusted_prediction = avg_prediction
             if predictions:  # We have model predictions
-                # Since we can't access trainer's scaler directly, use heuristic
-                # If prediction is significantly below current price (>50% drop), it's likely due to training range
-                if avg_prediction < current_price * 0.5:
-                    logger.warning(f"Model prediction (${avg_prediction:,.2f}) is unrealistically low compared to current price (${current_price:,.2f})")
-                    logger.warning("This is likely due to model training on historical data with different price ranges")
-                    
-                    # Instead of absolute price, use model's relative signal strength
-                    # Map the model's normalized output to a small % change around current price
-                    # Assuming model output is in lower part of its range (which gives us ~40k)
-                    # This suggests bearish sentiment, but not a 60% crash
-                    
-                    # Use a more reasonable prediction range: -5% to +5% of current price
-                    model_position = avg_prediction / current_price  # ~0.375 for 40k/108k
-                    # Map this to a reasonable range
-                    price_change_factor = 0.95 + (model_position * 0.1)  # Maps to 0.95-1.05 range
-                    adjusted_prediction = current_price * price_change_factor
-                    logger.info(f"Adjusted prediction to reasonable range: ${adjusted_prediction:,.2f}")
-                elif avg_prediction > current_price * 1.5:
-                    logger.warning(f"Model prediction (${avg_prediction:,.2f}) is unrealistically high")
-                    # Cap at reasonable upside
-                    price_change_factor = 1.05  # Max 5% increase
-                    adjusted_prediction = current_price * price_change_factor
-                    logger.info(f"Adjusted prediction to reasonable range: ${adjusted_prediction:,.2f}")
+                # Calculate the normalized position of the prediction within training range
+                # We know from analysis: training min=$25,157, max=$111,722
+                training_min = 25157.0
+                training_max = 111722.0
+                training_range = training_max - training_min
+                
+                # Where does the raw prediction fall in the training range?
+                prediction_position = (avg_prediction - training_min) / training_range
+                prediction_position = max(0, min(1, prediction_position))  # Clamp to [0, 1]
+                
+                logger.info(f"Prediction position in training range: {prediction_position:.3f}")
+                
+                # Convert to a directional signal with reasonable magnitude
+                # Position 0.5 = neutral, < 0.5 = bearish, > 0.5 = bullish
+                direction_signal = prediction_position - 0.5
+                
+                # Map to a reasonable daily price change (-3% to +3%)
+                max_daily_change = 0.03
+                price_change_factor = 1.0 + (direction_signal * 2 * max_daily_change)
+                
+                # Apply the change to current price
+                adjusted_prediction = current_price * price_change_factor
+                
+                # Add confidence-based adjustment
+                if avg_confidence < 0.6:
+                    # Low confidence - reduce the magnitude of change
+                    adjusted_prediction = current_price + (adjusted_prediction - current_price) * avg_confidence
+                
+                logger.info(f"Direction signal: {direction_signal:.3f}")
+                logger.info(f"Price change factor: {price_change_factor:.4f}")
+                logger.info(f"Adjusted prediction: ${adjusted_prediction:,.2f}")
+                
+                # Sanity check - cap extreme predictions
+                min_reasonable = current_price * 0.90  # Max 10% daily drop
+                max_reasonable = current_price * 1.10  # Max 10% daily gain
+                adjusted_prediction = max(min_reasonable, min(max_reasonable, adjusted_prediction))
             
             # Use adjusted prediction for signal generation
             avg_prediction = adjusted_prediction

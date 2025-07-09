@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 try:
     import intel_extension_for_pytorch as ipex
     IPEX_AVAILABLE = True
-    logger.info("Intel Extension for PyTorch (IPEX) is available - optimizations will be applied")
+    # Disable IPEX for LSTM models due to MKL-DNN compatibility issues
+    IPEX_AVAILABLE = False
+    logger.info("IPEX detected but disabled for LSTM models due to compatibility issues")
 except ImportError:
     IPEX_AVAILABLE = False
     logger.info("IPEX not available, using standard PyTorch")
@@ -347,8 +349,8 @@ class LSTMTrainer:
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
         
-        # Apply Intel optimizations if available
-        if IPEX_AVAILABLE and self.device.type in ['cpu', 'xpu']:
+        # Apply Intel optimizations if available - but skip for LSTM due to compatibility issues
+        if IPEX_AVAILABLE and self.device.type in ['cpu', 'xpu'] and False:  # Disabled for LSTM
             try:
                 self.model, optimizer = ipex.optimize(self.model, optimizer=optimizer, level="O1")
                 self.ipex_optimized = True
@@ -363,6 +365,9 @@ class LSTMTrainer:
             except Exception as e:
                 logger.warning(f"Failed to apply IPEX optimizations: {e}")
                 self.ipex_optimized = False
+        else:
+            logger.info("Skipping IPEX optimizations for LSTM model due to compatibility issues")
+            self.ipex_optimized = False
         
         # Learning rate scheduler
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -561,12 +566,20 @@ class LSTMTrainer:
         X = torch.FloatTensor(features_scaled).unsqueeze(0).to(self.device)
         
         with torch.no_grad():
-            # Use Intel optimizations for inference if available
-            if IPEX_AVAILABLE and self.device.type == 'cpu':
-                with torch.cpu.amp.autocast():
+            # Try Intel optimizations first, fallback to standard PyTorch if fails
+            try:
+                if IPEX_AVAILABLE and self.device.type == 'cpu':
+                    with torch.cpu.amp.autocast():
+                        prediction_scaled = self.model(X).cpu().numpy()
+                else:
                     prediction_scaled = self.model(X).cpu().numpy()
-            else:
-                prediction_scaled = self.model(X).cpu().numpy()
+            except RuntimeError as e:
+                if "primitive descriptor" in str(e):
+                    logger.warning("IPEX LSTM optimization failed, using standard PyTorch inference")
+                    # Just use standard PyTorch for this prediction
+                    prediction_scaled = self.model(X).cpu().numpy()
+                else:
+                    raise
                 
         # Inverse transform
         prediction = self.target_scaler.inverse_transform(prediction_scaled)

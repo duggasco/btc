@@ -350,7 +350,16 @@ class TradingSignalGenerator:
         
         # Convert prediction to signal
         predicted_change = prediction.item()
-        current_price = features['Close'].iloc[-1]
+        
+        # Get real-time current price instead of using historical data
+        try:
+            from services.enhanced_data_fetcher import EnhancedDataFetcher
+            fetcher = EnhancedDataFetcher()
+            current_price = fetcher.get_current_btc_price()
+            logger.info(f"Using real-time BTC price: ${current_price:,.2f}")
+        except Exception as e:
+            logger.warning(f"Failed to get real-time price, using historical: {e}")
+            current_price = features['Close'].iloc[-1]
         
         # Sanity check: ensure predicted change is reasonable (cap at ±20%)
         predicted_change = np.clip(predicted_change, -0.2, 0.2)
@@ -373,7 +382,14 @@ class TradingSignalGenerator:
     def generate_rule_based_signal(self, data: pd.DataFrame) -> Tuple[str, float, float]:
         """Generate signal based on technical indicators"""
         if len(data) < 50:
-            return "hold", 0.5, data['Close'].iloc[-1]
+            # Try to get real-time price
+            try:
+                from services.enhanced_data_fetcher import EnhancedDataFetcher
+                fetcher = EnhancedDataFetcher()
+                current_price = fetcher.get_current_btc_price()
+            except:
+                current_price = data['Close'].iloc[-1] if len(data) > 0 else 0
+            return "hold", 0.5, current_price
         
         latest = data.iloc[-1]
         
@@ -870,7 +886,16 @@ class IntegratedTradingSignalGenerator(TradingSignalGenerator):
         
         # Analyze predictions
         pred_array = np.array(predictions)
-        current_price = features['price'].iloc[-1]
+        
+        # Get real-time current price
+        try:
+            from services.enhanced_data_fetcher import EnhancedDataFetcher
+            fetcher = EnhancedDataFetcher()
+            current_price = fetcher.get_current_btc_price()
+            logger.info(f"Using real-time price for confidence prediction: ${current_price:,.2f}")
+        except Exception as e:
+            logger.warning(f"Failed to get real-time price: {e}")
+            current_price = features['price'].iloc[-1]
         
         # Apply sanity checks to predictions
         # Remove outliers (prices that are more than 50% different from current)

@@ -85,7 +85,9 @@ class TALibCompat:
     @staticmethod
     def AROON(high, low, timeperiod=14):
         """Aroon Indicator"""
-        aroon_ind = ta.trend.AroonIndicator(pd.Series(high), pd.Series(low), window=timeperiod)
+        # ta library's AroonIndicator only takes close price, so we'll use high-low midpoint
+        close = (pd.Series(high) + pd.Series(low)) / 2
+        aroon_ind = ta.trend.AroonIndicator(close=close, window=timeperiod)
         return aroon_ind.aroon_up(), aroon_ind.aroon_down()
     
     @staticmethod
@@ -210,11 +212,11 @@ class FeatureEngineer:
     def _add_technical_features(self, df: pd.DataFrame, adaptive: bool = True) -> Tuple[pd.DataFrame, List[str]]:
         """Add technical analysis features (Signals 1-21)"""
         features = []
-        close = df['Close'].values
-        high = df['High'].values
-        low = df['Low'].values
-        open_price = df['Open'].values
-        volume = df['Volume'].values
+        close = df['Close']
+        high = df['High']
+        low = df['Low']
+        open_price = df['Open']
+        volume = df['Volume']
         
         # Signal 1: Moving Averages
         for period in [5, 10, 20, 50]:

@@ -1,0 +1,394 @@
+{
+  "timestamp": "20250708_232914",
+  "api_base_url": "http://backend:8000",
+  "summary": {
+    "total_tests": 50,
+    "passed": 46,
+    "failed": 4,
+    "pass_rate": 92.0
+  },
+  "categories": {
+    "health": {
+      "passed": 1,
+      "failed": 0,
+      "endpoints": []
+    },
+    "": {
+      "passed": 1,
+      "failed": 0,
+      "endpoints": []
+    },
+    "btc": {
+      "passed": 6,
+      "failed": 1,
+      "endpoints": [
+        [
+          "/btc/metrics",
+          "HTTP 500: Internal Server Error"
+        ]
+      ]
+    },
+    "signals": {
+      "passed": 4,
+      "failed": 0,
+      "endpoints": []
+    },
+    "indicators": {
+      "passed": 4,
+      "failed": 0,
+      "endpoints": []
+    },
+    "portfolio": {
+      "passed": 3,
+      "failed": 0,
+      "endpoints": []
+    },
+    "trades": {
+      "passed": 2,
+      "failed": 0,
+      "endpoints": []
+    },
+    "paper-trading": {
+      "passed": 4,
+      "failed": 1,
+      "endpoints": [
+        [
+          "/paper-trading/trade",
+          "HTTP 500: Trade amount must be at least 0.0001 BTC"
+        ]
+      ]
+    },
+    "analytics": {
+      "passed": 12,
+      "failed": 0,
+      "endpoints": []
+    },
+    "config": {
+      "passed": 4,
+      "failed": 1,
+      "endpoints": [
+        [
+          "/config/import",
+          "HTTP 500: "
+        ]
+      ]
+    },
+    "enhanced-lstm": {
+      "passed": 3,
+      "failed": 1,
+      "endpoints": [
+        [
+          "/enhanced-lstm/predict",
+          "HTTP 400: Model not trained yet. Please train the model first."
+        ]
+      ]
+    },
+    "notifications": {
+      "passed": 2,
+      "failed": 0,
+      "endpoints": []
+    }
+  },
+  "results": [
+    {
+      "name": "Health Check",
+      "endpoint": "/health",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "System Info",
+      "endpoint": "/",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Current BTC Price",
+      "endpoint": "/btc/latest",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Price History (1h)",
+      "endpoint": "/btc/history/1h",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Price History (4h)",
+      "endpoint": "/btc/history/4h",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Price History (1d)",
+      "endpoint": "/btc/history/1d",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Price History (1w)",
+      "endpoint": "/btc/history/1w",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Price History (1m)",
+      "endpoint": "/btc/history/1m",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Market Metrics",
+      "endpoint": "/btc/metrics",
+      "success": false,
+      "details": "HTTP 500: Internal Server Error"
+    },
+    {
+      "name": "Latest Signal",
+      "endpoint": "/signals/latest",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Enhanced LSTM Signal",
+      "endpoint": "/signals/enhanced/latest",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Comprehensive Signals",
+      "endpoint": "/signals/comprehensive",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Signal History (24h)",
+      "endpoint": "/signals/history?hours=24",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Technical Indicators",
+      "endpoint": "/indicators/technical",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "On-chain Indicators",
+      "endpoint": "/indicators/onchain",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Sentiment Indicators",
+      "endpoint": "/indicators/sentiment",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Macro Indicators",
+      "endpoint": "/indicators/macro",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Portfolio Metrics",
+      "endpoint": "/portfolio/metrics",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Current Positions",
+      "endpoint": "/portfolio/positions",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Performance History",
+      "endpoint": "/portfolio/performance/history",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "All Trades",
+      "endpoint": "/trades/all",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Recent Trades",
+      "endpoint": "/trades/recent?limit=10",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Paper Trading Status",
+      "endpoint": "/paper-trading/status",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Toggle Paper Trading",
+      "endpoint": "/paper-trading/toggle",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Reset Portfolio",
+      "endpoint": "/paper-trading/reset",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Execute Trade",
+      "endpoint": "/paper-trading/trade",
+      "success": false,
+      "details": "HTTP 500: Trade amount must be at least 0.0001 BTC"
+    },
+    {
+      "name": "Trade History",
+      "endpoint": "/paper-trading/history",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Performance Analytics",
+      "endpoint": "/analytics/performance",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Risk Metrics",
+      "endpoint": "/analytics/risk-metrics",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Performance Attribution",
+      "endpoint": "/analytics/attribution",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "P&L Analysis",
+      "endpoint": "/analytics/pnl-analysis",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Feature Importance",
+      "endpoint": "/analytics/feature-importance",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Market Regime",
+      "endpoint": "/analytics/market-regime",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Backtesting",
+      "endpoint": "/analytics/backtest",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Monte Carlo Simulation",
+      "endpoint": "/analytics/monte-carlo",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Strategy Optimization",
+      "endpoint": "/analytics/optimize-strategy",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Performance by Day of Week",
+      "endpoint": "/analytics/performance-by-dow",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Performance by Hour",
+      "endpoint": "/analytics/performance-by-hour",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Strategy Comparison",
+      "endpoint": "/analytics/strategies",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Get Current Config",
+      "endpoint": "/config/current",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Update Config",
+      "endpoint": "/config/update",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Reset Config",
+      "endpoint": "/config/reset",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Export Config",
+      "endpoint": "/config/export",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Import Config",
+      "endpoint": "/config/import",
+      "success": false,
+      "details": "HTTP 500: "
+    },
+    {
+      "name": "Enhanced LSTM Status",
+      "endpoint": "/enhanced-lstm/status",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Data Status",
+      "endpoint": "/enhanced-lstm/data-status",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Enhanced Prediction",
+      "endpoint": "/enhanced-lstm/predict",
+      "success": false,
+      "details": "HTTP 400: Model not trained yet. Please train the model first."
+    },
+    {
+      "name": "Train Enhanced Model",
+      "endpoint": "/enhanced-lstm/train",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Test Notification",
+      "endpoint": "/notifications/test",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "name": "Send Notification",
+      "endpoint": "/notifications/send",
+      "success": true,
+      "details": "Status: 200"
+    }
+  ]
+}

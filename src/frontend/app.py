@@ -6,6 +6,9 @@ import sys
 # Add the parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Import components
+from components.api_client import APIClient
+
 # Page configuration
 st.set_page_config(
     page_title="BTC Trading System - UltraThink Enhanced",
@@ -174,6 +177,8 @@ if "last_update" not in st.session_state:
     st.session_state.last_update = None
 if "ws_connected" not in st.session_state:
     st.session_state.ws_connected = False
+if "api_client" not in st.session_state:
+    st.session_state.api_client = APIClient(base_url=os.getenv("API_BASE_URL", "http://localhost:8090"))
 
 # Sidebar with enhanced system status
 with st.sidebar:
@@ -253,10 +258,36 @@ stats_container = st.container()
 with stats_container:
     col1, col2, col3, col4, col5 = st.columns(5)
     
+    # Fetch real-time data
+    try:
+        # Get current price from /btc/latest endpoint
+        price_data = st.session_state.api_client.get("/btc/latest")
+        btc_price = "$0.00"
+        price_change = "0.00%"
+        if price_data and "latest_price" in price_data:
+            btc_price = f"${price_data['latest_price']:,.2f}"
+            if "price_change_percentage_24h" in price_data:
+                price_change = f"{price_data['price_change_percentage_24h']:.2f}%"
+        
+        # Get latest signal
+        signal_data = st.session_state.api_client.get_latest_signal()
+        current_signal = "HOLD"
+        signal_confidence = "0%"
+        if signal_data and "signal" in signal_data:
+            current_signal = signal_data["signal"].upper()
+            if "confidence" in signal_data:
+                signal_confidence = f"{signal_data['confidence']*100:.0f}%"
+    except Exception as e:
+        st.error(f"Failed to fetch data: {str(e)}")
+        btc_price = "$0.00"
+        price_change = "0.00%"
+        current_signal = "ERROR"
+        signal_confidence = "0%"
+    
     with col1:
-        st.metric("BTC Price", "$0.00", "0.00%")
+        st.metric("BTC Price", btc_price, price_change)
     with col2:
-        st.metric("Signal", "HOLD", "0%")
+        st.metric("Signal", current_signal, signal_confidence)
     with col3:
         st.metric("Portfolio", "$0.00", "0.00%")
     with col4:

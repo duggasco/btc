@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 class AdvancedTradingSignalGenerator(TradingSignalGenerator):
     """Advanced version with all 50+ signals and LSTM best practices"""
     
-    def __init__(self, model_path: str = None, sequence_length: int = 60):
+    def __init__(self, model_path: str = None, sequence_length: int = 30):
         super().__init__(model_path, sequence_length)
         self.signal_weights = EnhancedSignalWeights()
         self.performance_history = []
@@ -398,9 +398,11 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
     def prepare_enhanced_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """Prepare features using LSTM best practices"""
         logger.info("Preparing enhanced features with LSTM best practices...")
+        logger.info(f"Input data shape: {data.shape}")
         
         # Calculate all signals
         features = self.signal_calculator.calculate_all_signals(data)
+        logger.info(f"Features after signal calculation: {features.shape}")
         
         # Feature engineering based on research
         categorized = pd.DataFrame(index=features.index)
@@ -470,7 +472,12 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
             categorized['macro_features'] = 0.5
         
         # Add target and price
-        categorized['Close'] = features.get('Close', data.get('Close', 1.0))
+        if 'Close' in features.columns:
+            categorized['Close'] = features['Close']
+        elif 'Close' in data.columns:
+            categorized['Close'] = data['Close']
+        else:
+            categorized['Close'] = 1.0
         categorized['target'] = categorized['Close'].pct_change().shift(-1).fillna(0)
         
         # Add divergence signals
@@ -496,10 +503,20 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
             features = self.prepare_enhanced_features(data)
             
             # Remove NaN values
-            features = features.dropna()
+            logger.info(f"Features before dropna: {features.shape}")
+            nan_cols = features.columns[features.isna().any()].tolist()
+            if nan_cols:
+                logger.warning(f"Columns with NaN values: {nan_cols}")
+                for col in nan_cols:
+                    nan_count = features[col].isna().sum()
+                    logger.warning(f"  {col}: {nan_count} NaN values out of {len(features)} rows")
+            # Fill NaN values instead of dropping rows
+            features = features.fillna(method='ffill').fillna(method='bfill').fillna(0)
+            logger.info(f"Features after fillna: {features.shape}")
             
-            if len(features) < self.sequence_length + 10:
-                logger.error("Insufficient data for training")
+            min_required = self.sequence_length + 1  # Just need 1 sample for prediction after sequence
+            if len(features) < min_required:
+                logger.error(f"Insufficient data for training: {len(features)} rows, need at least {min_required} (sequence_length={self.sequence_length})")
                 return
             
             # Feature selection based on importance

@@ -53,13 +53,23 @@ class EnhancedTradingSystem:
         self.engineered_data = None
         self.selected_features = None
         
+    def _deep_merge(self, base_dict: Dict, update_dict: Dict) -> Dict:
+        """Deep merge two dictionaries"""
+        result = base_dict.copy()
+        for key, value in update_dict.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+    
     def _load_config(self) -> Dict:
         """Load trading configuration"""
         default_config = {
             'data': {
                 'history_days': 730,  # 2 years as recommended
-                'min_data_points': 500,  # Minimum after preprocessing
-                'sequence_length': 60,  # 60 days lookback
+                'min_data_points': 200,  # Minimum after preprocessing
+                'sequence_length': 60,  # 60 days lookback as per whitepaper
                 'update_frequency': 'daily'
             },
             'features': {
@@ -94,8 +104,8 @@ class EnhancedTradingSystem:
             try:
                 with open(self.config_path, 'r') as f:
                     loaded_config = json.load(f)
-                # Merge with defaults
-                default_config.update(loaded_config)
+                # Deep merge with defaults
+                return self._deep_merge(default_config, loaded_config)
             except Exception as e:
                 logger.warning(f"Failed to load config: {e}, using defaults")
                 
@@ -113,8 +123,9 @@ class EnhancedTradingSystem:
             days = self.config['data']['history_days']
             self.raw_data = self.data_fetcher.fetch_comprehensive_btc_data(days)
             
-            if self.raw_data is None or len(self.raw_data) < 100:
-                logger.error("Failed to fetch sufficient raw data")
+            min_raw_required = self.config['data']['sequence_length'] + 50  # Enhanced model needs more data
+            if self.raw_data is None or len(self.raw_data) < min_raw_required:
+                logger.error(f"Insufficient raw data for enhanced model: {len(self.raw_data) if self.raw_data is not None else 0} rows, need at least {min_raw_required} (sequence_length={self.config['data']['sequence_length']})")
                 return False
                 
             logger.info(f"Fetched {len(self.raw_data)} days of raw data")

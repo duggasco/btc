@@ -286,7 +286,14 @@ def test_config_endpoints():
     print_test("Export Config", "/config/export", success, details)
     
     # Import config
-    import_data = {"config": {}}
+    import_data = {
+        "config": {
+            "trading": {"max_position_size": 0.5},
+            "signals": {"rsi_weight": 0.2},
+            "risk": {"stop_loss": 0.05},
+            "data": {"lookback_days": 30}
+        }
+    }
     success, details, _ = test_api_endpoint("/config/import", "POST", import_data)
     print_test("Import Config", "/config/import", success, details)
 

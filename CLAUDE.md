@@ -149,7 +149,16 @@ DATABASE_PATH=/app/data/trading_system.db
 MODEL_PATH=/app/models
 API_BASE_URL=http://backend:8080  # Frontend→Backend communication
 DISCORD_WEBHOOK_URL=<optional>     # For notifications
+
+# Optional API Keys (system works without these using fallbacks)
+FINNHUB_API_KEY=      # Free tier at finnhub.io
+FRED_API_KEY=         # Free at fred.stlouisfed.org
+TWELVE_DATA_API_KEY=  # Free tier at twelvedata.com
+ALPHA_VANTAGE_API_KEY=# Free at alphavantage.co
+GLASSNODE_API_KEY=    # Paid service for on-chain data
 ```
+
+Copy `.env.example` to `.env` for API key configuration.
 
 ### Testing Strategy
 

@@ -40,7 +40,9 @@ class EnhancedDataFetcher:
             'glassnode': os.getenv('GLASSNODE_API_KEY'),
             'cryptoquant': os.getenv('CRYPTOQUANT_API_KEY'),
             'newsapi': os.getenv('NEWS_API_KEY'),
-            'messari': os.getenv('MESSARI_API_KEY')
+            'messari': os.getenv('MESSARI_API_KEY'),
+            'finnhub': os.getenv('FINNHUB_API_KEY', 'demo'),
+            'twelve_data': os.getenv('TWELVE_DATA_API_KEY', 'demo')
         }
         
         # Free API endpoints that don't require keys

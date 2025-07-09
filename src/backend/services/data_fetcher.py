@@ -48,6 +48,9 @@ class CoinGeckoSource(CryptoSource):
     
     BASE_URL = "https://api.coingecko.com/api/v3"
     
+    def __init__(self):
+        self.name = "coingecko"
+    
     def fetch(self, symbol: str = "bitcoin", period: str = "3mo", **kwargs) -> pd.DataFrame:
         days = self._period_to_days(period)
         
@@ -59,6 +62,13 @@ class CoinGeckoSource(CryptoSource):
         
         try:
             response = requests.get(url, params=params, timeout=10)
+            if response.status_code == 429:
+                # Extract retry-after if available
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    raise requests.HTTPError(f"429: Rate limited. Retry after {retry_after}s")
+                else:
+                    raise requests.HTTPError("429: Rate limited")
             response.raise_for_status()
             
             data = response.json()
@@ -102,13 +112,21 @@ class CoinGeckoSource(CryptoSource):
         url = f"{self.BASE_URL}/simple/price"
         params = {'ids': symbol, 'vs_currencies': 'usd'}
         response = requests.get(url, params=params, timeout=5)
+        if response.status_code == 429:
+            retry_after = response.headers.get('Retry-After')
+            if retry_after:
+                raise requests.HTTPError(f"429: Rate limited. Retry after {retry_after}s")
+            else:
+                raise requests.HTTPError("429: Rate limited")
         response.raise_for_status()
         return response.json()[symbol]['usd']
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
-            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
+            '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
+            'all': 1825, 'max': 1825
         }
         return period_map.get(period, 90)
 
@@ -116,6 +134,9 @@ class BinanceSource(CryptoSource):
     """Binance API data source (Free, no API key required for public data)"""
     
     BASE_URL = "https://api.binance.com/api/v3"
+    
+    def __init__(self):
+        self.name = "binance"
     
     def fetch(self, symbol: str = "BTCUSDT", period: str = "3mo", **kwargs) -> pd.DataFrame:
         interval_map = {
@@ -185,6 +206,9 @@ class CryptoCompareSource(CryptoSource):
     """CryptoCompare API (Free tier available)"""
     
     BASE_URL = "https://min-api.cryptocompare.com/data/v2"
+    
+    def __init__(self):
+        self.name = "cryptocompare"
     
     def fetch(self, symbol: str = "BTC", period: str = "3mo", **kwargs) -> pd.DataFrame:
         # Map period to API parameters
@@ -311,8 +335,10 @@ class FREDSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
-            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
+            '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
+            'all': 1825, 'max': 1825
         }
         return period_map.get(period, 90)
 
@@ -404,8 +430,10 @@ class AlphaVantageMacroSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
-            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
+            '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
+            'all': 1825, 'max': 1825
         }
         return period_map.get(period, 90)
 
@@ -512,8 +540,10 @@ class TwelveDataMacroSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
-            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
+            '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
+            'all': 1825, 'max': 1825
         }
         return period_map.get(period, 90)
 
@@ -613,8 +643,10 @@ class FinnhubMacroSource(MacroSource):
     
     def _period_to_days(self, period: str) -> int:
         period_map = {
-            '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
-            '6mo': 180, '1y': 365, '2y': 730, 'max': 1825
+            '5m': 1, '15m': 1, '1h': 1, '4h': 1,  # Intraday periods default to 1 day
+            '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180,
+            '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, 
+            'all': 1825, 'max': 1825
         }
         return period_map.get(period, 90)
 
@@ -1380,16 +1412,90 @@ class ExternalDataFetcher:
         self.onchain_source = OnChainDataSource()
         self.synthetic_generator = SyntheticDataGenerator()
         
-        # Cache configuration
+        # Cache configuration with different TTLs for different data types
         self._cache = {}
-        self._cache_duration = 300  # 5 minutes for real data
+        self._cache_durations = {
+            'price': 60,        # 1 minute for price data
+            'crypto': 300,      # 5 minutes for OHLC data
+            'macro': 3600,      # 1 hour for macro data
+            'sentiment': 1800,  # 30 minutes for sentiment
+            'onchain': 1800,    # 30 minutes for on-chain data
+        }
+        self._default_cache_duration = 300  # 5 minutes default
         self._cache_lock = threading.Lock()
+        
+        # Rate limiting configuration
+        self._rate_limits = {
+            'coingecko': {'calls': 10, 'period': 60, 'last_reset': time.time(), 'count': 0},
+            'binance': {'calls': 20, 'period': 60, 'last_reset': time.time(), 'count': 0},
+            'cryptocompare': {'calls': 30, 'period': 60, 'last_reset': time.time(), 'count': 0},
+            'alphavantage': {'calls': 5, 'period': 60, 'last_reset': time.time(), 'count': 0},
+        }
+        self._rate_limit_lock = threading.Lock()
+        self._backoff_until = {}  # Track when to retry after 429 errors
         
         # Add attributes expected by tests
         self.cache_duration = 60  # For test compatibility
         self.session = requests.Session()  # HTTP session for requests
         
-        logger.info("External Data Fetcher initialized with real data sources")
+        logger.info("External Data Fetcher initialized with rate limiting and enhanced caching")
+    
+    def _check_rate_limit(self, source_name: str) -> bool:
+        """Check if we can make an API call to the given source"""
+        with self._rate_limit_lock:
+            # Check if we're in backoff period
+            if source_name in self._backoff_until:
+                if time.time() < self._backoff_until[source_name]:
+                    return False
+                else:
+                    # Backoff period expired
+                    del self._backoff_until[source_name]
+            
+            # Get rate limit config for source
+            limit_config = self._rate_limits.get(source_name.lower())
+            if not limit_config:
+                return True  # No rate limit configured
+            
+            # Check if we need to reset the counter
+            current_time = time.time()
+            if current_time - limit_config['last_reset'] >= limit_config['period']:
+                limit_config['count'] = 0
+                limit_config['last_reset'] = current_time
+            
+            # Check if we're within limits
+            if limit_config['count'] < limit_config['calls']:
+                limit_config['count'] += 1
+                return True
+            
+            return False
+    
+    def _handle_rate_limit_error(self, source_name: str, retry_after: int = None):
+        """Handle rate limit errors with exponential backoff"""
+        with self._rate_limit_lock:
+            if retry_after:
+                # Use the retry-after header if provided
+                backoff_time = retry_after
+            else:
+                # Exponential backoff: 60s, 120s, 240s, etc.
+                current_backoff = self._backoff_until.get(source_name, 0) - time.time()
+                if current_backoff > 0:
+                    backoff_time = min(current_backoff * 2, 900)  # Max 15 minutes
+                else:
+                    backoff_time = 60  # Start with 1 minute
+            
+            self._backoff_until[source_name] = time.time() + backoff_time
+            logger.warning(f"{source_name} rate limited. Backing off for {backoff_time} seconds")
+    
+    def _add_api_delay(self, source_name: str):
+        """Add a small delay between API calls to prevent hitting rate limits"""
+        delays = {
+            'coingecko': 0.5,      # 500ms between calls
+            'binance': 0.1,        # 100ms between calls
+            'cryptocompare': 0.2,  # 200ms between calls
+            'alphavantage': 2.0,   # 2s between calls (strict limit)
+        }
+        delay = delays.get(source_name.lower(), 0.3)
+        time.sleep(delay)
     
     def fetch_crypto_data(self, symbol: str = "BTC", period: str = "3mo") -> pd.DataFrame:
         """Fetch cryptocurrency data with fallback"""
@@ -1409,18 +1515,40 @@ class ExternalDataFetcher:
         
         # Try each source
         for source in self.crypto_sources:
+            source_name = source.name if hasattr(source, 'name') else source.__class__.__name__.lower().replace('source', '')
+            
+            # Check rate limit before attempting
+            if not self._check_rate_limit(source_name):
+                logger.info(f"Skipping {source_name} due to rate limit")
+                continue
+            
             try:
-                source_name = source.__class__.__name__.lower().replace('source', '')
                 mapped_symbol = symbol_map.get(symbol, {}).get(source_name, symbol)
                 
                 logger.info(f"Fetching {symbol} from {source.__class__.__name__}")
+                
+                # Add small delay to prevent hitting rate limits
+                self._add_api_delay(source_name)
+                
                 df = source.fetch(mapped_symbol, period)
                 
                 if self._validate_ohlcv_data(df):
-                    self._save_to_cache(cache_key, df)
+                    self._save_to_cache(cache_key, df, data_type='crypto')
                     logger.info(f"Successfully fetched {symbol} from {source.__class__.__name__}")
                     return df
                     
+            except requests.HTTPError as e:
+                if "429" in str(e) or e.response.status_code == 429:
+                    # Handle rate limit error
+                    retry_after = None
+                    if "Retry after" in str(e):
+                        try:
+                            retry_after = int(str(e).split("Retry after ")[1].split("s")[0])
+                        except:
+                            pass
+                    self._handle_rate_limit_error(source_name, retry_after)
+                logger.warning(f"{source.__class__.__name__} failed for {symbol}: {e}")
+                continue
             except Exception as e:
                 logger.warning(f"{source.__class__.__name__} failed for {symbol}: {e}")
                 continue
@@ -1456,11 +1584,45 @@ class ExternalDataFetcher:
         return self.synthetic_generator.generate_macro_ohlcv(symbol, period)
     
     def get_current_crypto_price(self, symbol: str = "BTC") -> float:
-        """Get current cryptocurrency price"""
+        """Get current cryptocurrency price with rate limiting"""
+        # Check cache first - price data has short TTL
+        cache_key = self._get_cache_key('price', symbol, 'current')
+        cached_price = self._get_from_cache(cache_key)
+        if cached_price is not None:
+            return cached_price
+        
         for source in self.crypto_sources:
+            source_name = source.name if hasattr(source, 'name') else source.__class__.__name__.lower().replace('source', '')
+            
+            # Check rate limit
+            if not self._check_rate_limit(source_name):
+                logger.info(f"Skipping {source_name} for price due to rate limit")
+                continue
+            
             try:
                 mapped_symbol = 'bitcoin' if symbol == 'BTC' else symbol.lower()
-                return source.get_current_price(mapped_symbol)
+                
+                # Add small delay
+                self._add_api_delay(source_name)
+                
+                price = source.get_current_price(mapped_symbol)
+                
+                # Cache successful price data
+                self._save_to_cache(cache_key, price, data_type='price')
+                return price
+                
+            except requests.HTTPError as e:
+                if "429" in str(e) or (hasattr(e, 'response') and e.response.status_code == 429):
+                    # Handle rate limit error
+                    retry_after = None
+                    if "Retry after" in str(e):
+                        try:
+                            retry_after = int(str(e).split("Retry after ")[1].split("s")[0])
+                        except:
+                            pass
+                    self._handle_rate_limit_error(source_name, retry_after)
+                logger.warning(f"Price fetch failed with {source.__class__.__name__}: {e}")
+                continue
             except Exception as e:
                 logger.warning(f"Price fetch failed with {source.__class__.__name__}: {e}")
                 continue
@@ -1532,7 +1694,7 @@ class ExternalDataFetcher:
             'news_sentiment': data.get('news', {}).get('news_sentiment', 0.5)
         }
         
-        self._save_to_cache(cache_key, data, duration=60)  # Shorter cache for sentiment
+        self._save_to_cache(cache_key, data, data_type='sentiment')
         return data
     
     def fetch_onchain_data(self) -> Dict[str, Any]:
@@ -1560,7 +1722,7 @@ class ExternalDataFetcher:
             logger.error(f"Exchange flows fetch failed: {e}")
             data['flows'] = self._get_fallback_exchange_flows()
         
-        self._save_to_cache(cache_key, data, duration=120)  # 2 minute cache
+        self._save_to_cache(cache_key, data, data_type='onchain')
         return data
     
     def fetch_all_market_data(self, period: str = "3mo") -> Dict[str, pd.DataFrame]:
@@ -1654,8 +1816,8 @@ class ExternalDataFetcher:
                     'change_24h': bitcoin_data.get('usd_24h_change', 0),
                     'timestamp': datetime.now().isoformat()
                 }
-                # Cache for shorter duration (60 seconds for price data)
-                self._save_to_cache(cache_key, result, duration=self.cache_duration)
+                # Cache with proper data type for price
+                self._save_to_cache(cache_key, result, data_type='price')
                 return result
         except Exception as e:
             logger.error(f"Error fetching current price: {e}")
@@ -1676,8 +1838,8 @@ class ExternalDataFetcher:
                     'change_24h': float(data.get('priceChangePercent', 0)),
                     'timestamp': datetime.now().isoformat()
                 }
-                # Cache the result
-                self._save_to_cache(cache_key, result, duration=self.cache_duration)
+                # Cache the result with price data type
+                self._save_to_cache(cache_key, result, data_type='price')
                 return result
         except Exception as e:
             logger.error(f"Binance fallback also failed: {e}")
@@ -1800,8 +1962,10 @@ class ExternalDataFetcher:
         }
     
     def _get_cache_key(self, data_type: str, symbol: str, period: str) -> str:
-        """Generate cache key"""
-        time_bucket = int(time.time() // self._cache_duration)
+        """Generate cache key with proper TTL consideration"""
+        # Get the appropriate cache duration for this data type
+        cache_duration = self._cache_durations.get(data_type, self._default_cache_duration)
+        time_bucket = int(time.time() // cache_duration)
         key_string = f"{data_type}_{symbol}_{period}_{time_bucket}"
         return hashlib.md5(key_string.encode()).hexdigest()
     
@@ -1815,12 +1979,18 @@ class ExternalDataFetcher:
                 del self._cache[key]
         return None
     
-    def _save_to_cache(self, key: str, data: Any, duration: Optional[int] = None):
-        """Save data to cache"""
+    def _save_to_cache(self, key: str, data: Any, data_type: str = None):
+        """Save data to cache with appropriate TTL based on data type"""
         with self._cache_lock:
+            # Determine cache duration based on data type
+            if data_type and data_type in self._cache_durations:
+                duration = self._cache_durations[data_type]
+            else:
+                duration = self._default_cache_duration
+            
             self._cache[key] = {
                 'data': data,
-                'expires': time.time() + (duration or self._cache_duration)
+                'expires': time.time() + duration
             }
             
             # Clean old cache entries

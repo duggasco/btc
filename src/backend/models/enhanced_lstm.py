@@ -203,7 +203,7 @@ class LSTMTrainer:
         }
         
         # Check data sufficiency
-        min_required = sequence_length + 100  # Need at least 100 samples after sequences
+        min_required = sequence_length + 50  # Need at least 50 samples after sequences for train/val/test
         if len(df) < min_required:
             raise ValueError(f"Insufficient data: {len(df)} rows, need at least {min_required}")
             

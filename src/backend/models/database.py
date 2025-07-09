@@ -7,6 +7,9 @@ import uuid
 import json
 import numpy as np
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self, db_path: str = None):
@@ -191,6 +194,35 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+        
+        # Run migrations to update existing tables
+        self._run_migrations()
+    
+    def _run_migrations(self):
+        """Run database migrations to add missing columns"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Check if columns exist and add them if they don't
+            # For model_signals table
+            cursor.execute("PRAGMA table_info(model_signals)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'analysis_data' not in columns:
+                cursor.execute('ALTER TABLE model_signals ADD COLUMN analysis_data TEXT')
+                
+            if 'signal_weights' not in columns:
+                cursor.execute('ALTER TABLE model_signals ADD COLUMN signal_weights TEXT')
+                
+            if 'comprehensive_signals' not in columns:
+                cursor.execute('ALTER TABLE model_signals ADD COLUMN comprehensive_signals TEXT')
+                
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Migration warning: {e}")
+        finally:
+            conn.close()
     
     # Enhanced methods for new functionality
     def add_enhanced_model_signal(self, symbol: str, signal: str, confidence: float, 

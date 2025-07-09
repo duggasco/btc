@@ -179,3 +179,30 @@ class DiscordNotifier:
         self.daily_open = open_price
         self.daily_high = high
         self.daily_low = low
+    
+    def send_notification(self, message: str, notification_type: str = "info"):
+        """Generic notification method for sending custom messages"""
+        type_colors = {
+            'info': 0x3498db,      # Blue
+            'success': 0x2ecc71,   # Green
+            'warning': 0xf39c12,   # Orange
+            'error': 0xe74c3c,     # Red
+            'signal': 0x9b59b6     # Purple
+        }
+        
+        type_icons = {
+            'info': 'ℹ️',
+            'success': '✅',
+            'warning': '⚠️',
+            'error': '❌',
+            'signal': '📊'
+        }
+        
+        embed = {
+            "title": f"{type_icons.get(notification_type, '📢')} {notification_type.title()} Notification",
+            "description": message,
+            "color": type_colors.get(notification_type, 0x808080),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return self._send_webhook(embed)

@@ -1,13 +1,13 @@
 {
-  "last_training_date": "2025-07-09T03:28:15.847043",
+  "last_training_date": "2025-07-09T04:00:43.271172",
   "training_metrics": {
-    "avg_mse": 0.03884413776298364,
-    "avg_mae": 0.1741077403227488,
-    "avg_rmse": 0.19355133175849915,
-    "avg_directional_accuracy": 0.4781144781144781,
-    "std_rmse": 0.03717555417002033,
-    "best_rmse": 0.15992659330368042,
-    "worst_rmse": 0.24536463618278503
+    "avg_mse": 0.04626925537983576,
+    "avg_mae": 0.19011162221431732,
+    "avg_rmse": 0.2096656213204066,
+    "avg_directional_accuracy": 0.5622895622895623,
+    "std_rmse": 0.0480581001641722,
+    "best_rmse": 0.14175990223884583,
+    "worst_rmse": 0.2460641860961914
   },
   "selected_features": [
     "pivot",
@@ -45,7 +45,6 @@
     "senkou_span_b",
     "SMA_200",
     "ATR",
-    "exchange_reserves_proxy",
     "golden_cross",
     "BB_width",
     "price_above_VWAP",
@@ -59,7 +58,8 @@
     "price_above_cloud",
     "ATR_normalized",
     "greed_extreme",
-    "nvt_signal"
+    "nvt_signal",
+    "fear_greed_value"
   ],
   "config": {
     "data": {
@@ -318,6 +318,28 @@
         "log_all_signals": true,
         "retention_days": 365
       }
+    },
+    "system": {
+      "rate_limit_enabled": true,
+      "enable_caching": true,
+      "log_level": "INFO",
+      "log_to_file": true,
+      "parallel_requests": true,
+      "request_timeout": 30,
+      "auto_cleanup": true,
+      "rate_limit_requests": 100,
+      "rate_limit_burst": 20,
+      "cache_ttl": 60,
+      "cache_size": "500 MB",
+      "retention_days": 90
+    },
+    "data_sources": {
+      "primary_price": "Binance",
+      "primary_onchain": "Blockchain.info",
+      "enable_fallbacks": true
+    },
+    "api_keys": {
+      "fred": "d639f41cb422efdc16f35abdbc80700c"
     }
   }
 }

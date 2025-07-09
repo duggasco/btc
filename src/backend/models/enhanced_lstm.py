@@ -174,8 +174,23 @@ class LSTMTrainer:
         # Model components
         self.model = None
         self.scaler = None
+        self.target_scaler = None
         self.feature_names = None
         self.config = None
+        
+    def _create_model(self, input_size: int, hidden_size: int = 100, 
+                     num_layers: int = 2, dropout: float = 0.2, 
+                     use_attention: bool = True, use_batch_norm: bool = True):
+        """Create and return a new EnhancedLSTM model"""
+        model = EnhancedLSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            use_attention=use_attention,
+            use_batch_norm=use_batch_norm
+        ).to(self.device)
+        return model
         
     def prepare_data(self, 
                     df: pd.DataFrame,
@@ -480,6 +495,23 @@ class LSTMTrainer:
         if self.model is None:
             raise ValueError("Model not trained yet")
             
+        # Load scalers if not already loaded
+        if self.scaler is None:
+            scaler_path = os.path.join(self.model_dir, 'feature_scaler.pkl')
+            if os.path.exists(scaler_path):
+                self.scaler = joblib.load(scaler_path)
+                logger.info("Loaded feature scaler for prediction")
+            else:
+                raise ValueError("Feature scaler not found")
+                
+        if not hasattr(self, 'target_scaler') or self.target_scaler is None:
+            target_scaler_path = os.path.join(self.model_dir, 'target_scaler.pkl')
+            if os.path.exists(target_scaler_path):
+                self.target_scaler = joblib.load(target_scaler_path)
+                logger.info("Loaded target scaler for prediction")
+            else:
+                raise ValueError("Target scaler not found")
+            
         self.model.eval()
         
         # Scale features
@@ -495,3 +527,46 @@ class LSTMTrainer:
         prediction = self.target_scaler.inverse_transform(prediction_scaled)
         
         return prediction
+    
+    def load_trained_model(self, model_path: str = None):
+        """Load a trained model and its scalers"""
+        if model_path is None:
+            model_path = os.path.join(self.model_dir, 'best_lstm_model.pth')
+            
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+            
+        # Load model checkpoint
+        checkpoint = torch.load(model_path, map_location=self.device)
+        
+        # Create model architecture
+        self.model = EnhancedLSTM(
+            input_size=checkpoint['config']['input_size'],
+            hidden_size=checkpoint['config']['hidden_size'],
+            num_layers=checkpoint['config']['num_layers'],
+            dropout=checkpoint['config']['dropout'],
+            use_attention=checkpoint['config']['use_attention'],
+            use_batch_norm=checkpoint['config']['use_batch_norm']
+        ).to(self.device)
+        
+        # Load model weights
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.eval()
+        
+        # Load configuration
+        self.config = checkpoint['config']
+        self.feature_names = checkpoint['feature_names']
+        
+        # Load scalers
+        scaler_path = os.path.join(self.model_dir, 'feature_scaler.pkl')
+        if os.path.exists(scaler_path):
+            self.scaler = joblib.load(scaler_path)
+            logger.info("Loaded feature scaler")
+            
+        target_scaler_path = os.path.join(self.model_dir, 'target_scaler.pkl')
+        if os.path.exists(target_scaler_path):
+            self.target_scaler = joblib.load(target_scaler_path)
+            logger.info("Loaded target scaler")
+            
+        logger.info(f"Loaded model from epoch {checkpoint['epoch']} with loss {checkpoint['loss']:.4f}")
+        return checkpoint

@@ -75,25 +75,26 @@ time_period = st.selectbox(
     "Select Time Period",
     options=list(TIME_PERIODS.keys()),
     format_func=lambda x: TIME_PERIODS[x],
-    index=2  # Default to 1 day
+    index=2,  # Default to 1 day
+    key="time_period_selector"
 )
 
 # Auto-refresh settings
-refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 1, 60, 5)
-auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True)
+refresh_interval = st.sidebar.slider("Refresh Interval (seconds)", 1, 60, 5, key="refresh_interval_slider")
+auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True, key="auto_refresh_checkbox")
 
 # Sidebar additional controls
 with st.sidebar:
     st.markdown("### 🎨 Chart Settings")
-    chart_type = st.radio("Chart Type", ["Candlestick", "Line", "OHLC"])
-    show_volume = st.checkbox("Show Volume", value=True)
-    show_signals = st.checkbox("Show Buy/Sell Signals", value=True)
+    chart_type = st.radio("Chart Type", ["Candlestick", "Line", "OHLC"], key="chart_type_radio")
+    show_volume = st.checkbox("Show Volume", value=True, key="show_volume_checkbox")
+    show_signals = st.checkbox("Show Buy/Sell Signals", value=True, key="show_signals_checkbox")
     
     st.markdown("### 🔔 Price Alerts")
-    price_alert_enabled = st.checkbox("Enable Price Alerts")
+    price_alert_enabled = st.checkbox("Enable Price Alerts", key="price_alert_checkbox")
     if price_alert_enabled:
-        price_alert = st.number_input("Alert Price ($)", min_value=0.0, value=0.0, step=1000.0)
-        alert_type = st.radio("Alert Type", ["Above", "Below"])
+        price_alert = st.number_input("Alert Price ($)", min_value=0.0, value=0.0, step=1000.0, key="price_alert_input")
+        alert_type = st.radio("Alert Type", ["Above", "Below"], key="alert_type_radio")
 
 # Initialize session state for indicators
 if "selected_indicators" not in st.session_state:
@@ -102,6 +103,58 @@ if "prev_price" not in st.session_state:
     st.session_state.prev_price = 0
 if "alert_triggered" not in st.session_state:
     st.session_state.alert_triggered = False
+
+# Technical indicators selector (outside the loop)
+with st.expander("📈 Technical Indicators", expanded=True):
+    indicator_cols = st.columns(6)
+    
+    with indicator_cols[0]:
+        if st.checkbox("SMA 20", value="sma_20" in st.session_state.selected_indicators, key="sma20_checkbox"):
+            if "sma_20" not in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.append("sma_20")
+        else:
+            if "sma_20" in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.remove("sma_20")
+                
+    with indicator_cols[1]:
+        if st.checkbox("SMA 50", value="sma_50" in st.session_state.selected_indicators, key="sma50_checkbox"):
+            if "sma_50" not in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.append("sma_50")
+        else:
+            if "sma_50" in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.remove("sma_50")
+                
+    with indicator_cols[2]:
+        if st.checkbox("EMA 12", value="ema_12" in st.session_state.selected_indicators, key="ema12_checkbox"):
+            if "ema_12" not in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.append("ema_12")
+        else:
+            if "ema_12" in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.remove("ema_12")
+                
+    with indicator_cols[3]:
+        if st.checkbox("EMA 26", value="ema_26" in st.session_state.selected_indicators, key="ema26_checkbox"):
+            if "ema_26" not in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.append("ema_26")
+        else:
+            if "ema_26" in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.remove("ema_26")
+                
+    with indicator_cols[4]:
+        if st.checkbox("BB", value="bb_upper" in st.session_state.selected_indicators, key="bb_checkbox"):
+            if "bb_upper" not in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.extend(["bb_upper", "bb_middle", "bb_lower"])
+        else:
+            if "bb_upper" in st.session_state.selected_indicators:
+                st.session_state.selected_indicators = [x for x in st.session_state.selected_indicators if x not in ["bb_upper", "bb_middle", "bb_lower"]]
+                
+    with indicator_cols[5]:
+        if st.checkbox("VWAP", value="vwap" in st.session_state.selected_indicators, key="vwap_checkbox"):
+            if "vwap" not in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.append("vwap")
+        else:
+            if "vwap" in st.session_state.selected_indicators:
+                st.session_state.selected_indicators.remove("vwap")
 
 # Main content placeholder
 main_container = st.empty()
@@ -141,22 +194,22 @@ while True:
                     selected_indicators = []
                     
                     with indicator_cols[0]:
-                        if st.checkbox("SMA 20", value="sma_20" in st.session_state.selected_indicators):
+                        if st.checkbox("SMA 20", value="sma_20" in st.session_state.selected_indicators, key="sma20_checkbox"):
                             selected_indicators.append("sma_20")
                     with indicator_cols[1]:
-                        if st.checkbox("SMA 50", value="sma_50" in st.session_state.selected_indicators):
+                        if st.checkbox("SMA 50", value="sma_50" in st.session_state.selected_indicators, key="sma50_checkbox"):
                             selected_indicators.append("sma_50")
                     with indicator_cols[2]:
-                        if st.checkbox("EMA 12", value="ema_12" in st.session_state.selected_indicators):
+                        if st.checkbox("EMA 12", value="ema_12" in st.session_state.selected_indicators, key="ema12_checkbox"):
                             selected_indicators.append("ema_12")
                     with indicator_cols[3]:
-                        if st.checkbox("EMA 26", value="ema_26" in st.session_state.selected_indicators):
+                        if st.checkbox("EMA 26", value="ema_26" in st.session_state.selected_indicators, key="ema26_checkbox"):
                             selected_indicators.append("ema_26")
                     with indicator_cols[4]:
-                        if st.checkbox("BB", value="bb_upper" in st.session_state.selected_indicators):
+                        if st.checkbox("BB", value="bb_upper" in st.session_state.selected_indicators, key="bb_checkbox"):
                             selected_indicators.extend(["bb_upper", "bb_middle", "bb_lower"])
                     with indicator_cols[5]:
-                        if st.checkbox("VWAP", value="vwap" in st.session_state.selected_indicators):
+                        if st.checkbox("VWAP", value="vwap" in st.session_state.selected_indicators, key="vwap_checkbox"):
                             selected_indicators.append("vwap")
                     
                     # Update session state

@@ -32,7 +32,8 @@ try:
     positions = api_client.get("/portfolio/positions") or []
     trades = api_client.get("/trades/all") or []
     performance = api_client.get("/analytics/performance") or {}
-    btc_price = api_client.get("/btc/latest", {}).get("current_price", 0)
+    btc_price_data = api_client.get("/btc/latest") or {}
+    btc_price = btc_price_data.get("latest_price", 0)
 except Exception as e:
     st.error(f"Error fetching portfolio data: {str(e)}")
     st.stop()
@@ -625,11 +626,13 @@ with tab5:
     
     with col1:
         # Performance by day of week
-        dow_performance = api_client.get("/analytics/performance-by-dow") or {}
+        dow_data = api_client.get("/analytics/performance-by-dow") or {}
         
-        if dow_performance:
-            days = list(dow_performance.keys())
-            returns = list(dow_performance.values())
+        if dow_data and "weekly_performance" in dow_data:
+            # Extract days and returns from the structured response
+            performance_data = dow_data["weekly_performance"]
+            days = [item["day"] for item in performance_data]
+            returns = [item["avg_return"] * 100 for item in performance_data]  # Convert to percentage
             
             fig = go.Figure(data=go.Bar(
                 x=days,
@@ -648,11 +651,13 @@ with tab5:
     
     with col2:
         # Performance by hour
-        hour_performance = api_client.get("/analytics/performance-by-hour") or {}
+        hour_data = api_client.get("/analytics/performance-by-hour") or {}
         
-        if hour_performance:
-            hours = list(range(24))
-            returns = [hour_performance.get(str(h), 0) for h in hours]
+        if hour_data and "hourly_performance" in hour_data:
+            # Extract hours and returns from the structured response
+            performance_data = hour_data["hourly_performance"]
+            hours = [item["hour"] for item in performance_data]
+            returns = [item["avg_return"] * 100 for item in performance_data]  # Convert to percentage
             
             fig = go.Figure(data=go.Scatter(
                 x=hours,

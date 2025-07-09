@@ -623,24 +623,30 @@ def show_settings():
         
         with col1:
             st.markdown("### Original LSTM Model")
-            if model_status.get('is_trained'):
+            # Access nested lstm status from /ml/status endpoint
+            lstm_status = model_status.get('lstm', {})
+            if lstm_status.get('trained'):
                 st.markdown('<div class="model-status status-trained">✅ Model Trained</div>', 
                            unsafe_allow_html=True)
-                st.write(f"Last trained: {model_status.get('last_trained', 'Unknown')}")
-                st.write(f"Training epochs: {model_status.get('epochs', 'Unknown')}")
-                st.write(f"Validation loss: {model_status.get('val_loss', 'Unknown')}")
+                st.write(f"Last trained: {lstm_status.get('last_update', 'Unknown')}")
+                st.write(f"Model accuracy: {lstm_status.get('accuracy', 'Unknown')}")
+                st.write(f"Model version: {lstm_status.get('version', 'Unknown')}")
             else:
                 st.markdown('<div class="model-status status-not-trained">❌ Model Not Trained</div>', 
                            unsafe_allow_html=True)
         
         with col2:
             st.markdown("### Enhanced LSTM Model")
-            if enhanced_status.get('is_trained'):
+            # Use model_trained field from /enhanced-lstm/status endpoint
+            if enhanced_status.get('model_trained'):
                 st.markdown('<div class="model-status status-trained">✅ Enhanced Model Trained</div>', 
                            unsafe_allow_html=True)
-                st.write(f"Last trained: {enhanced_status.get('last_trained', 'Unknown')}")
-                st.write(f"Ensemble size: {enhanced_status.get('ensemble_size', 3)}")
-                st.write(f"Features used: {enhanced_status.get('num_features', 'Unknown')}")
+                st.write(f"Last trained: {enhanced_status.get('last_training_date', 'Unknown')}")
+                st.write(f"Features used: {enhanced_status.get('selected_features', 'Unknown')}")
+                # Display training metrics if available
+                metrics = enhanced_status.get('training_metrics', {})
+                if metrics:
+                    st.write(f"Test RMSE: {metrics.get('avg_rmse', 'Unknown'):.4f}" if isinstance(metrics.get('avg_rmse'), (int, float)) else f"Test RMSE: {metrics.get('avg_rmse', 'Unknown')}")
             else:
                 st.markdown('<div class="model-status status-not-trained">❌ Enhanced Model Not Trained</div>', 
                            unsafe_allow_html=True)
@@ -804,21 +810,38 @@ def show_settings():
             if st.button("🚀 Train Original LSTM", type="primary", use_container_width=True):
                 with st.spinner("Training model... This may take several minutes"):
                     result = api_client.post("/ml/train", {})
-                    if result and result.get('status') == 'success':
-                        st.success("✅ Model trained successfully!")
-                        st.rerun()
+                    if result and result.get('status') == 'training_started':
+                        st.success("✅ Model training started successfully!")
+                        st.info(f"Estimated time: {result.get('estimated_time', 'Unknown')}")
+                        st.info("Check back in a few minutes to see the trained model status.")
+                    elif result and result.get('status') == 'unsupported':
+                        st.error(f"❌ {result.get('message', 'Model type not supported')}")
                     else:
-                        st.error("❌ Training failed")
+                        st.error("❌ Training failed to start")
         
         with col2:
             if st.button("🚀 Train Enhanced LSTM", type="primary", use_container_width=True):
                 with st.spinner("Training enhanced model... This may take 5-10 minutes"):
                     result = api_client.post("/enhanced-lstm/train", {})
-                    if result and result.get('status') == 'success':
-                        st.success("✅ Enhanced model trained successfully!")
-                        st.rerun()
+                    if result:
+                        status = result.get('status')
+                        if status == 'success':
+                            st.success("✅ Enhanced model trained successfully!")
+                            metrics = result.get('training_metrics', {})
+                            if metrics:
+                                st.write(f"Test RMSE: {metrics.get('avg_rmse', 'N/A'):.4f}" if isinstance(metrics.get('avg_rmse'), (int, float)) else f"Test RMSE: {metrics.get('avg_rmse', 'N/A')}")
+                            st.rerun()
+                        elif status == 'already_trained':
+                            st.info("ℹ️ Model was already trained recently")
+                            st.write(f"Last trained: {result.get('last_training_date', 'Unknown')}")
+                        elif status == 'error':
+                            st.error(f"❌ {result.get('message', 'Training failed')}")
+                            if result.get('suggestion'):
+                                st.warning(f"💡 {result.get('suggestion')}")
+                        else:
+                            st.error("❌ Training failed with unknown status")
                     else:
-                        st.error("❌ Training failed")
+                        st.error("❌ No response from training endpoint")
         
         with col3:
             if st.button("💾 Save Model Settings", use_container_width=True):

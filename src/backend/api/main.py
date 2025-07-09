@@ -285,6 +285,7 @@ class EnhancedBacktestRequest(BaseModel):
 # Initialize components with error handling
 try:
     db_path = os.getenv('DATABASE_PATH', '/app/data/trading_system.db')
+    MODEL_PATH = os.getenv('MODEL_PATH', '/app/models')
     db = DatabaseManager(db_path)
     logger.info(f"Database initialized at {db_path}")
 except Exception as e:
@@ -293,8 +294,14 @@ except Exception as e:
 
 # Use ENHANCED signal generator
 try:
-    signal_generator = AdvancedTradingSignalGenerator()
-    logger.info("Advanced signal generator initialized")
+    # Try to load with existing model if available
+    model_path = os.path.join(MODEL_PATH, "best_lstm_model.pth")
+    if os.path.exists(model_path):
+        signal_generator = AdvancedTradingSignalGenerator(model_path=model_path)
+        logger.info(f"Advanced signal generator initialized with model from {model_path}")
+    else:
+        signal_generator = AdvancedTradingSignalGenerator()
+        logger.info("Advanced signal generator initialized without pre-trained model")
     
     # Initialize NEW enhanced trading system
     enhanced_trading_system = EnhancedTradingSystem(

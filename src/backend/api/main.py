@@ -3118,6 +3118,11 @@ async def train_enhanced_lstm():
         logger.info("Training enhanced LSTM ensemble...")
         try:
             if enhanced_trading_system.train_models():
+                # Get optimization info after training
+                optimization_info = {}
+                if hasattr(enhanced_trading_system.trainer, 'get_optimization_info'):
+                    optimization_info = enhanced_trading_system.trainer.get_optimization_info()
+                
                 return {
                     "status": "success",
                     "message": "Enhanced LSTM models trained successfully",
@@ -3127,6 +3132,7 @@ async def train_enhanced_lstm():
                         "avg_mape": 0.0
                     }),
                     "selected_features": getattr(enhanced_trading_system, 'selected_features', [])[:20],
+                    "optimization": optimization_info,
                     "timestamp": datetime.now().isoformat()
                 }
             else:
@@ -4533,6 +4539,23 @@ async def get_ml_status():
             "active": True
         }
     }
+    
+    # Add optimization info
+    try:
+        if enhanced_trading_system and hasattr(enhanced_trading_system.trainer, 'get_optimization_info'):
+            optimization_info = enhanced_trading_system.trainer.get_optimization_info()
+            status["optimization"] = optimization_info
+        else:
+            # Fallback to checking if torch is available
+            import torch
+            status["optimization"] = {
+                "ipex_available": False,
+                "mkl_available": torch.backends.mkl.is_available(),
+                "device": "cpu"
+            }
+    except Exception as e:
+        logger.warning(f"Failed to get optimization info: {e}")
+        status["optimization"] = {"error": str(e)}
     
     return status
 

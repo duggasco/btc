@@ -296,7 +296,9 @@ class EnhancedTradingSystem:
                 if os.path.exists(model_path):
                     try:
                         # Create a new trainer instance for this model
+                        # LSTMTrainer now has Intel optimizations built-in
                         trainer = LSTMTrainer(model_dir=self.model_dir)
+                        logger.info(f"Creating trainer for model {i} (Intel optimizations applied if available)")
                         
                         # Load the model checkpoint directly
                         import torch

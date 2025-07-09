@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies including network tools
+# Install system dependencies including network tools and Intel GPU support
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -13,6 +13,12 @@ RUN apt-get update && apt-get install -y \
     iputils-ping \
     net-tools \
     ca-certificates \
+    git \
+    # Intel GPU runtime dependencies (optional - will be used if available)
+    intel-opencl-icd \
+    ocl-icd-libopencl1 \
+    clinfo \
+    libgomp1 \
     && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
     && locale-gen \
     && rm -rf /var/lib/apt/lists/*
@@ -49,6 +55,13 @@ ENV CONFIG_PATH=/app/config
 ENV PYTHONHTTPSVERIFY=0
 ENV REQUESTS_CA_BUNDLE=""
 ENV CURL_CA_BUNDLE=""
+
+# Intel optimization environment variables
+ENV KMP_BLOCKTIME=1
+ENV KMP_SETTINGS=1
+ENV KMP_AFFINITY=granularity=fine,compact,1,0
+ENV OMP_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
 
 # Expose port
 EXPOSE 8000

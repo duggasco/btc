@@ -19,6 +19,15 @@ import joblib
 
 logger = logging.getLogger(__name__)
 
+# Try to import Intel Extension for PyTorch
+try:
+    import intel_extension_for_pytorch as ipex
+    IPEX_AVAILABLE = True
+    logger.info("Intel Extension for PyTorch (IPEX) is available - optimizations will be applied")
+except ImportError:
+    IPEX_AVAILABLE = False
+    logger.info("IPEX not available, using standard PyTorch")
+
 class BTCDataset(Dataset):
     """Custom dataset for BTC time series following whitepaper recommendations"""
     
@@ -163,9 +172,22 @@ class LSTMTrainer:
         self.model_dir = model_dir
         os.makedirs(model_dir, exist_ok=True)
         
-        # Set device
+        # Set device with Intel optimization consideration
         if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # Check for Intel GPU support if IPEX is available
+            if IPEX_AVAILABLE:
+                try:
+                    if hasattr(ipex, 'xpu') and ipex.xpu.is_available():
+                        self.device = torch.device('xpu')
+                        logger.info("Using Intel XPU device with IPEX optimizations")
+                    else:
+                        self.device = torch.device('cpu')
+                        logger.info("Using CPU with IPEX optimizations")
+                except:
+                    self.device = torch.device('cpu')
+                    logger.info("Using CPU with IPEX optimizations")
+            else:
+                self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         else:
             self.device = torch.device(device)
             
@@ -177,6 +199,7 @@ class LSTMTrainer:
         self.target_scaler = None
         self.feature_names = None
         self.config = None
+        self.ipex_optimized = False
         
     def _create_model(self, input_size: int, hidden_size: int = 100, 
                      num_layers: int = 2, dropout: float = 0.2, 
@@ -323,6 +346,23 @@ class LSTMTrainer:
         # Loss and optimizer
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        
+        # Apply Intel optimizations if available
+        if IPEX_AVAILABLE and self.device.type in ['cpu', 'xpu']:
+            try:
+                self.model, optimizer = ipex.optimize(self.model, optimizer=optimizer, level="O1")
+                self.ipex_optimized = True
+                logger.info("Applied IPEX optimizations to model and optimizer")
+                
+                # Set optimal thread settings for Intel CPUs
+                if self.device.type == 'cpu':
+                    import os
+                    num_cores = os.cpu_count() // 2  # Assume hyperthreading
+                    torch.set_num_threads(num_cores)
+                    logger.info(f"Set PyTorch threads to {num_cores} for optimal Intel CPU performance")
+            except Exception as e:
+                logger.warning(f"Failed to apply IPEX optimizations: {e}")
+                self.ipex_optimized = False
         
         # Learning rate scheduler
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -521,8 +561,13 @@ class LSTMTrainer:
         X = torch.FloatTensor(features_scaled).unsqueeze(0).to(self.device)
         
         with torch.no_grad():
-            prediction_scaled = self.model(X).cpu().numpy()
-            
+            # Use Intel optimizations for inference if available
+            if IPEX_AVAILABLE and self.device.type == 'cpu':
+                with torch.cpu.amp.autocast():
+                    prediction_scaled = self.model(X).cpu().numpy()
+            else:
+                prediction_scaled = self.model(X).cpu().numpy()
+                
         # Inverse transform
         prediction = self.target_scaler.inverse_transform(prediction_scaled)
         
@@ -569,4 +614,41 @@ class LSTMTrainer:
             logger.info("Loaded target scaler")
             
         logger.info(f"Loaded model from epoch {checkpoint['epoch']} with loss {checkpoint['loss']:.4f}")
+        
+        # Apply Intel optimizations for inference if available
+        if IPEX_AVAILABLE and self.device.type in ['cpu', 'xpu']:
+            try:
+                self.model = ipex.optimize(self.model, level="O1")
+                self.ipex_optimized = True
+                logger.info("Applied IPEX optimizations to loaded model")
+            except Exception as e:
+                logger.warning(f"Failed to optimize loaded model: {e}")
+                self.ipex_optimized = False
+        
         return checkpoint
+    
+    def get_optimization_info(self) -> Dict[str, Any]:
+        """Get information about available optimizations"""
+        info = {
+            'ipex_available': IPEX_AVAILABLE,
+            'ipex_optimized': self.ipex_optimized,
+            'device': str(self.device),
+            'mkl_available': torch.backends.mkl.is_available(),
+            'openmp_threads': torch.get_num_threads(),
+        }
+        
+        if IPEX_AVAILABLE:
+            try:
+                info['ipex_version'] = ipex.__version__
+                info['xpu_available'] = hasattr(ipex, 'xpu') and ipex.xpu.is_available()
+            except:
+                pass
+                
+        # Check CPU features
+        try:
+            import platform
+            info['cpu_info'] = platform.processor()
+        except:
+            pass
+            
+        return info

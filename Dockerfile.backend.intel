@@ -1,0 +1,46 @@
+FROM python:3.11-slim
+
+# Install system dependencies including Intel GPU support
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    git \
+    curl \
+    # Intel GPU runtime dependencies
+    intel-opencl-icd \
+    ocl-icd-libopencl1 \
+    clinfo \
+    # Additional dependencies
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements-backend.txt .
+
+# Install Python packages
+RUN pip install --no-cache-dir -r requirements-backend.txt
+
+# Install Intel Extension for PyTorch for CPU optimizations
+# Note: Full GPU support requires Intel Arc GPUs, but CPU optimizations work on all Intel CPUs
+RUN pip install --no-cache-dir intel-extension-for-pytorch==2.1.0
+
+# Copy source code
+COPY src/backend /app/src
+
+# Set Python path
+ENV PYTHONPATH=/app/src:/app
+ENV PYTHONUNBUFFERED=1
+
+# Enable Intel optimizations
+ENV KMP_BLOCKTIME=1
+ENV KMP_SETTINGS=1
+ENV KMP_AFFINITY=granularity=fine,compact,1,0
+ENV OMP_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
+
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

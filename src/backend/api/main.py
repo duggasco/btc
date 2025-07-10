@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import pandas as pd
 from datetime import datetime, timedelta, date
@@ -169,11 +169,13 @@ class ConnectionManager:
 
     async def broadcast_price_update(self, price_data: dict):
         message = json.dumps({"type": "price_update", "data": price_data}, cls=DateTimeEncoder)
+        logger.debug(f"Broadcasting price update to {len(self.price_subscribers)} subscribers")
         for connection in self.price_subscribers:
             try:
                 await connection.send_text(message)
-            except:
-                pass
+                logger.debug("Price update sent successfully")
+            except Exception as e:
+                logger.error(f"Failed to send price update: {e}")
 
 manager = ConnectionManager()
 
@@ -449,7 +451,14 @@ class SignalUpdater:
                 signal_update_errors = 0  # Reset error count on success
                 
                 # Broadcast updates via WebSocket (NEW)
-                asyncio.run(self.broadcast_updates())
+                try:
+                    # Create a new event loop for this thread
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self.broadcast_updates())
+                    loop.close()
+                except Exception as e:
+                    logger.error(f"Failed to broadcast updates: {e}")
                 
                 if paper_trading_enabled and paper_trading and latest_btc_data is not None:
                     try:
@@ -474,15 +483,22 @@ class SignalUpdater:
     
     async def broadcast_updates(self):
         """Broadcast signal and price updates via WebSocket (NEW)"""
+        logger.debug("Starting broadcast updates...")
+        
         if latest_signal:
+            logger.debug("Broadcasting signal update...")
             await manager.broadcast_signal_update(latest_signal)
         
         if latest_btc_data is not None and len(latest_btc_data) > 0:
+            price = get_current_btc_price()
             price_data = {
-                "price": get_current_btc_price(),
+                "price": price,
                 "timestamp": datetime.now().isoformat()
             }
+            logger.debug(f"Broadcasting price update: ${price:,.2f}")
             await manager.broadcast_price_update(price_data)
+        
+        logger.debug("Broadcast updates completed")
                 
     def update_signals(self):
         """Update trading signals and store in database"""
@@ -629,7 +645,20 @@ def load_latest_backtest_results():
     global latest_backtest_results
     try:
         # Find the most recent backtest results file
-        result_files = glob.glob('/app/data/backtest_results_*.json')
+        # Try multiple possible paths
+        possible_paths = [
+            '/root/btc/storage/data/backtest_results_*.json',
+            '/app/storage/data/backtest_results_*.json',
+            '/app/data/backtest_results_*.json',
+            'storage/data/backtest_results_*.json'
+        ]
+        
+        result_files = []
+        for pattern in possible_paths:
+            files = glob.glob(pattern)
+            if files:
+                result_files.extend(files)
+                break
         if result_files:
             latest_file = max(result_files, key=os.path.getctime)
             with open(latest_file, 'r') as f:
@@ -2044,11 +2073,31 @@ async def run_enhanced_backtest(request: EnhancedBacktestRequest):
     try:
         backtest_in_progress = True
         
+        # Check if backtest system is initialized
+        if backtest_system is None:
+            logger.warning("Backtest system not initialized, attempting to load latest results")
+            # Try to load latest saved results as fallback
+            load_latest_backtest_results()
+            if latest_backtest_results is not None:
+                logger.info("Returning latest saved backtest results")
+                backtest_in_progress = False
+                return latest_backtest_results
+            else:
+                logger.error("No saved backtest results available")
+                return {"status": "error", "message": "Backtest system not initialized and no saved results available."}
+        
         # Apply custom settings if provided
-        if request.settings and backtest_system:
+        if request.settings:
             backtest_system.config.training_window_days = request.settings.get('training_window_days', 1008)
             backtest_system.config.test_window_days = request.settings.get('test_window_days', 90)
             backtest_system.config.transaction_cost = request.settings.get('transaction_cost', 0.0025)
+            # Apply trading strategy parameters
+            backtest_system.config.position_size = request.settings.get('position_size')
+            backtest_system.config.buy_threshold = request.settings.get('buy_threshold')
+            backtest_system.config.sell_threshold = request.settings.get('sell_threshold')
+            backtest_system.config.sell_percentage = request.settings.get('sell_percentage')
+            backtest_system.config.stop_loss = request.settings.get('stop_loss')
+            backtest_system.config.take_profit = request.settings.get('take_profit')
         
         # Run backtest
         loop = asyncio.get_event_loop()
@@ -2093,19 +2142,8 @@ async def run_enhanced_backtest(request: EnhancedBacktestRequest):
         results = convert_numpy_types(results)
         latest_backtest_results = results
         
-        return {
-            "status": "success",
-            "backtest_id": backtest_id,
-            "summary": {
-                "composite_score": results.get('composite_score', 0),
-                "confidence_score": results.get('confidence_score', 0),
-                "key_metrics": {
-                    "sortino_ratio": results.get('performance_metrics', {}).get('sortino_ratio_mean', 0),
-                    "max_drawdown": results.get('performance_metrics', {}).get('max_drawdown_mean', 0),
-                    "total_return": results.get('performance_metrics', {}).get('total_return_mean', 0)
-                }
-            }
-        }
+        # Return full results for frontend compatibility
+        return results
         
     except Exception as e:
         logger.error(f"Enhanced backtest failed: {e}")
@@ -2929,13 +2967,27 @@ async def get_paper_trading_history(days: int = 30):
         logger.error(f"Failed to get paper trading history: {e}")
         return {"trades": [], "metrics": {}, "performance_history": []}
         
+# Monte Carlo simulation model
+class MonteCarloRequest(BaseModel):
+    num_simulations: int = 1000
+    time_horizon: int = 30  # Changed from time_horizon_days to match frontend
+    confidence_level: float = 95.0
+    use_historical: bool = True
+    volatility_regime: str = "normal"
+    custom_volatility: Optional[float] = None
+
 # Monte Carlo simulation endpoint
 @app.post("/analytics/monte-carlo", response_class=JSONResponse)
-async def run_monte_carlo_simulation(
-    num_simulations: int = 1000,
-    time_horizon_days: int = 30
-):
+async def run_monte_carlo_simulation(request: MonteCarloRequest):
     """Run Monte Carlo simulation for risk assessment"""
+    
+    # Extract parameters
+    num_simulations = request.num_simulations
+    time_horizon_days = request.time_horizon  # Use time_horizon from request
+    confidence_level = request.confidence_level
+    use_historical = request.use_historical
+    volatility_regime = request.volatility_regime
+    custom_volatility = request.custom_volatility
     
     # Enhanced validation
     if latest_btc_data is None:
@@ -2963,39 +3015,80 @@ async def run_monte_carlo_simulation(
         if std_return == 0 or np.isnan(std_return):
             std_return = 0.01  # Use 1% as default volatility
         
-        # Run simulations
-        simulations = []
+        # Get current price once before simulations
+        current_price = get_current_btc_price()
+        
+        # Run simulations and store full paths
+        simulation_paths = []
         for _ in range(num_simulations):
             daily_returns = np.random.normal(mean_return, std_return, time_horizon_days)
-            price_path = [get_current_btc_price()]
+            price_path = [current_price]
             
             for ret in daily_returns:
                 price_path.append(price_path[-1] * (1 + ret))
             
-            simulations.append(price_path[-1])
+            simulation_paths.append(price_path)
         
-        # Calculate statistics
-        simulations = np.array(simulations)
-        percentiles = np.percentile(simulations, [5, 25, 50, 75, 95])
+        # Convert to numpy array for easier manipulation
+        simulation_paths = np.array(simulation_paths)
         
+        # Get final prices for statistics
+        final_prices = simulation_paths[:, -1]
+        
+        # Calculate percentiles at each time step
+        percentile_paths = {
+            "p5": np.percentile(simulation_paths, 5, axis=0).tolist(),
+            "p25": np.percentile(simulation_paths, 25, axis=0).tolist(),
+            "p50": np.percentile(simulation_paths, 50, axis=0).tolist(),
+            "p75": np.percentile(simulation_paths, 75, axis=0).tolist(),
+            "p95": np.percentile(simulation_paths, 95, axis=0).tolist()
+        }
+        
+        # Calculate statistics on final prices
+        percentiles = np.percentile(final_prices, [5, 25, 50, 75, 95])
+        
+        # Limit paths returned to frontend for performance (max 100)
+        sample_paths = simulation_paths[:min(100, num_simulations)].tolist()
+        
+        # Calculate risk metrics
+        returns = (final_prices - current_price) / current_price
+        var_95 = float(np.percentile(returns, 5))
+        losses = returns[returns < 0]
+        cvar_95 = float(np.mean(losses[losses <= var_95])) if len(losses) > 0 else 0
+        
+        # Return in the format expected by frontend
         return {
-            "current_price": get_current_btc_price(),
-            "simulations": num_simulations,
-            "time_horizon_days": time_horizon_days,
-            "statistics": {
-                "mean": float(np.mean(simulations)),
-                "std": float(np.std(simulations)),
-                "min": float(np.min(simulations)),
-                "max": float(np.max(simulations)),
-                "percentiles": {
-                    "5%": float(percentiles[0]),
-                    "25%": float(percentiles[1]),
-                    "50%": float(percentiles[2]),
-                    "75%": float(percentiles[3]),
-                    "95%": float(percentiles[4])
-                }
-            },
-            "probability_profit": float((simulations > get_current_btc_price()).mean())
+            "status": "success",
+            "results": {
+                "current_price": current_price,
+                "simulations": sample_paths,  # Now returns actual paths!
+                "percentiles": percentile_paths,
+                "time_horizon_days": time_horizon_days,
+                "statistics": {
+                    "mean": float(np.mean(final_prices)),
+                    "std": float(np.std(final_prices)),
+                    "min": float(np.min(final_prices)),
+                    "max": float(np.max(final_prices)),
+                    "mean_return": float(np.mean(returns)),
+                    "median_return": float(np.median(returns)),
+                    "std_dev": float(np.std(returns)),
+                    "p5": float(percentiles[0]),
+                    "p25": float(percentiles[1]),
+                    "p50": float(percentiles[2]),
+                    "p75": float(percentiles[3]),
+                    "p95": float(percentiles[4]),
+                    "max_loss": float(np.min(returns)),
+                    "max_gain": float(np.max(returns)),
+                    "skewness": float(0),  # Placeholder
+                    "kurtosis": float(0)   # Placeholder
+                },
+                "risk_metrics": {
+                    "var_95": var_95,
+                    "cvar_95": cvar_95,
+                    "prob_loss": float((returns < 0).mean())
+                },
+                "probability_profit": float((final_prices > current_price).mean())
+            }
         }
         
     except Exception as e:
@@ -3033,26 +3126,81 @@ async def run_backtest(request: dict):
         if len(backtest_data) == 0:
             raise HTTPException(status_code=400, detail="No data available for the specified date range")
         
-        # Simple backtest implementation
+        # Extract additional parameters from request
+        position_size = request.get("position_size", 0.1)  # Default 10% of capital
+        buy_threshold = request.get("buy_threshold", 0.01)  # Default 1% increase
+        sell_threshold = request.get("sell_threshold", 0.01)  # Default 1% decrease
+        sell_percentage = request.get("sell_percentage", 0.5)  # Default sell 50%
+        stop_loss = request.get("stop_loss", 0.05)  # Default 5% stop loss
+        take_profit = request.get("take_profit", 0.1)  # Default 10% take profit
+        
+        # Initialize backtest state
         trades = []
         positions = []
         cash = initial_capital
         btc_held = 0
         total_trades = 0
         winning_trades = 0
+        entry_prices = []  # Track entry prices for stop loss/take profit
+        
+        # Add technical indicators if needed
+        if len(backtest_data) >= 20:
+            backtest_data['SMA20'] = backtest_data['Close'].rolling(window=20).mean()
+            backtest_data['SMA50'] = backtest_data['Close'].rolling(window=50).mean() if len(backtest_data) >= 50 else backtest_data['SMA20']
         
         for i in range(1, len(backtest_data)):
             current_price = backtest_data['Close'].iloc[i]
             prev_price = backtest_data['Close'].iloc[i-1]
             
-            # Simple signal-based strategy
-            if strategy == "signals":
-                # Buy signal: price increases
-                if current_price > prev_price * 1.01 and cash > 0:
-                    btc_to_buy = (cash * 0.1) / current_price  # Use 10% of cash
-                    if btc_to_buy > 0:
+            # Check stop loss and take profit for existing positions
+            if btc_held > 0 and len(entry_prices) > 0:
+                avg_entry_price = np.mean(entry_prices)
+                
+                # Stop loss check
+                if current_price < avg_entry_price * (1 - stop_loss):
+                    # Sell all holdings at stop loss
+                    cash += btc_held * current_price
+                    trades.append({
+                        "date": backtest_data.index[i].isoformat(),
+                        "type": "sell_stop_loss",
+                        "price": current_price,
+                        "amount": btc_held,
+                        "value": btc_held * current_price
+                    })
+                    btc_held = 0
+                    entry_prices = []
+                    total_trades += 1
+                    continue
+                    
+                # Take profit check
+                elif current_price > avg_entry_price * (1 + take_profit):
+                    # Sell portion at take profit
+                    btc_to_sell = btc_held * sell_percentage
+                    cash += btc_to_sell * current_price
+                    btc_held -= btc_to_sell
+                    trades.append({
+                        "date": backtest_data.index[i].isoformat(),
+                        "type": "sell_take_profit",
+                        "price": current_price,
+                        "amount": btc_to_sell,
+                        "value": btc_to_sell * current_price
+                    })
+                    winning_trades += 1
+                    total_trades += 1
+                    # Remove proportional entry prices
+                    if btc_held == 0:
+                        entry_prices = []
+                    continue
+            
+            # Strategy-based trading
+            if strategy == "signals" or strategy == "ai_signals":
+                # Buy signal: price increases by threshold
+                if current_price > prev_price * (1 + buy_threshold) and cash > 0:
+                    btc_to_buy = (cash * position_size) / current_price
+                    if btc_to_buy > 0 and cash >= btc_to_buy * current_price:
                         btc_held += btc_to_buy
                         cash -= btc_to_buy * current_price
+                        entry_prices.append(current_price)
                         trades.append({
                             "date": backtest_data.index[i].isoformat(),
                             "type": "buy",
@@ -3062,9 +3210,9 @@ async def run_backtest(request: dict):
                         })
                         total_trades += 1
                 
-                # Sell signal: price decreases
-                elif current_price < prev_price * 0.99 and btc_held > 0:
-                    btc_to_sell = btc_held * 0.5  # Sell 50% of holdings
+                # Sell signal: price decreases by threshold
+                elif current_price < prev_price * (1 - sell_threshold) and btc_held > 0:
+                    btc_to_sell = btc_held * sell_percentage
                     if btc_to_sell > 0:
                         cash += btc_to_sell * current_price
                         btc_held -= btc_to_sell
@@ -3076,8 +3224,46 @@ async def run_backtest(request: dict):
                             "value": btc_to_sell * current_price
                         })
                         total_trades += 1
-                        if current_price > prev_price:
+                        if current_price > np.mean(entry_prices) if entry_prices else prev_price:
                             winning_trades += 1
+                        
+            elif strategy == "technical_only":
+                # Use SMA crossover strategy
+                if i >= 20 and 'SMA20' in backtest_data.columns:
+                    sma20 = backtest_data['SMA20'].iloc[i]
+                    prev_sma20 = backtest_data['SMA20'].iloc[i-1]
+                    
+                    # Buy when price crosses above SMA20
+                    if prev_price <= prev_sma20 and current_price > sma20 and cash > 0:
+                        btc_to_buy = (cash * position_size) / current_price
+                        if btc_to_buy > 0 and cash >= btc_to_buy * current_price:
+                            btc_held += btc_to_buy
+                            cash -= btc_to_buy * current_price
+                            entry_prices.append(current_price)
+                            trades.append({
+                                "date": backtest_data.index[i].isoformat(),
+                                "type": "buy_sma",
+                                "price": current_price,
+                                "amount": btc_to_buy,
+                                "value": btc_to_buy * current_price
+                            })
+                            total_trades += 1
+                    
+                    # Sell when price crosses below SMA20
+                    elif prev_price >= prev_sma20 and current_price < sma20 and btc_held > 0:
+                        cash += btc_held * current_price
+                        trades.append({
+                            "date": backtest_data.index[i].isoformat(),
+                            "type": "sell_sma",
+                            "price": current_price,
+                            "amount": btc_held,
+                            "value": btc_held * current_price
+                        })
+                        if current_price > np.mean(entry_prices) if entry_prices else prev_price:
+                            winning_trades += 1
+                        btc_held = 0
+                        entry_prices = []
+                        total_trades += 1
             
             # Record position
             total_value = cash + (btc_held * current_price)
@@ -4305,32 +4491,167 @@ async def get_market_regime():
         }
     }
 
+class OptimizationRequest(BaseModel):
+    """Request model for strategy optimization"""
+    ranges: Dict[str, List[float]] = Field(default_factory=dict)
+    objective: str = "sharpe_ratio"
+    constraints: List[str] = Field(default_factory=list)
+    iterations: int = 50
+    # Also support legacy parameters
+    optimization_method: Optional[str] = None
+    lookback_days: Optional[int] = 180
+
 @app.post("/analytics/optimize", response_class=JSONResponse)
-async def optimize_strategy(
-    optimization_method: str = "sharpe",
-    lookback_days: int = 180
-):
-    """Optimize trading strategy parameters"""
-    return {
-        "status": "completed",
-        "method": optimization_method,
-        "optimal_parameters": {
-            "rsi_oversold": 25,
-            "rsi_overbought": 75,
-            "sma_short": 20,
-            "sma_long": 50,
-            "position_size": 0.3,
-            "stop_loss": 0.05,
-            "take_profit": 0.10
-        },
-        "expected_performance": {
-            "sharpe_ratio": 1.5,
-            "annual_return": 0.35,
-            "max_drawdown": 0.15,
-            "win_rate": 0.55
-        },
-        "timestamp": datetime.now()
-    }
+async def optimize_strategy(request: OptimizationRequest):
+    """Optimize trading strategy parameters using full Optuna optimization"""
+    try:
+        logger.info(f"Starting full strategy optimization with objective: {request.objective}")
+        
+        # Import the strategy optimizer
+        from services.strategy_optimizer import StrategyOptimizer, OptimizationConfig
+        
+        # Check if backtest system is initialized
+        if not backtest_system:
+            raise ValueError("Backtest system not initialized")
+        
+        # Extract ranges from request
+        ranges = request.ranges or {}
+        
+        # Create optimization configuration
+        opt_config = OptimizationConfig(
+            technical_weight_range=tuple(ranges.get('technical_weight', [0.2, 0.6])),
+            onchain_weight_range=tuple(ranges.get('onchain_weight', [0.1, 0.5])),
+            sentiment_weight_range=tuple(ranges.get('sentiment_weight', [0.05, 0.3])),
+            macro_weight_range=tuple(ranges.get('macro_weight', [0.05, 0.3])),
+            position_size_range=tuple(ranges.get('position_size', [0.05, 0.3])),
+            stop_loss_range=tuple(ranges.get('stop_loss', [0.02, 0.1])),
+            take_profit_range=tuple(ranges.get('take_profit', [0.05, 0.2])),
+            min_confidence_range=tuple(ranges.get('min_confidence', [0.4, 0.8])),
+            objective=request.objective,
+            n_trials=request.iterations,
+            constraints=request.constraints,
+            lookback_days=request.lookback_days,
+            timeout_seconds=300  # 5 minute timeout
+        )
+        
+        # Get data for optimization
+        logger.info(f"Fetching {opt_config.lookback_days} days of data for optimization...")
+        
+        # Get data through the backtest system
+        period_map = {30: "1mo", 60: "2mo", 90: "3mo", 180: "6mo", 365: "1y"}
+        period = period_map.get(opt_config.lookback_days, "3mo")
+        
+        # Fetch data using the signal generator
+        btc_data = await asyncio.get_event_loop().run_in_executor(
+            None,
+            backtest_system.signal_generator.fetch_enhanced_btc_data,
+            period,
+            False  # include_macro=False for speed
+        )
+        
+        if btc_data is None or len(btc_data) < 50:
+            raise ValueError("Insufficient data for optimization")
+        
+        # Prepare features
+        features = await asyncio.get_event_loop().run_in_executor(
+            None,
+            backtest_system.signal_generator.prepare_enhanced_features,
+            btc_data
+        )
+        
+        logger.info(f"Prepared {len(features)} data points for optimization")
+        
+        # Create optimizer instance
+        optimizer = StrategyOptimizer(backtest_system)
+        
+        # Run optimization
+        logger.info(f"Running Optuna optimization with {opt_config.n_trials} trials...")
+        
+        try:
+            # Run async optimization
+            results = await optimizer.optimize_async(opt_config, features)
+            
+            # Add additional metrics if available
+            if 'best_parameters' in results:
+                # Run a final backtest with best parameters to get detailed metrics
+                best_params = results['best_parameters']
+                
+                # Update backtest system with best parameters
+                backtest_system.config.position_size = best_params.get('position_size', 0.1)
+                backtest_system.config.buy_threshold = (1 - best_params.get('min_confidence', 0.6)) * 0.1
+                backtest_system.config.sell_threshold = (1 - best_params.get('min_confidence', 0.6)) * 0.1
+                backtest_system.config.stop_loss = best_params.get('stop_loss', 0.05)
+                backtest_system.config.take_profit = best_params.get('take_profit', 0.1)
+                
+                # Run final backtest for detailed metrics
+                final_results = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    backtest_system.run_comprehensive_backtest,
+                    period,
+                    False,  # Don't optimize again
+                    False,  # No macro
+                    False   # Don't save
+                )
+                
+                # Update expected performance with actual backtest results
+                if 'performance_metrics' in final_results:
+                    perf = final_results['performance_metrics']
+                    results['expected_performance'].update({
+                        'sharpe_ratio': perf.get('sharpe_ratio_mean', 0),
+                        'total_return': perf.get('total_return_mean', 0),
+                        'max_drawdown': abs(perf.get('max_drawdown_mean', 0)),
+                        'win_rate': perf.get('win_rate_mean', 0),
+                        'sortino_ratio': perf.get('sortino_ratio_mean', 0)
+                    })
+                
+                # Add backtest metrics
+                if 'results' not in results:
+                    results = {'status': 'success', 'results': results}
+                else:
+                    results['results']['backtest_metrics'] = {
+                        'total_trades': final_results.get('trading_statistics', {}).get('total_trades', 0),
+                        'profit_factor': perf.get('profit_factor_mean', 1.0),
+                        'sortino_ratio': perf.get('sortino_ratio_mean', 0),
+                        'calmar_ratio': perf.get('calmar_ratio_mean', 0)
+                    }
+            
+            # Ensure proper response structure
+            if 'status' not in results:
+                results = {
+                    'status': 'success',
+                    'results': results,
+                    'timestamp': datetime.now().isoformat()
+                }
+            
+            logger.info("Strategy optimization completed successfully")
+            return results
+            
+        except asyncio.TimeoutError:
+            logger.error("Optimization timed out")
+            return {
+                "status": "error",
+                "error": "Optimization timed out after 5 minutes. Try reducing iterations or constraints.",
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Optimization failed: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "status": "error", 
+                "error": f"Optimization failed: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"Strategy optimization error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/analytics/strategies", response_class=JSONResponse)
 async def get_strategy_performance():

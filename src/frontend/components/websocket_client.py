@@ -66,6 +66,8 @@ class EnhancedWebSocketClient:
     
     def on_error(self, ws, error):
         logger.error(f"WebSocket error: {error}")
+        logger.error(f"WebSocket error type: {type(error)}")
+        logger.error(f"WebSocket state - running: {self.running}, connected: {self.connected}")
         self.connected = False
         
     def on_close(self, ws, close_status_code, close_msg):
@@ -74,9 +76,10 @@ class EnhancedWebSocketClient:
         
         # Auto-reconnect if still running
         if self.running:
-            logger.info(f"Reconnecting in {self.reconnect_interval} seconds...")
+            logger.info(f"Auto-reconnecting in {self.reconnect_interval} seconds...")
             time.sleep(self.reconnect_interval)
-            self.connect()
+            if self.running:  # Check again after sleep
+                self.connect()
             
     def on_open(self, ws):
         logger.info("WebSocket connected")
@@ -93,6 +96,19 @@ class EnhancedWebSocketClient:
     def connect(self):
         """Connect to WebSocket server with auto-reconnection"""
         try:
+            # Don't connect if already running
+            if self.running and self.connected:
+                logger.warning("WebSocket already connected, skipping connection attempt")
+                return
+            
+            # Clear any existing WebSocket
+            if self.ws:
+                try:
+                    self.ws.close()
+                except:
+                    pass
+                self.ws = None
+            
             self.ws = websocket.WebSocketApp(
                 self.url,
                 on_open=self.on_open,
@@ -102,23 +118,31 @@ class EnhancedWebSocketClient:
             )
             
             self.running = True
-            wst = threading.Thread(target=self._run_forever, daemon=True)
+            wst = threading.Thread(target=self._run_forever, daemon=True, name=f"WebSocket-{id(self)}")
             wst.start()
             
             logger.info(f"WebSocket client started for {self.url}")
             
         except Exception as e:
             logger.error(f"Failed to connect WebSocket: {e}")
+            logger.error(f"Exception type: {type(e)}")
             self.connected = False
+            self.running = False
     
     def _run_forever(self):
         """Run WebSocket connection in a loop with auto-reconnection"""
         while self.running:
             try:
-                self.ws.run_forever(ping_interval=30, ping_timeout=10)
+                if self.ws:
+                    self.ws.run_forever(ping_interval=30, ping_timeout=10)
+                else:
+                    logger.error("WebSocket object is None in _run_forever")
+                    break
             except Exception as e:
                 logger.error(f"WebSocket run error: {e}")
+                logger.error(f"WebSocket run error type: {type(e)}")
                 if self.running:
+                    logger.info(f"Waiting {self.reconnect_interval} seconds before reconnecting...")
                     time.sleep(self.reconnect_interval)
     
     def _send_subscription(self, channel: str):
@@ -152,10 +176,16 @@ class EnhancedWebSocketClient:
     def send_message(self, message: Dict[str, Any]):
         """Send a message to the WebSocket server"""
         if self.connected and self.ws:
-            if "timestamp" not in message:
-                message["timestamp"] = datetime.now().isoformat()
-            self.ws.send(json.dumps(message))
-            return True
+            try:
+                if "timestamp" not in message:
+                    message["timestamp"] = datetime.now().isoformat()
+                self.ws.send(json.dumps(message))
+                return True
+            except Exception as e:
+                logger.error(f"Failed to send WebSocket message: {e}")
+                self.connected = False
+                return False
+        logger.warning("Cannot send message - WebSocket not connected")
         return False
     
     def ping(self):
@@ -187,7 +217,7 @@ class EnhancedWebSocketClient:
     
     def is_connected(self) -> bool:
         """Check if WebSocket is connected"""
-        return self.connected
+        return self.connected and self.ws is not None
     
     def get_connection_stats(self) -> Dict[str, Any]:
         """Get connection statistics"""
@@ -205,8 +235,14 @@ class EnhancedWebSocketClient:
     
     def close(self):
         """Close WebSocket connection"""
+        logger.info(f"Closing WebSocket client - running: {self.running}, connected: {self.connected}")
         self.running = False
+        self.connected = False
         if self.ws:
-            self.ws.close()
+            try:
+                self.ws.close()
+            except Exception as e:
+                logger.error(f"Error closing WebSocket: {e}")
+        self.ws = None
         logger.info("WebSocket client closed")
 

@@ -34,6 +34,13 @@ class BacktestConfig:
     transaction_cost: float = 0.0025  # 0.25% per trade
     max_drawdown_threshold: float = 0.25  # 25% max acceptable drawdown
     target_sortino_ratio: float = 2.0  # Target Sortino ratio
+    # Trading strategy parameters (can be set dynamically)
+    position_size: Optional[float] = None
+    buy_threshold: Optional[float] = None
+    sell_threshold: Optional[float] = None
+    sell_percentage: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
     
 @dataclass
 class SignalWeights:
@@ -870,9 +877,17 @@ class WalkForwardBacktester:
     
     def _calculate_returns(self, data: pd.DataFrame, predictions: np.ndarray) -> np.ndarray:
         """Calculate returns including transaction costs"""
+        # Use config values or defaults
+        buy_threshold = self.config.buy_threshold if self.config.buy_threshold is not None else 0.02
+        sell_threshold = self.config.sell_threshold if self.config.sell_threshold is not None else 0.02
+        
         # Convert predictions to positions (-1, 0, 1)
-        positions = np.where(predictions > 0.02, 1, 
-                           np.where(predictions < -0.02, -1, 0))
+        positions = np.where(predictions > buy_threshold, 1, 
+                           np.where(predictions < -sell_threshold, -1, 0))
+        
+        # Debug logging
+        logger.info(f"Thresholds - buy: {buy_threshold}, sell: {sell_threshold}")
+        logger.info(f"Positions - long: {np.sum(positions == 1)}, short: {np.sum(positions == -1)}, neutral: {np.sum(positions == 0)}")
         
         # Calculate raw returns - use target column if available for proper alignment
         if 'target' in data.columns:
@@ -1211,6 +1226,11 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
     
     def _calculate_enhanced_returns(self, data: pd.DataFrame, predictions: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Enhanced return calculation with sophisticated position sizing"""
+        # Use config values or defaults
+        buy_threshold = self.config.buy_threshold if self.config.buy_threshold is not None else 0.02
+        sell_threshold = self.config.sell_threshold if self.config.sell_threshold is not None else 0.02
+        position_size = self.config.position_size if self.config.position_size is not None else 1.0
+        
         # Get price returns - properly aligned with predictions
         if 'target' in data.columns:
             # Target already contains next period returns
@@ -1229,10 +1249,10 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
             base_position = 0
             
             # Base position from prediction
-            if predictions[i] > 0.02:
-                base_position = 1
-            elif predictions[i] < -0.02:
-                base_position = -1
+            if predictions[i] > buy_threshold:
+                base_position = position_size
+            elif predictions[i] < -sell_threshold:
+                base_position = -position_size
             
             # Adjust position based on additional signals
             if i < len(data):
@@ -1263,11 +1283,14 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
         if len(positions) > 1:
             position_changes = np.diff(positions)
             transaction_costs = np.abs(position_changes) * self.config.transaction_cost
-            net_returns = strategy_returns - transaction_costs[:len(strategy_returns)]
+            # Pad transaction costs to match returns length
+            tc_padded = np.zeros(len(strategy_returns))
+            tc_padded[1:min(len(transaction_costs)+1, len(tc_padded))] = transaction_costs[:len(tc_padded)-1]
+            net_returns = strategy_returns - tc_padded
         else:
             net_returns = strategy_returns
         
-        return net_returns, positions[:-1]
+        return net_returns[:min_len], positions[:min_len]
     
     def _analyze_signal_contributions(self, data: pd.DataFrame, predictions: np.ndarray, returns: np.ndarray) -> Dict[str, float]:
         """Analyze which signals contributed most to returns"""
@@ -1283,8 +1306,18 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
         for signal in key_signals:
             if signal in data.columns:
                 # Calculate returns when signal is active
-                signal_active = data[signal].iloc[:-1].values  # Align with returns
-                signal_returns = returns[signal_active == True] if len(signal_active) > 0 else np.array([])
+                # Ensure proper alignment between signal data and returns
+                signal_data = data[signal].values
+                min_len = min(len(signal_data), len(returns))
+                signal_active = signal_data[:min_len]
+                aligned_returns = returns[:min_len]
+                
+                # Get returns when signal is active
+                if isinstance(signal_active[0], (bool, np.bool_)):
+                    signal_returns = aligned_returns[signal_active]
+                else:
+                    # For numeric signals, consider them active when > 0
+                    signal_returns = aligned_returns[signal_active > 0]
                 
                 if len(signal_returns) > 0:
                     contributions[signal] = {

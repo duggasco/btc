@@ -11,7 +11,6 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from components.api_client import APIClient
-from components.websocket_client import EnhancedWebSocketClient
 from components.charts import create_portfolio_chart
 from utils.helpers import format_currency, format_percentage
 from utils.constants import CHART_COLORS
@@ -507,7 +506,7 @@ def show_paper_trading():
                     'size': '{:.6f}',
                     'pnl': '${:,.2f}',
                     'pnl_pct': '{:+.2f}%'
-                }).applymap(
+                }).map(
                     lambda x: 'color: green' if x > 0 else 'color: red' if x < 0 else '',
                     subset=['pnl', 'pnl_pct']
                 ),

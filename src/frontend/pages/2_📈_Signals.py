@@ -123,93 +123,101 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 with tab1:
     st.markdown("### Technical Analysis Indicators")
     
-    if comprehensive_signals and "technical_indicators" in comprehensive_signals:
-        tech_indicators = comprehensive_signals["technical_indicators"]
+    if comprehensive_signals:
+        # Combine all technical-related indicators from categorized response
+        tech_indicators = {}
+        for category in ['technical', 'momentum', 'volatility', 'volume', 'trend']:
+            if category in comprehensive_signals:
+                tech_indicators.update(comprehensive_signals[category])
         
-        # Categorize indicators
-        momentum_indicators = {}
-        trend_indicators = {}
-        volatility_indicators = {}
-        volume_indicators = {}
-        
-        for indicator, value in tech_indicators.items():
-            if any(x in indicator.lower() for x in ["rsi", "macd", "stoch", "momentum", "roc"]):
-                momentum_indicators[indicator] = value
-            elif any(x in indicator.lower() for x in ["sma", "ema", "wma", "trend", "adx"]):
-                trend_indicators[indicator] = value
-            elif any(x in indicator.lower() for x in ["bb", "atr", "volatility", "std"]):
-                volatility_indicators[indicator] = value
-            elif any(x in indicator.lower() for x in ["volume", "obv", "vwap", "mfi"]):
-                volume_indicators[indicator] = value
-            else:
-                trend_indicators[indicator] = value  # Default category
-        
-        # Display indicators by category
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### 📉 Momentum Indicators")
-            for indicator, value in momentum_indicators.items():
-                # Determine sentiment
-                sentiment = "neutral"
-                if "rsi" in indicator.lower():
-                    if value < 30:
-                        sentiment = "bullish"
-                    elif value > 70:
-                        sentiment = "bearish"
-                elif "macd" in indicator.lower() and "signal" in indicator.lower():
-                    if value > 0:
-                        sentiment = "bullish"
-                    else:
-                        sentiment = "bearish"
+        # Only proceed if we have indicators
+        if tech_indicators:
+            # Categorize indicators
+            momentum_indicators = {}
+            trend_indicators = {}
+            volatility_indicators = {}
+            volume_indicators = {}
+            
+            for indicator, value in tech_indicators.items():
+                if any(x in indicator.lower() for x in ["rsi", "macd", "stoch", "momentum", "roc"]):
+                    momentum_indicators[indicator] = value
+                elif any(x in indicator.lower() for x in ["sma", "ema", "wma", "trend", "adx"]):
+                    trend_indicators[indicator] = value
+                elif any(x in indicator.lower() for x in ["bb", "atr", "volatility", "std"]):
+                    volatility_indicators[indicator] = value
+                elif any(x in indicator.lower() for x in ["volume", "obv", "vwap", "mfi"]):
+                    volume_indicators[indicator] = value
+                else:
+                    trend_indicators[indicator] = value  # Default category
+            
+            # Display indicators by category
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📉 Momentum Indicators")
+                for indicator, value in momentum_indicators.items():
+                    # Determine sentiment
+                    sentiment = "neutral"
+                    if "rsi" in indicator.lower():
+                        if value < 30:
+                            sentiment = "bullish"
+                        elif value > 70:
+                            sentiment = "bearish"
+                    elif "macd" in indicator.lower() and "signal" in indicator.lower():
+                        if value > 0:
+                            sentiment = "bullish"
+                        else:
+                            sentiment = "bearish"
+                    
+                    col_ind1, col_ind2, col_ind3 = st.columns([2, 1, 1])
+                    with col_ind1:
+                        st.markdown(f"**{indicator.replace('_', ' ').title()}**")
+                    with col_ind2:
+                        st.markdown(f'<span class="{sentiment}">{value:.2f}</span>', unsafe_allow_html=True)
+                    with col_ind3:
+                        if sentiment == "bullish":
+                            st.markdown("🟢")
+                        elif sentiment == "bearish":
+                            st.markdown("🔴")
+                        else:
+                            st.markdown("⚪")
                 
-                col_ind1, col_ind2, col_ind3 = st.columns([2, 1, 1])
-                with col_ind1:
-                    st.markdown(f"**{indicator.replace('_', ' ').title()}**")
-                with col_ind2:
-                    st.markdown(f'<span class="{sentiment}">{value:.2f}</span>', unsafe_allow_html=True)
-                with col_ind3:
-                    if sentiment == "bullish":
-                        st.markdown("🟢")
-                    elif sentiment == "bearish":
-                        st.markdown("🔴")
-                    else:
-                        st.markdown("⚪")
-            
-            st.markdown("#### 📈 Trend Indicators")
-            for indicator, value in trend_indicators.items():
-                col_ind1, col_ind2 = st.columns([2, 1])
-                with col_ind1:
-                    st.markdown(f"**{indicator.replace('_', ' ').title()}**")
-                with col_ind2:
-                    st.markdown(f"{value:.2f}")
-        
-        with col2:
-            st.markdown("#### 📊 Volatility Indicators")
-            for indicator, value in volatility_indicators.items():
-                col_ind1, col_ind2 = st.columns([2, 1])
-                with col_ind1:
-                    st.markdown(f"**{indicator.replace('_', ' ').title()}**")
-                with col_ind2:
-                    st.markdown(f"{value:.2f}")
-            
-            st.markdown("#### 📊 Volume Indicators")
-            for indicator, value in volume_indicators.items():
-                col_ind1, col_ind2 = st.columns([2, 1])
-                with col_ind1:
-                    st.markdown(f"**{indicator.replace('_', ' ').title()}**")
-                with col_ind2:
-                    if "volume" in indicator.lower():
-                        st.markdown(f"{value/1e6:.1f}M")
-                    else:
+                st.markdown("#### 📈 Trend Indicators")
+                for indicator, value in trend_indicators.items():
+                    col_ind1, col_ind2 = st.columns([2, 1])
+                    with col_ind1:
+                        st.markdown(f"**{indicator.replace('_', ' ').title()}**")
+                    with col_ind2:
                         st.markdown(f"{value:.2f}")
+            
+            with col2:
+                st.markdown("#### 📊 Volatility Indicators")
+                for indicator, value in volatility_indicators.items():
+                    col_ind1, col_ind2 = st.columns([2, 1])
+                    with col_ind1:
+                        st.markdown(f"**{indicator.replace('_', ' ').title()}**")
+                    with col_ind2:
+                        st.markdown(f"{value:.2f}")
+                
+                st.markdown("#### 📊 Volume Indicators")
+                for indicator, value in volume_indicators.items():
+                    col_ind1, col_ind2 = st.columns([2, 1])
+                    with col_ind1:
+                        st.markdown(f"**{indicator.replace('_', ' ').title()}**")
+                    with col_ind2:
+                        if "volume" in indicator.lower():
+                            st.markdown(f"{value/1e6:.1f}M")
+                        else:
+                            st.markdown(f"{value:.2f}")
+    else:
+        st.info("Technical indicators are not available. Waiting for comprehensive signals to be calculated.")
 
 # On-Chain Metrics Tab
 with tab2:
     st.markdown("### On-Chain Metrics Analysis")
     
-    if comprehensive_signals and "onchain_metrics" in comprehensive_signals:
-        onchain_data = comprehensive_signals["onchain_metrics"]
+    if comprehensive_signals and "on_chain" in comprehensive_signals:
+        onchain_data = comprehensive_signals["on_chain"]
         
         # Network Activity
         st.markdown("#### 🔗 Network Activity")
@@ -323,8 +331,8 @@ with tab2:
 with tab3:
     st.markdown("### Market Sentiment Analysis")
     
-    if comprehensive_signals and "sentiment_indicators" in comprehensive_signals:
-        sentiment_data = comprehensive_signals["sentiment_indicators"]
+    if comprehensive_signals and "sentiment" in comprehensive_signals:
+        sentiment_data = comprehensive_signals["sentiment"]
         
         # Overall Sentiment Score
         overall_sentiment = sentiment_data.get("overall_sentiment", 50)
@@ -671,7 +679,7 @@ with tab5:
         if not buy_df.empty:
             fig.add_trace(go.Scatter(
                 x=buy_df['timestamp'],
-                y=buy_df['price'],
+                y=buy_df['price_prediction'],
                 mode='markers',
                 name='Buy Signals',
                 marker=dict(
@@ -688,7 +696,7 @@ with tab5:
         if not sell_df.empty:
             fig.add_trace(go.Scatter(
                 x=sell_df['timestamp'],
-                y=sell_df['price'],
+                y=sell_df['price_prediction'],
                 mode='markers',
                 name='Sell Signals',
                 marker=dict(
@@ -704,7 +712,7 @@ with tab5:
         if 'price' in history_df.columns:
             fig.add_trace(go.Scatter(
                 x=history_df['timestamp'],
-                y=history_df['price'],
+                y=history_df['price_prediction'],
                 mode='lines',
                 name='BTC Price',
                 line=dict(color='gray', width=1, dash='dot')
@@ -761,15 +769,17 @@ with tab5:
         st.markdown("#### Recent Signals")
         
         recent_signals = history_df.sort_values('timestamp', ascending=False).head(10)
-        display_df = recent_signals[['timestamp', 'signal', 'confidence', 'price']].copy()
+        display_df = recent_signals[['timestamp', 'signal', 'confidence', 'price_prediction']].copy()
         display_df['timestamp'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
         display_df['confidence'] = display_df['confidence'].apply(lambda x: f"{x:.1%}")
-        display_df['price'] = display_df['price'].apply(lambda x: f"${x:,.0f}")
+        display_df['price_prediction'] = display_df['price_prediction'].apply(lambda x: f"${x:,.0f}")
+        # Rename columns for better display
+        display_df = display_df.rename(columns={'price_prediction': 'Price', 'timestamp': 'Time', 'signal': 'Signal', 'confidence': 'Confidence'})
         
         st.dataframe(
-            display_df.style.applymap(
+            display_df.style.map(
                 lambda x: 'color: green' if x == 'buy' else 'color: red' if x == 'sell' else '',
-                subset=['signal']
+                subset=['Signal']
             ),
             use_container_width=True,
             height=400

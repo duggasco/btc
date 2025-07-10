@@ -379,7 +379,7 @@ with tab3:
                 return 'color: green' if value > 0 else 'color: red' if value < 0 else ''
             return ''
         
-        styled_df = display_df.style.applymap(style_pnl, subset=['pnl'] if 'pnl' in display_df else [])
+        styled_df = display_df.style.map(style_pnl, subset=['pnl'] if 'pnl' in display_df else [])
         
         st.dataframe(styled_df, use_container_width=True, height=500)
         

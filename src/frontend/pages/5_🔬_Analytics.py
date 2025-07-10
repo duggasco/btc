@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timedelta
 import time
 import json
+import logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,6 +16,9 @@ from components.api_client import APIClient
 from components.charts import create_candlestick_chart
 from utils.helpers import format_currency, format_percentage
 from utils.constants import CHART_COLORS
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="Analytics", page_icon="🔬", layout="wide")
 
@@ -118,147 +122,165 @@ def create_metrics_chart(metrics: dict) -> go.Figure:
     return fig
 
 def create_backtest_chart(results: dict) -> go.Figure:
-    """Create comprehensive backtest results chart"""
-    # Handle both enhanced and simple backtest results
+    """Create comprehensive backtest results visualization"""
     if not results:
         return go.Figure().add_annotation(text="No backtest results available", 
                                         xref="paper", yref="paper", 
                                         x=0.5, y=0.5, showarrow=False)
     
-    # For simple backtest results with trades
-    if 'trades' in results and isinstance(results['trades'], list):
-        trades = results['trades']
-        if not trades:
-            return go.Figure().add_annotation(text="No trades in backtest results", 
-                                            xref="paper", yref="paper", 
-                                            x=0.5, y=0.5, showarrow=False)
-        
-        # Create equity curve from trades
-        initial_capital = 10000
-        equity = [initial_capital]
-        timestamps = [datetime.now() - timedelta(days=100)]
-        
-        for trade in trades:
-            if 'timestamp' in trade:
-                timestamps.append(pd.to_datetime(trade['timestamp']))
-                if 'pnl' in trade:
-                    equity.append(initial_capital + trade['pnl'])
-                elif 'price' in trade and trade.get('type') == 'sell':
-                    # Calculate equity based on position
-                    equity.append(equity[-1])
-        
-        df = pd.DataFrame({
-            'timestamp': timestamps,
-            'portfolio_value': equity
-        })
-    
-    # For enhanced backtest with equity curve
-    elif 'equity_curve' in results:
-        equity_data = results['equity_curve']
-        df = pd.DataFrame(equity_data)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
-    # For enhanced backtest with performance_metrics
-    elif 'performance_metrics' in results:
-        # Create a simple visualization from metrics
-        metrics = results['performance_metrics']
-        return create_metrics_chart(metrics)
-    
-    else:
-        # Try to extract any time series data
-        df = pd.DataFrame()
-        for key in ['timestamp', 'date', 'time']:
-            if key in results:
-                df['timestamp'] = pd.to_datetime(results[key])
-                break
-        
-        for key in ['value', 'portfolio_value', 'equity', 'balance']:
-            if key in results:
-                df['portfolio_value'] = results[key]
-                break
-        
-        if df.empty:
-            return go.Figure().add_annotation(text="Unable to parse backtest results", 
-                                            xref="paper", yref="paper", 
-                                            x=0.5, y=0.5, showarrow=False)
-    
-    # Create subplots
+    # For the actual API response structure, create a multi-chart visualization
     fig = make_subplots(
-        rows=3, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.05,
-        subplot_titles=("Portfolio Value", "Drawdown %", "Trade Signals"),
-        row_heights=[0.5, 0.25, 0.25]
+        rows=2, cols=2,
+        subplot_titles=("Performance Metrics", "Feature Importance (Top 10)", 
+                       "Risk Decomposition", "Signal Activations"),
+        specs=[[{"type": "bar"}, {"type": "bar"}],
+               [{"type": "pie"}, {"type": "bar"}]],
+        vertical_spacing=0.15,
+        horizontal_spacing=0.15
     )
     
-    # Portfolio value
-    fig.add_trace(go.Scatter(
-        x=df['timestamp'],
-        y=df['portfolio_value'],
-        mode='lines',
-        name='Portfolio Value',
-        line=dict(color=CHART_COLORS['primary'], width=2),
-        fill='tonexty',
-        fillcolor='rgba(102, 126, 234, 0.1)'
-    ), row=1, col=1)
+    # 1. Performance Metrics Bar Chart
+    metric_names = []
+    metric_values = []
+    metric_colors = []
     
-    # Benchmark (if available)
-    if 'benchmark_value' in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df['timestamp'],
-            y=df['benchmark_value'],
-            mode='lines',
-            name='Buy & Hold',
-            line=dict(color='gray', width=2, dash='dash')
+    # Extract key metrics from actual API response structure
+    perf_metrics = results.get('performance_metrics', {})
+    trading_stats = results.get('trading_statistics', {})
+    
+    # Add metrics from performance_metrics
+    if perf_metrics.get('total_return_mean') is not None:
+        metric_names.append('Total Return %')
+        metric_values.append(perf_metrics['total_return_mean'] * 100)
+        metric_colors.append('green' if perf_metrics['total_return_mean'] > 0 else 'red')
+    
+    if perf_metrics.get('win_rate_mean') is not None:
+        metric_names.append('Win Rate %')
+        metric_values.append(perf_metrics['win_rate_mean'] * 100)
+        metric_colors.append('blue')
+    
+    if perf_metrics.get('sharpe_ratio_mean') is not None:
+        metric_names.append('Sharpe Ratio')
+        metric_values.append(perf_metrics['sharpe_ratio_mean'])
+        metric_colors.append('purple')
+    
+    if perf_metrics.get('max_drawdown_mean') is not None:
+        metric_names.append('Max Drawdown %')
+        metric_values.append(perf_metrics['max_drawdown_mean'] * 100)
+        metric_colors.append('red')
+    
+    if metric_names:
+        fig.add_trace(go.Bar(
+            x=metric_names,
+            y=metric_values,
+            marker_color=metric_colors,
+            text=[f'{v:.2f}' for v in metric_values],
+            textposition='auto',
+            name='Metrics'
         ), row=1, col=1)
     
-    # Drawdown
-    if 'drawdown' in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df['timestamp'],
-            y=df['drawdown'],
-            mode='lines',
-            name='Drawdown',
-            line=dict(color='red', width=1),
-            fill='tozeroy',
-            fillcolor='rgba(255, 0, 0, 0.1)'
-        ), row=2, col=1)
+    # 2. Feature Importance (Top 10)
+    if 'feature_analysis' in results and 'feature_importance' in results['feature_analysis']:
+        features = results['feature_analysis']['feature_importance']
+        # Filter and convert values to ensure they're numeric
+        numeric_features = {}
+        for k, v in features.items():
+            try:
+                numeric_features[k] = float(v)
+            except (TypeError, ValueError):
+                continue
+        # Sort and get top 10 by absolute value
+        sorted_features = sorted(numeric_features.items(), 
+                               key=lambda x: abs(x[1]), 
+                               reverse=True)[:10]
+        
+        if sorted_features:
+            feature_names = [f[0] for f in sorted_features]
+            importance_values = [f[1] for f in sorted_features]
+            
+            fig.add_trace(go.Bar(
+                y=feature_names,
+                x=importance_values,
+                orientation='h',
+                marker_color=['green' if v > 0 else 'red' for v in importance_values],
+                text=[f'{v:.4f}' for v in importance_values],
+                textposition='auto',
+                name='Feature Importance'
+            ), row=1, col=2)
     
-    # Trade signals
-    if 'signal' in df.columns:
-        buys = df[df['signal'] == 'buy']
-        sells = df[df['signal'] == 'sell']
+    # 3. Risk Decomposition Pie Chart
+    if 'risk_analysis' in results and 'decomposition' in results['risk_analysis']:
+        risk_data = results['risk_analysis']['decomposition']
         
-        if not buys.empty:
-            fig.add_trace(go.Scatter(
-                x=buys['timestamp'],
-                y=buys['price'],
-                mode='markers',
-                name='Buy Signal',
-                marker=dict(color='green', size=10, symbol='triangle-up')
-            ), row=3, col=1)
+        risk_labels = []
+        risk_values = []
         
-        if not sells.empty:
-            fig.add_trace(go.Scatter(
-                x=sells['timestamp'],
-                y=sells['price'],
-                mode='markers',
-                name='Sell Signal',
-                marker=dict(color='red', size=10, symbol='triangle-down')
-            ), row=3, col=1)
+        risk_map = {
+            'market_risk': 'Market Risk',
+            'specific_risk': 'Specific Risk',
+            'model_risk': 'Model Risk'
+        }
+        
+        for key, label in risk_map.items():
+            if key in risk_data and risk_data[key] > 0:
+                risk_labels.append(label)
+                risk_values.append(risk_data[key])
+        
+        if risk_labels:
+            fig.add_trace(go.Pie(
+                labels=risk_labels,
+                values=risk_values,
+                hole=0.3,
+                marker_colors=['#FF6B6B', '#4ECDC4', '#45B7D1'],
+                textinfo='label+percent',
+                name='Risk Decomposition'
+            ), row=2, col=1)
+    
+    # 4. Signal Performance or Top Contributing Signals
+    if 'performance_metrics' in results and 'top_contributing_signals' in results['performance_metrics']:
+        signals = results['performance_metrics']['top_contributing_signals']
+        if signals:
+            signal_names = []
+            signal_contributions = []
+            
+            for sig_name, sig_data in signals.items():
+                signal_names.append(sig_name)
+                signal_contributions.append(sig_data.get('total_contribution', 0) * 100)
+            
+            # Sort by absolute contribution
+            sorted_pairs = sorted(zip(signal_names, signal_contributions), 
+                                key=lambda x: abs(x[1]), reverse=True)[:10]
+            
+            if sorted_pairs:
+                signal_names, signal_contributions = zip(*sorted_pairs)
+                
+                fig.add_trace(go.Bar(
+                    x=list(signal_names),
+                    y=list(signal_contributions),
+                    marker_color=['green' if v > 0 else 'red' for v in signal_contributions],
+                    text=[f'{v:.2f}%' for v in signal_contributions],
+                    textposition='auto',
+                    name='Signal Contributions'
+                ), row=2, col=2)
     
     # Update layout
-    fig.update_xaxes(title_text="Date", row=3, col=1)
-    fig.update_yaxes(title_text="Value ($)", row=1, col=1)
-    fig.update_yaxes(title_text="Drawdown %", row=2, col=1)
-    fig.update_yaxes(title_text="Price ($)", row=3, col=1)
-    
+    total_return = perf_metrics.get('total_return_mean', 0) * 100 if 'performance_metrics' in results else 0
     fig.update_layout(
-        title="Backtest Results",
+        title=f"Backtest Results - Total Return: {total_return:.2f}%",
         height=800,
-        hovermode='x unified',
+        showlegend=False,
         template="plotly_white"
     )
+    
+    # Update axes
+    fig.update_xaxes(title_text="Metric", row=1, col=1)
+    fig.update_yaxes(title_text="Value", row=1, col=1)
+    
+    fig.update_xaxes(title_text="Importance", row=1, col=2)
+    fig.update_yaxes(title_text="Feature", row=1, col=2)
+    
+    fig.update_xaxes(title_text="Signal Type", row=2, col=2)
+    fig.update_yaxes(title_text="Count", row=2, col=2)
     
     return fig
 
@@ -274,16 +296,25 @@ def create_monte_carlo_chart(results: dict) -> go.Figure:
     
     fig = go.Figure()
     
+    # Check if simulations is a list of paths or just a number
+    if isinstance(simulations, (int, float)):
+        # If it's just a number, we can't plot paths
+        return go.Figure().add_annotation(
+            text=f"Monte Carlo simulation completed with {simulations} simulations", 
+            xref="paper", yref="paper", 
+            x=0.5, y=0.5, showarrow=False)
+    
     # Plot sample paths (limit to 100 for performance)
-    sample_paths = simulations[:min(100, len(simulations))]
-    for i, path in enumerate(sample_paths):
-        fig.add_trace(go.Scatter(
-            y=path,
-            mode='lines',
-            line=dict(width=0.5, color='lightgray'),
-            showlegend=False,
-            opacity=0.3
-        ))
+    if isinstance(simulations, list) and len(simulations) > 0:
+        sample_paths = simulations[:min(100, len(simulations))]
+        for i, path in enumerate(sample_paths):
+            fig.add_trace(go.Scatter(
+                y=path,
+                mode='lines',
+                line=dict(width=0.5, color='lightgray'),
+                showlegend=False,
+                opacity=0.3
+            ))
     
     # Plot percentiles
     if percentiles:
@@ -342,8 +373,22 @@ def create_feature_importance_chart(features: dict) -> go.Figure:
                                         xref="paper", yref="paper", 
                                         x=0.5, y=0.5, showarrow=False)
     
-    # Sort features by importance
-    sorted_features = sorted(features.items(), key=lambda x: x[1], reverse=True)[:20]
+    # Filter and convert values to ensure they're numeric
+    numeric_features = {}
+    for k, v in features.items():
+        try:
+            numeric_features[k] = float(v)
+        except (TypeError, ValueError):
+            # Skip non-numeric values
+            continue
+    
+    if not numeric_features:
+        return go.Figure().add_annotation(text="No valid numeric feature importance data available", 
+                                        xref="paper", yref="paper", 
+                                        x=0.5, y=0.5, showarrow=False)
+    
+    # Sort features by absolute importance value
+    sorted_features = sorted(numeric_features.items(), key=lambda x: abs(x[1]), reverse=True)[:20]
     
     feature_names = [f[0] for f in sorted_features]
     importance_values = [f[1] for f in sorted_features]
@@ -355,20 +400,78 @@ def create_feature_importance_chart(features: dict) -> go.Figure:
         y=feature_names,
         orientation='h',
         marker=dict(
-            color=importance_values,
-            colorscale='Viridis',
-            showscale=True,
-            colorbar=dict(title="Importance")
-        )
+            color=['green' if v > 0 else 'red' for v in importance_values],
+            line=dict(color='rgba(0,0,0,0.3)', width=1)
+        ),
+        text=[f'{v:.4f}' for v in importance_values],
+        textposition='auto'
     ))
     
     fig.update_layout(
-        title="Top 20 Feature Importance",
+        title="Top 20 Feature Importance (by Absolute Value)",
         xaxis_title="Importance Score",
         yaxis_title="Feature",
         height=600,
         template="plotly_white",
         yaxis=dict(autorange="reversed")
+    )
+    
+    return fig
+
+def create_stress_test_chart(stress_scenarios: dict) -> go.Figure:
+    """Create stress test scenarios visualization"""
+    if not stress_scenarios:
+        return go.Figure().add_annotation(text="No stress test data available", 
+                                        xref="paper", yref="paper", 
+                                        x=0.5, y=0.5, showarrow=False)
+    
+    scenarios = []
+    impacts = []
+    max_dds = []
+    
+    scenario_map = {
+        'flash_crash': 'Flash Crash',
+        'bull_rally': 'Bull Rally',
+        'high_volatility': 'High Volatility',
+        'low_volatility': 'Low Volatility'
+    }
+    
+    for key, display_name in scenario_map.items():
+        if key in stress_scenarios:
+            scenarios.append(display_name)
+            impacts.append(stress_scenarios[key].get('impact', 0) * 100)
+            max_dds.append(stress_scenarios[key].get('max_drawdown', 0) * 100)
+    
+    fig = go.Figure()
+    
+    # Impact bars
+    fig.add_trace(go.Bar(
+        name='Portfolio Impact (%)',
+        x=scenarios,
+        y=impacts,
+        marker_color=['red' if v < 0 else 'green' for v in impacts],
+        text=[f'{v:.1f}%' for v in impacts],
+        textposition='auto'
+    ))
+    
+    # Max drawdown bars
+    fig.add_trace(go.Bar(
+        name='Max Drawdown (%)',
+        x=scenarios,
+        y=max_dds,
+        marker_color=['red' if v < 0 else 'lightblue' for v in max_dds],
+        text=[f'{v:.1f}%' for v in max_dds],
+        textposition='auto'
+    ))
+    
+    fig.update_layout(
+        title="Stress Test Scenarios",
+        xaxis_title="Scenario",
+        yaxis_title="Impact (%)",
+        barmode='group',
+        height=400,
+        template="plotly_white",
+        legend=dict(x=0.7, y=1)
     )
     
     return fig
@@ -435,12 +538,61 @@ def show_analytics():
                                               max_value=50.0, 
                                               value=5.0)
                 
+                # Trading Parameters
+                st.markdown("##### Trading Parameters")
+                col_trade1, col_trade2, col_trade3 = st.columns(3)
+                
+                with col_trade1:
+                    position_size_pct = st.number_input("Position Size %", 
+                                                       min_value=1.0, 
+                                                       max_value=100.0, 
+                                                       value=10.0,
+                                                       help="Percentage of capital to use per trade")
+                    buy_threshold = st.number_input("Buy Threshold %", 
+                                                   min_value=0.1, 
+                                                   max_value=10.0, 
+                                                   value=2.0,
+                                                   step=0.1,
+                                                   help="Model prediction threshold to trigger buy signal")
+                
+                with col_trade2:
+                    sell_threshold = st.number_input("Sell Threshold %", 
+                                                    min_value=0.1, 
+                                                    max_value=10.0, 
+                                                    value=2.0,
+                                                    step=0.1,
+                                                    help="Model prediction threshold to trigger sell signal")
+                    sell_percentage = st.number_input("Sell Percentage %", 
+                                                     min_value=10.0, 
+                                                     max_value=100.0, 
+                                                     value=50.0,
+                                                     help="Percentage of holdings to sell on signal")
+                
+                with col_trade3:
+                    take_profit = st.number_input("Take Profit %", 
+                                                 min_value=0.0, 
+                                                 max_value=100.0, 
+                                                 value=10.0,
+                                                 help="Profit target for partial position exit")
+                    transaction_cost = st.number_input("Transaction Cost %", 
+                                                      min_value=0.0, 
+                                                      max_value=1.0, 
+                                                      value=0.25,
+                                                      step=0.01,
+                                                      help="Trading fee percentage per transaction")
+                
                 # Advanced options
-                use_walk_forward = st.checkbox("Use Walk-Forward Analysis", value=True)
-                include_transaction_costs = st.checkbox("Include Transaction Costs", value=True)
+                use_walk_forward = st.checkbox("Use Walk-Forward Analysis", value=True, key="walk_forward")
+                include_transaction_costs = st.checkbox("Include Transaction Costs", value=True, key="transaction_costs")
+                optimize_weights = st.checkbox("Optimize Signal Weights", value=False, key="optimize_weights")
+                include_macro = st.checkbox("Include Macro Indicators", value=True, key="include_macro")
                 
             # Run backtest button
             if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
+                # Clear previous results to ensure fresh state
+                if 'backtest_results' in st.session_state:
+                    del st.session_state['backtest_results']
+                
                 with st.spinner("Running backtest... This may take a few minutes"):
                     # Prepare backtest parameters for enhanced endpoint
                     params = {
@@ -452,37 +604,58 @@ def show_analytics():
                             "position_sizing": position_sizing.lower().replace(" ", "_"),
                             "max_positions": max_positions,
                             "stop_loss": stop_loss / 100,
-                            "walk_forward": use_walk_forward,
-                            "transaction_costs": 0.0025 if include_transaction_costs else 0
+                            "walk_forward": st.session_state.get('walk_forward', True),
+                            "transaction_costs": 0.0025 if st.session_state.get('transaction_costs', True) else 0
                         }
                     }
                     
-                    # Try enhanced backtest first
-                    result = api_client.run_enhanced_backtest(params)
+                    # Create enhanced backtest parameters
+                    # Map period to the correct format
+                    period_map = {
+                        30: "1mo",
+                        90: "3mo",
+                        180: "6mo",
+                        365: "1y",
+                        730: "2y"
+                    }
+                    period_str = period_map.get(period_days, "1y")
                     
-                    if result and result.get('status') == 'success':
-                        st.success("✅ Backtest completed successfully!")
-                        # Get the full results
-                        full_results = api_client.get_latest_backtest_results()
-                        if full_results:
-                            st.session_state['backtest_results'] = full_results
-                        else:
-                            st.session_state['backtest_results'] = result
-                    else:
-                        # Fallback to simple backtest
-                        simple_params = {
+                    enhanced_params = {
+                        "period": period_str,
+                        "optimize_weights": st.session_state.get('optimize_weights', False),
+                        "include_macro": st.session_state.get('include_macro', True),
+                        "use_enhanced_weights": True,
+                        "n_optimization_trials": 20,
+                        "settings": {
+                            "initial_capital": initial_capital,
                             "strategy": strategy_type.lower().replace(" ", "_"),
-                            "start_date": (datetime.now() - timedelta(days=period_days)).isoformat(),
-                            "end_date": datetime.now().isoformat()
+                            "position_size": position_size_pct / 100,
+                            "buy_threshold": buy_threshold / 100,
+                            "sell_threshold": sell_threshold / 100,
+                            "sell_percentage": sell_percentage / 100,
+                            "stop_loss": stop_loss / 100,
+                            "take_profit": take_profit / 100,
+                            "transaction_cost": transaction_cost / 100 if include_transaction_costs else 0.0
                         }
-                        result = api_client.run_simple_backtest(simple_params)
-                        
-                        if result and result.get('status') == 'completed':
-                            st.success("✅ Backtest completed!")
-                            st.session_state['backtest_results'] = result
-                        else:
-                            error_msg = result.get('message', 'Unknown error') if result else 'Connection error'
+                    }
+                    
+                    # Use enhanced backtest endpoint for comprehensive results
+                    result = api_client.post("/backtest/enhanced", enhanced_params)
+                    
+                    if result:
+                        if 'error' in result:
+                            error_msg = result.get('error', 'Unknown error')
                             st.error(f"❌ Backtest failed: {error_msg}")
+                        elif 'status' in result and result['status'] == 'error':
+                            error_msg = result.get('message', 'Unknown error')
+                            st.error(f"❌ Backtest failed: {error_msg}")
+                        else:
+                            st.success("✅ Backtest completed successfully!")
+                            st.session_state['backtest_results'] = result
+                            # Force a rerun to display new results
+                            st.rerun()
+                    else:
+                        st.error("❌ Connection error: Failed to reach backend API")
         
         with col2:
             # Quick stats if results available
@@ -495,164 +668,188 @@ def show_analytics():
                 
                 col_m1, col_m2 = st.columns(2)
                 
-                # Handle different result formats
-                if 'metrics' in results:
-                    metrics = results['metrics']
-                    with col_m1:
-                        st.metric("Total Return", 
-                                f"{metrics.get('total_return', 0):.2%}")
-                        st.metric("Sharpe Ratio", 
-                                f"{metrics.get('sharpe_ratio', 0):.2f}")
-                    with col_m2:
-                        st.metric("Win Rate", 
-                                f"{metrics.get('win_rate', 0):.1f}%")
-                        st.metric("Max Drawdown", 
-                                f"{metrics.get('max_drawdown', 0):.2%}")
-                
-                elif 'performance_metrics' in results:
-                    perf = results['performance_metrics']
-                    with col_m1:
-                        st.metric("Total Return", 
-                                f"{perf.get('total_return_mean', 0)*100:.2f}%")
-                        st.metric("Sortino Ratio", 
-                                f"{perf.get('sortino_ratio_mean', 0):.2f}")
-                    with col_m2:
-                        st.metric("Win Rate", 
-                                f"{perf.get('win_rate_mean', 0)*100:.1f}%")
-                        st.metric("Max Drawdown", 
-                                f"{perf.get('max_drawdown_mean', 0)*100:.2f}%")
-                
-                else:
-                    # Fallback for simple results
-                    with col_m1:
-                        st.metric("Composite Score", 
-                                f"{results.get('composite_score', 0):.3f}")
-                        st.metric("Confidence", 
-                                f"{results.get('confidence_score', 0):.2%}")
-                    with col_m2:
-                        if 'summary' in results:
-                            summary = results['summary']
-                            st.metric("Sortino", 
-                                    f"{summary.get('key_metrics', {}).get('sortino_ratio', 0):.2f}")
-                            st.metric("Total Return", 
-                                    f"{summary.get('key_metrics', {}).get('total_return', 0):.2%}")
+                # Handle the actual API response format - metrics are in performance_metrics
+                perf_metrics = results.get('performance_metrics', {})
+                trading_stats = results.get('trading_statistics', {})
+                with col_m1:
+                    st.metric("Total Return", 
+                            f"{perf_metrics.get('total_return_mean', 0)*100:.2f}%")
+                    st.metric("Win Rate", 
+                            f"{perf_metrics.get('win_rate_mean', 0)*100:.1f}%")
+                with col_m2:
+                    st.metric("Total Trades", 
+                            f"{trading_stats.get('total_trades', 0)}")
+                    st.metric("Sharpe Ratio", 
+                            f"{perf_metrics.get('sharpe_ratio_mean', 0):.2f}")
                 
                 st.markdown('</div>', unsafe_allow_html=True)
         
         # Display results
         if 'backtest_results' in st.session_state:
             results = st.session_state['backtest_results']
+            # Extract metrics from actual API response structure
+            perf_metrics = results.get('performance_metrics', {})
+            trading_stats = results.get('trading_statistics', {})
+            risk_metrics = results.get('risk_metrics', {})
             
-            # Main chart
+            # Main visualization
             st.plotly_chart(create_backtest_chart(results), use_container_width=True)
             
-            # Detailed metrics
-            with st.expander("📈 Detailed Performance Metrics", expanded=True):
-                # Get metrics based on result format
-                if 'metrics' in results:
-                    metrics = results['metrics']
-                elif 'performance_metrics' in results:
-                    # Convert enhanced format to display format
-                    perf = results['performance_metrics']
-                    metrics = {
-                        'total_return': perf.get('total_return_mean', 0),
-                        'annual_return': perf.get('annual_return_mean', 0),
-                        'monthly_return': perf.get('monthly_return_mean', 0),
-                        'volatility': perf.get('volatility_mean', 0),
-                        'sortino_ratio': perf.get('sortino_ratio_mean', 0),
-                        'calmar_ratio': perf.get('calmar_ratio_mean', 0),
-                        'total_trades': perf.get('total_trades', 0),
-                        'avg_trade_return': perf.get('avg_trade_return', 0),
-                        'best_trade': perf.get('best_trade', 0),
-                        'max_drawdown': perf.get('max_drawdown_mean', 0),
-                        'avg_drawdown': perf.get('avg_drawdown', 0),
-                        'recovery_time': perf.get('recovery_time', 0)
-                    }
-                else:
-                    metrics = {}
-                
+            # Additional visualizations in tabs
+            detail_tab1, detail_tab2, detail_tab3, detail_tab4 = st.tabs([
+                "📊 Detailed Metrics", "🔬 Feature Analysis", "⚠️ Risk Analysis", "📋 Recommendations"
+            ])
+            
+            with detail_tab1:
+                # Detailed metrics display
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.markdown("**Returns**")
-                    st.write(f"Total: {metrics.get('total_return', 0):.2%}")
-                    st.write(f"Annual: {metrics.get('annual_return', 0):.2%}")
-                    st.write(f"Monthly Avg: {metrics.get('monthly_return', 0):.2%}")
+                    st.write(f"Total Return: {perf_metrics.get('total_return_mean', 0)*100:.2f}%")
+                    st.write(f"Sharpe Ratio: {perf_metrics.get('sharpe_ratio_mean', 0):.2f}")
+                    st.write(f"Sortino Ratio: {perf_metrics.get('sortino_ratio_mean', 0):.2f}")
                 
                 with col2:
-                    st.markdown("**Risk Metrics**")
-                    st.write(f"Volatility: {metrics.get('volatility', 0):.2%}")
-                    st.write(f"Sortino: {metrics.get('sortino_ratio', 0):.2f}")
-                    st.write(f"Calmar: {metrics.get('calmar_ratio', 0):.2f}")
+                    st.markdown("**Trading Stats**")
+                    st.write(f"Total Trades: {trading_stats.get('total_trades', 0)}")
+                    st.write(f"Win Rate: {perf_metrics.get('win_rate_mean', 0)*100:.1f}%")
+                    st.write(f"Profit Factor: {perf_metrics.get('profit_factor_mean', 0):.2f}")
                 
                 with col3:
-                    st.markdown("**Trading Stats**")
-                    st.write(f"Total Trades: {metrics.get('total_trades', 0)}")
-                    st.write(f"Avg Trade: {metrics.get('avg_trade_return', 0):.2%}")
-                    st.write(f"Best Trade: {metrics.get('best_trade', 0):.2%}")
+                    st.markdown("**Risk Metrics**")
+                    st.write(f"Max Drawdown: {perf_metrics.get('max_drawdown_mean', 0)*100:.2f}%")
+                    st.write(f"VaR (95%): {risk_metrics.get('var_95', 0)*100:.2f}%")
+                    st.write(f"CVaR (95%): {risk_metrics.get('cvar_95', 0)*100:.2f}%")
                 
                 with col4:
-                    st.markdown("**Drawdown**")
-                    st.write(f"Max DD: {metrics.get('max_drawdown', 0):.2%}")
-                    st.write(f"Avg DD: {metrics.get('avg_drawdown', 0):.2%}")
-                    st.write(f"Recovery: {metrics.get('recovery_time', 0)} days")
+                    st.markdown("**Positions**")
+                    st.write(f"Long: {trading_stats.get('long_positions', 0)}")
+                    st.write(f"Short: {trading_stats.get('short_positions', 0)}")
+                    st.write(f"Turnover: {trading_stats.get('avg_position_turnover', 0)*100:.2f}%")
                 
-                # Add signal analysis if available
+                # Market analysis if available
+                if 'market_analysis' in results:
+                    st.markdown("---")
+                    st.markdown("**Market Analysis**")
+                    market = results['market_analysis']
+                    
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        st.info(f"**Regime:** {market.get('regime', 'Unknown')}")
+                    with col_m2:
+                        st.info(f"**Trend:** {market.get('dominant_trend', 'Unknown')}")
+                    with col_m3:
+                        st.info(f"**Volatility:** {market.get('volatility_regime', 'Unknown')}")
+                
+                # Optimal weights if available
+                if 'optimal_weights' in results:
+                    st.markdown("---")
+                    st.markdown("**Optimal Signal Weights**")
+                    weights = results['optimal_weights']
+                    
+                    weight_df = pd.DataFrame(list(weights.items()), columns=['Signal Type', 'Weight'])
+                    fig_weights = go.Figure(go.Pie(
+                        labels=weight_df['Signal Type'],
+                        values=weight_df['Weight'],
+                        hole=0.3
+                    ))
+                    fig_weights.update_layout(height=300, title="Optimal Weight Distribution")
+                    st.plotly_chart(fig_weights, use_container_width=True)
+            
+            with detail_tab2:
+                # Feature analysis
+                if 'feature_analysis' in results:
+                    feature_data = results['feature_analysis']
+                    
+                    # Feature importance chart
+                    if 'feature_importance' in feature_data:
+                        st.subheader("Feature Importance Analysis")
+                        fig_features = create_feature_importance_chart(feature_data['feature_importance'])
+                        st.plotly_chart(fig_features, use_container_width=True)
+                    
+                    # Top correlations
+                    if 'top_correlations' in feature_data:
+                        st.subheader("Top Feature Correlations with Returns")
+                        corr_df = pd.DataFrame(
+                            list(feature_data['top_correlations'].items()),
+                            columns=['Feature', 'Correlation']
+                        )
+                        corr_df = corr_df.sort_values('Correlation', key=abs, ascending=False)
+                        
+                        st.dataframe(
+                            corr_df.style.format({'Correlation': '{:.3f}'})
+                            .background_gradient(cmap='RdYlGn', vmin=-1, vmax=1, subset=['Correlation']),
+                            use_container_width=True
+                        )
+                else:
+                    st.info("No feature analysis data available")
+            
+            with detail_tab3:
+                # Risk analysis
+                if 'risk_analysis' in results:
+                    risk_data = results['risk_analysis']
+                    
+                    # Risk decomposition
+                    if 'decomposition' in risk_data:
+                        st.subheader("Risk Decomposition")
+                        decomp = risk_data['decomposition']
+                        
+                        col_r1, col_r2 = st.columns([1, 2])
+                        with col_r1:
+                            st.metric("Total Risk", f"{decomp.get('total_risk', 0)*100:.2f}%")
+                            st.metric("Market Risk", f"{decomp.get('market_risk', 0)*100:.2f}%")
+                            st.metric("Specific Risk", f"{decomp.get('specific_risk', 0)*100:.2f}%")
+                            st.metric("Model Risk", f"{decomp.get('model_risk', 0)*100:.2f}%")
+                        
+                        with col_r2:
+                            # Risk pie chart
+                            risk_labels = ['Market Risk', 'Specific Risk', 'Model Risk']
+                            risk_values = [
+                                decomp.get('market_risk', 0),
+                                decomp.get('specific_risk', 0),
+                                decomp.get('model_risk', 0)
+                            ]
+                            
+                            fig_risk = go.Figure(go.Pie(
+                                labels=risk_labels,
+                                values=risk_values,
+                                hole=0.4,
+                                marker_colors=['#FF6B6B', '#4ECDC4', '#45B7D1']
+                            ))
+                            fig_risk.update_layout(height=300, title="Risk Components")
+                            st.plotly_chart(fig_risk, use_container_width=True)
+                    
+                    # Stress scenarios
+                    if 'stress_scenarios' in risk_data:
+                        st.subheader("Stress Test Scenarios")
+                        fig_stress = create_stress_test_chart(risk_data['stress_scenarios'])
+                        st.plotly_chart(fig_stress, use_container_width=True)
+                else:
+                    st.info("No risk analysis data available")
+            
+            with detail_tab4:
+                # Recommendations
+                if 'recommendations' in results:
+                    st.subheader("Strategy Recommendations")
+                    for i, rec in enumerate(results['recommendations'], 1):
+                        st.write(f"{i}. {rec}")
+                else:
+                    st.info("No recommendations available")
+                
+                # Signal analysis
                 if 'signal_analysis' in results:
                     st.markdown("---")
-                    st.markdown("**Signal Performance Analysis**")
+                    st.subheader("Signal Analysis")
                     
                     signal_data = results['signal_analysis']
-                    if 'top_signals' in signal_data:
-                        top_signals = signal_data['top_signals']
-                        
-                        # Create signal performance table
-                        signal_df = pd.DataFrame([
-                            {
-                                'Signal': name,
-                                'Mean Return': data.get('mean_return', 0),
-                                'Win Rate': data.get('win_rate', 0),
-                                'Contribution': data.get('total_contribution', 0),
-                                'Count': data.get('activation_count', 0)
-                            }
-                            for name, data in top_signals.items()
-                        ])
-                        
-                        if not signal_df.empty:
-                            st.dataframe(
-                                signal_df.style.format({
-                                    'Mean Return': '{:.3f}',
-                                    'Win Rate': '{:.3f}',
-                                    'Contribution': '{:.3f}',
-                                    'Count': '{:d}'
-                                }).background_gradient(subset=['Mean Return', 'Contribution']),
-                                use_container_width=True
-                            )
-            
-            # Trade analysis
-            if 'trades' in results:
-                with st.expander("📋 Trade Analysis", expanded=False):
-                    trades_df = pd.DataFrame(results['trades'])
+                    if 'effectiveness' in signal_data:
+                        st.write(f"**Status:** {signal_data['effectiveness'].get('status', 'Unknown')}")
                     
-                    # Summary by signal type
-                    if 'signal_source' in trades_df.columns:
-                        signal_summary = trades_df.groupby('signal_source').agg({
-                            'return': ['count', 'mean', 'sum'],
-                            'win': 'mean'
-                        }).round(4)
-                        
-                        st.write("**Performance by Signal Source**")
-                        st.dataframe(signal_summary)
-                    
-                    # Monthly breakdown
-                    if 'timestamp' in trades_df.columns:
-                        trades_df['month'] = pd.to_datetime(trades_df['timestamp']).dt.to_period('M')
-                        monthly_summary = trades_df.groupby('month').agg({
-                            'return': ['count', 'mean', 'sum']
-                        }).round(4)
-                        
-                        st.write("**Monthly Performance**")
-                        st.dataframe(monthly_summary)
+                    if 'optimal_combinations' in signal_data and signal_data['optimal_combinations']:
+                        st.write("**Optimal Signal Combinations:**")
+                        for combo in signal_data['optimal_combinations']:
+                            st.write(f"- {combo}")
         
         # Historical Backtest Results Section
         st.markdown("---")
@@ -690,7 +887,7 @@ def show_analytics():
                         'Sortino Ratio': '{:.3f}',
                         'Max Drawdown': '{:.3f}',
                         'Confidence': '{:.3f}'
-                    }).background_gradient(subset=['Composite Score', 'Sortino Ratio']),
+                    }),
                     use_container_width=True,
                     height=400
                 )
@@ -902,14 +1099,24 @@ def show_analytics():
                     # Get feature importance
                     result = api_client.get("/analytics/feature-importance", params)
                     
-                    if result and result.get('status') == 'success':
+                    if result and 'feature_importance' in result:
                         st.success("✅ Analysis completed!")
-                        st.session_state['feature_importance'] = result.get('features', {})
+                        st.session_state['feature_importance'] = result.get('feature_importance', {})
                     else:
                         # Fallback to basic feature importance
                         result = api_client.get("/ml/feature-importance")
-                        if result:
-                            st.session_state['feature_importance'] = result
+                        if result and 'features' in result:
+                            # Convert list of feature objects to dict
+                            features_dict = {}
+                            for item in result['features']:
+                                if 'feature' in item and 'importance' in item:
+                                    try:
+                                        # Ensure importance is numeric
+                                        features_dict[item['feature']] = float(item['importance'])
+                                    except (TypeError, ValueError):
+                                        # Skip items with non-numeric importance
+                                        continue
+                            st.session_state['feature_importance'] = features_dict
                         else:
                             st.error("❌ Analysis failed")
         
@@ -923,7 +1130,16 @@ def show_analytics():
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 
                 # Show top 5 features
-                sorted_features = sorted(features.items(), 
+                # Filter and convert values to ensure they're numeric
+                numeric_features = {}
+                for k, v in features.items():
+                    try:
+                        numeric_features[k] = float(v)
+                    except (TypeError, ValueError):
+                        # Skip non-numeric values
+                        continue
+                
+                sorted_features = sorted(numeric_features.items(), 
                                        key=lambda x: x[1], 
                                        reverse=True)[:5]
                 
@@ -957,12 +1173,24 @@ def show_analytics():
                     cat_features = {k: v for k, v in features.items() 
                                   if any(kw in k.lower() for kw in keywords)}
                     if cat_features:
-                        category_importance[cat] = {
-                            'total': sum(cat_features.values()),
-                            'average': np.mean(list(cat_features.values())),
-                            'count': len(cat_features),
-                            'features': cat_features
-                        }
+                        # Convert values to numeric, filtering out non-numeric ones
+                        numeric_values = []
+                        numeric_cat_features = {}
+                        for k, v in cat_features.items():
+                            try:
+                                numeric_val = float(v)
+                                numeric_values.append(numeric_val)
+                                numeric_cat_features[k] = numeric_val
+                            except (TypeError, ValueError):
+                                continue
+                        
+                        if numeric_values:
+                            category_importance[cat] = {
+                                'total': sum(numeric_values),
+                                'average': np.mean(numeric_values),
+                                'count': len(numeric_values),
+                                'features': numeric_cat_features
+                            }
                 
                 # Display category summary
                 if category_importance:
@@ -986,7 +1214,15 @@ def show_analytics():
                         st.write(f"**{selected_cat} Features:**")
                         cat_features = category_importance[selected_cat]['features']
                         
-                        for feature, importance in sorted(cat_features.items(), 
+                        # Filter numeric values before sorting
+                        numeric_cat_features = {}
+                        for k, v in cat_features.items():
+                            try:
+                                numeric_cat_features[k] = float(v)
+                            except (TypeError, ValueError):
+                                continue
+                        
+                        for feature, importance in sorted(numeric_cat_features.items(), 
                                                         key=lambda x: x[1], 
                                                         reverse=True):
                             col1, col2 = st.columns([3, 1])

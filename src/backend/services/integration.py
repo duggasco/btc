@@ -1073,9 +1073,76 @@ class AdvancedIntegratedBacktestingSystem:
         # Risk decomposition
         risk_decomposition = self._decompose_risk(results)
         
+        # Check if results are from simplified backtest (flat structure)
+        # If so, restructure to match frontend expectations
+        if 'performance_metrics' not in results:
+            # Restructure flat results into nested format
+            performance_metrics = {
+                'sortino_ratio_mean': results.get('sortino_ratio_mean', 0.0),
+                'sortino_ratio_std': 0.0,
+                'sortino_ratio_min': results.get('sortino_ratio_mean', 0.0),
+                'sortino_ratio_max': results.get('sortino_ratio_mean', 0.0),
+                'calmar_ratio_mean': results.get('calmar_ratio_mean', 0.0),
+                'calmar_ratio_std': 0.0,
+                'calmar_ratio_min': results.get('calmar_ratio_mean', 0.0),
+                'calmar_ratio_max': results.get('calmar_ratio_mean', 0.0),
+                'max_drawdown_mean': results.get('max_drawdown_mean', 0.0),
+                'max_drawdown_std': 0.0,
+                'max_drawdown_min': results.get('max_drawdown_mean', 0.0),
+                'max_drawdown_max': results.get('max_drawdown_mean', 0.0),
+                'profit_factor_mean': results.get('profit_factor_mean', 1.0),
+                'profit_factor_std': 0.0,
+                'profit_factor_min': results.get('profit_factor_mean', 1.0),
+                'profit_factor_max': results.get('profit_factor_mean', 1.0),
+                'win_rate_mean': results.get('win_rate_mean', 0.5),
+                'win_rate_std': 0.0,
+                'win_rate_min': results.get('win_rate_mean', 0.5),
+                'win_rate_max': results.get('win_rate_mean', 0.5),
+                'total_return_mean': results.get('total_return_mean', 0.0),
+                'total_return_std': 0.0,
+                'total_return_min': results.get('total_return_mean', 0.0),
+                'total_return_max': results.get('total_return_mean', 0.0),
+                'sharpe_ratio_mean': results.get('sharpe_ratio_mean', 0.0),
+                'sharpe_ratio_std': 0.0,
+                'sharpe_ratio_min': results.get('sharpe_ratio_mean', 0.0),
+                'sharpe_ratio_max': results.get('sharpe_ratio_mean', 0.0),
+                'volatility_mean': results.get('volatility_mean', 0.2),
+                'volatility_std': 0.0,
+                'volatility_min': results.get('volatility_mean', 0.2),
+                'volatility_max': results.get('volatility_mean', 0.2),
+                'num_trades_mean': float(results.get('total_trades', 0)),
+                'num_trades_std': 0.0,
+                'num_trades_min': float(results.get('total_trades', 0)),
+                'num_trades_max': float(results.get('total_trades', 0)),
+                'composite_score': results.get('composite_score', 0.5),
+            }
+            
+            trading_statistics = {
+                'total_trades': results.get('total_trades', 0),
+                'long_positions': 0,
+                'short_positions': 0,
+                'avg_position_turnover': 0.0
+            }
+            
+            risk_metrics = {}
+            
+            # Create properly structured results
+            structured_results = {
+                'timestamp': results.get('timestamp'),
+                'performance_metrics': performance_metrics,
+                'trading_statistics': trading_statistics,
+                'risk_metrics': risk_metrics,
+                'optimal_weights': results.get('optimal_weights', {}),
+                'periods_tested': results.get('periods_tested', 1),
+                'success': results.get('success', True)
+            }
+        else:
+            # Results already have proper structure
+            structured_results = results
+        
         # Enhanced results
         enhanced_results = {
-            **results,
+            **structured_results,
             'market_analysis': {
                 'regime': market_regime,
                 'dominant_trend': self._identify_dominant_trend(raw_data),

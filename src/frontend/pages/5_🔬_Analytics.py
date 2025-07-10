@@ -68,16 +68,119 @@ def get_api_client():
 
 api_client = get_api_client()
 
+def create_metrics_chart(metrics: dict) -> go.Figure:
+    """Create a simple metrics visualization"""
+    fig = go.Figure()
+    
+    # Extract key metrics
+    metric_names = []
+    metric_values = []
+    
+    # Common metric mappings
+    metric_map = {
+        'sortino_ratio_mean': 'Sortino Ratio',
+        'sharpe_ratio_mean': 'Sharpe Ratio',
+        'total_return_mean': 'Total Return (%)',
+        'win_rate_mean': 'Win Rate (%)',
+        'max_drawdown_mean': 'Max Drawdown (%)',
+        'calmar_ratio_mean': 'Calmar Ratio'
+    }
+    
+    for key, display_name in metric_map.items():
+        if key in metrics:
+            metric_names.append(display_name)
+            value = metrics[key]
+            if 'return' in key or 'rate' in key or 'drawdown' in key:
+                value *= 100  # Convert to percentage
+            metric_values.append(value)
+    
+    if metric_names:
+        fig.add_trace(go.Bar(
+            x=metric_names,
+            y=metric_values,
+            marker_color=['green' if v > 0 else 'red' for v in metric_values],
+            text=[f'{v:.2f}' for v in metric_values],
+            textposition='auto'
+        ))
+        
+        fig.update_layout(
+            title="Backtest Performance Metrics",
+            xaxis_title="Metric",
+            yaxis_title="Value",
+            height=400,
+            template="plotly_white"
+        )
+    else:
+        fig.add_annotation(text="No metrics available", 
+                         xref="paper", yref="paper", 
+                         x=0.5, y=0.5, showarrow=False)
+    
+    return fig
+
 def create_backtest_chart(results: dict) -> go.Figure:
     """Create comprehensive backtest results chart"""
-    if not results or 'equity_curve' not in results:
+    # Handle both enhanced and simple backtest results
+    if not results:
         return go.Figure().add_annotation(text="No backtest results available", 
                                         xref="paper", yref="paper", 
                                         x=0.5, y=0.5, showarrow=False)
     
-    equity_data = results['equity_curve']
-    df = pd.DataFrame(equity_data)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    # For simple backtest results with trades
+    if 'trades' in results and isinstance(results['trades'], list):
+        trades = results['trades']
+        if not trades:
+            return go.Figure().add_annotation(text="No trades in backtest results", 
+                                            xref="paper", yref="paper", 
+                                            x=0.5, y=0.5, showarrow=False)
+        
+        # Create equity curve from trades
+        initial_capital = 10000
+        equity = [initial_capital]
+        timestamps = [datetime.now() - timedelta(days=100)]
+        
+        for trade in trades:
+            if 'timestamp' in trade:
+                timestamps.append(pd.to_datetime(trade['timestamp']))
+                if 'pnl' in trade:
+                    equity.append(initial_capital + trade['pnl'])
+                elif 'price' in trade and trade.get('type') == 'sell':
+                    # Calculate equity based on position
+                    equity.append(equity[-1])
+        
+        df = pd.DataFrame({
+            'timestamp': timestamps,
+            'portfolio_value': equity
+        })
+    
+    # For enhanced backtest with equity curve
+    elif 'equity_curve' in results:
+        equity_data = results['equity_curve']
+        df = pd.DataFrame(equity_data)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+    
+    # For enhanced backtest with performance_metrics
+    elif 'performance_metrics' in results:
+        # Create a simple visualization from metrics
+        metrics = results['performance_metrics']
+        return create_metrics_chart(metrics)
+    
+    else:
+        # Try to extract any time series data
+        df = pd.DataFrame()
+        for key in ['timestamp', 'date', 'time']:
+            if key in results:
+                df['timestamp'] = pd.to_datetime(results[key])
+                break
+        
+        for key in ['value', 'portfolio_value', 'equity', 'balance']:
+            if key in results:
+                df['portfolio_value'] = results[key]
+                break
+        
+        if df.empty:
+            return go.Figure().add_annotation(text="Unable to parse backtest results", 
+                                            xref="paper", yref="paper", 
+                                            x=0.5, y=0.5, showarrow=False)
     
     # Create subplots
     fig = make_subplots(
@@ -339,53 +442,100 @@ def show_analytics():
             # Run backtest button
             if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
                 with st.spinner("Running backtest... This may take a few minutes"):
-                    # Prepare backtest parameters
+                    # Prepare backtest parameters for enhanced endpoint
                     params = {
-                        "period_days": period_days,
+                        "symbol": "BTC-USD",
+                        "days": period_days,
                         "initial_capital": initial_capital,
-                        "strategy": strategy_type.lower().replace(" ", "_"),
-                        "position_sizing": position_sizing.lower().replace(" ", "_"),
-                        "max_positions": max_positions,
-                        "stop_loss": stop_loss / 100,
-                        "walk_forward": use_walk_forward,
-                        "transaction_costs": include_transaction_costs
+                        "settings": {
+                            "strategy": strategy_type.lower().replace(" ", "_"),
+                            "position_sizing": position_sizing.lower().replace(" ", "_"),
+                            "max_positions": max_positions,
+                            "stop_loss": stop_loss / 100,
+                            "walk_forward": use_walk_forward,
+                            "transaction_costs": 0.0025 if include_transaction_costs else 0
+                        }
                     }
                     
                     # Try enhanced backtest first
-                    result = api_client.post("/backtest/enhanced/run", params)
-                    if not result or result.get('status') == 'error':
-                        # Fallback to regular backtest
-                        result = api_client.post("/backtest/run", params)
+                    result = api_client.run_enhanced_backtest(params)
                     
                     if result and result.get('status') == 'success':
                         st.success("✅ Backtest completed successfully!")
-                        st.session_state['backtest_results'] = result.get('results', {})
+                        # Get the full results
+                        full_results = api_client.get_latest_backtest_results()
+                        if full_results:
+                            st.session_state['backtest_results'] = full_results
+                        else:
+                            st.session_state['backtest_results'] = result
                     else:
-                        error_msg = result.get('error', 'Unknown error') if result else 'Connection error'
-                        st.error(f"❌ Backtest failed: {error_msg}")
+                        # Fallback to simple backtest
+                        simple_params = {
+                            "strategy": strategy_type.lower().replace(" ", "_"),
+                            "start_date": (datetime.now() - timedelta(days=period_days)).isoformat(),
+                            "end_date": datetime.now().isoformat()
+                        }
+                        result = api_client.run_simple_backtest(simple_params)
+                        
+                        if result and result.get('status') == 'completed':
+                            st.success("✅ Backtest completed!")
+                            st.session_state['backtest_results'] = result
+                        else:
+                            error_msg = result.get('message', 'Unknown error') if result else 'Connection error'
+                            st.error(f"❌ Backtest failed: {error_msg}")
         
         with col2:
             # Quick stats if results available
             if 'backtest_results' in st.session_state:
                 results = st.session_state['backtest_results']
-                metrics = results.get('metrics', {})
                 
                 st.markdown("### 📊 Quick Stats")
                 
-                metric_card = '<div class="metric-card">'
-                st.markdown(metric_card, unsafe_allow_html=True)
+                st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 
                 col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    st.metric("Total Return", 
-                            f"{metrics.get('total_return', 0):.2%}")
-                    st.metric("Sharpe Ratio", 
-                            f"{metrics.get('sharpe_ratio', 0):.2f}")
-                with col_m2:
-                    st.metric("Win Rate", 
-                            f"{metrics.get('win_rate', 0):.1f}%")
-                    st.metric("Max Drawdown", 
-                            f"{metrics.get('max_drawdown', 0):.2%}")
+                
+                # Handle different result formats
+                if 'metrics' in results:
+                    metrics = results['metrics']
+                    with col_m1:
+                        st.metric("Total Return", 
+                                f"{metrics.get('total_return', 0):.2%}")
+                        st.metric("Sharpe Ratio", 
+                                f"{metrics.get('sharpe_ratio', 0):.2f}")
+                    with col_m2:
+                        st.metric("Win Rate", 
+                                f"{metrics.get('win_rate', 0):.1f}%")
+                        st.metric("Max Drawdown", 
+                                f"{metrics.get('max_drawdown', 0):.2%}")
+                
+                elif 'performance_metrics' in results:
+                    perf = results['performance_metrics']
+                    with col_m1:
+                        st.metric("Total Return", 
+                                f"{perf.get('total_return_mean', 0)*100:.2f}%")
+                        st.metric("Sortino Ratio", 
+                                f"{perf.get('sortino_ratio_mean', 0):.2f}")
+                    with col_m2:
+                        st.metric("Win Rate", 
+                                f"{perf.get('win_rate_mean', 0)*100:.1f}%")
+                        st.metric("Max Drawdown", 
+                                f"{perf.get('max_drawdown_mean', 0)*100:.2f}%")
+                
+                else:
+                    # Fallback for simple results
+                    with col_m1:
+                        st.metric("Composite Score", 
+                                f"{results.get('composite_score', 0):.3f}")
+                        st.metric("Confidence", 
+                                f"{results.get('confidence_score', 0):.2%}")
+                    with col_m2:
+                        if 'summary' in results:
+                            summary = results['summary']
+                            st.metric("Sortino", 
+                                    f"{summary.get('key_metrics', {}).get('sortino_ratio', 0):.2f}")
+                            st.metric("Total Return", 
+                                    f"{summary.get('key_metrics', {}).get('total_return', 0):.2%}")
                 
                 st.markdown('</div>', unsafe_allow_html=True)
         
@@ -398,7 +548,28 @@ def show_analytics():
             
             # Detailed metrics
             with st.expander("📈 Detailed Performance Metrics", expanded=True):
-                metrics = results.get('metrics', {})
+                # Get metrics based on result format
+                if 'metrics' in results:
+                    metrics = results['metrics']
+                elif 'performance_metrics' in results:
+                    # Convert enhanced format to display format
+                    perf = results['performance_metrics']
+                    metrics = {
+                        'total_return': perf.get('total_return_mean', 0),
+                        'annual_return': perf.get('annual_return_mean', 0),
+                        'monthly_return': perf.get('monthly_return_mean', 0),
+                        'volatility': perf.get('volatility_mean', 0),
+                        'sortino_ratio': perf.get('sortino_ratio_mean', 0),
+                        'calmar_ratio': perf.get('calmar_ratio_mean', 0),
+                        'total_trades': perf.get('total_trades', 0),
+                        'avg_trade_return': perf.get('avg_trade_return', 0),
+                        'best_trade': perf.get('best_trade', 0),
+                        'max_drawdown': perf.get('max_drawdown_mean', 0),
+                        'avg_drawdown': perf.get('avg_drawdown', 0),
+                        'recovery_time': perf.get('recovery_time', 0)
+                    }
+                else:
+                    metrics = {}
                 
                 col1, col2, col3, col4 = st.columns(4)
                 
@@ -425,6 +596,38 @@ def show_analytics():
                     st.write(f"Max DD: {metrics.get('max_drawdown', 0):.2%}")
                     st.write(f"Avg DD: {metrics.get('avg_drawdown', 0):.2%}")
                     st.write(f"Recovery: {metrics.get('recovery_time', 0)} days")
+                
+                # Add signal analysis if available
+                if 'signal_analysis' in results:
+                    st.markdown("---")
+                    st.markdown("**Signal Performance Analysis**")
+                    
+                    signal_data = results['signal_analysis']
+                    if 'top_signals' in signal_data:
+                        top_signals = signal_data['top_signals']
+                        
+                        # Create signal performance table
+                        signal_df = pd.DataFrame([
+                            {
+                                'Signal': name,
+                                'Mean Return': data.get('mean_return', 0),
+                                'Win Rate': data.get('win_rate', 0),
+                                'Contribution': data.get('total_contribution', 0),
+                                'Count': data.get('activation_count', 0)
+                            }
+                            for name, data in top_signals.items()
+                        ])
+                        
+                        if not signal_df.empty:
+                            st.dataframe(
+                                signal_df.style.format({
+                                    'Mean Return': '{:.3f}',
+                                    'Win Rate': '{:.3f}',
+                                    'Contribution': '{:.3f}',
+                                    'Count': '{:d}'
+                                }).background_gradient(subset=['Mean Return', 'Contribution']),
+                                use_container_width=True
+                            )
             
             # Trade analysis
             if 'trades' in results:
@@ -450,6 +653,70 @@ def show_analytics():
                         
                         st.write("**Monthly Performance**")
                         st.dataframe(monthly_summary)
+        
+        # Historical Backtest Results Section
+        st.markdown("---")
+        st.subheader("📜 Historical Backtest Results")
+        
+        col_hist1, col_hist2 = st.columns([3, 1])
+        
+        with col_hist1:
+            # Get backtest history
+            history = api_client.get_backtest_history(limit=20)
+            
+            if history and len(history) > 0:
+                # Create history dataframe
+                history_df = pd.DataFrame(history)
+                
+                # Format the dataframe for display
+                display_df = history_df[['timestamp', 'composite_score', 'sortino_ratio', 
+                                       'max_drawdown', 'confidence_score']].copy()
+                display_df['timestamp'] = pd.to_datetime(display_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M')
+                display_df.columns = ['Date', 'Composite Score', 'Sortino Ratio', 'Max Drawdown', 'Confidence']
+                
+                # Display as interactive table
+                st.dataframe(
+                    display_df.style.format({
+                        'Composite Score': '{:.3f}',
+                        'Sortino Ratio': '{:.3f}',
+                        'Max Drawdown': '{:.3f}',
+                        'Confidence': '{:.3f}'
+                    }).background_gradient(subset=['Composite Score', 'Sortino Ratio']),
+                    use_container_width=True,
+                    height=400
+                )
+                
+                # Option to load a specific backtest
+                if st.button("📊 Load Selected Backtest Results"):
+                    selected_idx = st.selectbox("Select backtest to load", 
+                                              range(len(history)), 
+                                              format_func=lambda x: f"{history[x]['timestamp']} - Score: {history[x]['composite_score']:.3f}")
+                    
+                    if selected_idx is not None:
+                        # Load the full results for the selected backtest
+                        st.session_state['backtest_results'] = history[selected_idx]
+                        st.success("✅ Loaded historical backtest results")
+                        st.rerun()
+            else:
+                st.info("No historical backtest results available")
+        
+        with col_hist2:
+            # Summary statistics
+            if history and len(history) > 0:
+                st.markdown("### 📊 History Stats")
+                
+                st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                
+                avg_score = np.mean([h.get('composite_score', 0) for h in history])
+                best_score = max([h.get('composite_score', 0) for h in history])
+                avg_sortino = np.mean([h.get('sortino_ratio', 0) for h in history])
+                
+                st.metric("Avg Score", f"{avg_score:.3f}")
+                st.metric("Best Score", f"{best_score:.3f}")
+                st.metric("Avg Sortino", f"{avg_sortino:.3f}")
+                st.metric("Total Runs", len(history))
+                
+                st.markdown('</div>', unsafe_allow_html=True)
     
     with tab2:
         st.subheader("Monte Carlo Risk Analysis")

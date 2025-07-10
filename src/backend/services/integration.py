@@ -1291,17 +1291,19 @@ class AdvancedIntegratedBacktestingSystem:
                 symbol="BTC-USD",
                 signal="backtest_complete",
                 confidence=results.get('confidence_score', 0.5),
-                predicted_price=None
+                price_prediction=None
             )
             
-            # Save detailed results to file
+            # Save detailed results to file in writable directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"backtest_results_{timestamp}.json"
+            filename = f"/app/data/backtest_results_{timestamp}.json"
             
-            with open(filename, 'w') as f:
-                json.dump(results, f, indent=2, default=str)
-            
-            logger.info(f"Results saved to {filename}")
+            try:
+                with open(filename, 'w') as f:
+                    json.dump(results, f, indent=2, default=str)
+                logger.info(f"Results saved to {filename}")
+            except Exception as file_error:
+                logger.warning(f"Could not save results to file: {file_error}")
             
         except Exception as e:
             logger.error(f"Failed to save results: {e}")

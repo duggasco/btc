@@ -18,6 +18,10 @@ A comprehensive Bitcoin trading system with AI-powered signals, real-time update
 ### Enhanced Features (UltraThink)
 - **50+ Trading Indicators**: Comprehensive technical, on-chain, sentiment, and macro indicators
 - **Advanced Backtesting**: Walk-forward analysis, Bayesian optimization, Monte Carlo simulation
+  - Enhanced backtesting with comprehensive performance metrics
+  - Simple backtesting for quick strategy testing
+  - Historical backtest results with persistent storage
+  - Interactive visualization of backtest performance
 - **Real-time Updates**: WebSocket integration for live price and signal updates
 - **Multi-source Data**: Real data from CoinGecko, Binance, Blockchain.info, and more
 - **Paper Trading**: Practice strategies with virtual $10,000 portfolio
@@ -261,6 +265,14 @@ See [API Documentation](docs/API.md) for complete endpoint reference.
 - `GET /signals/enhanced/latest` - Latest AI signal with analysis
 - `GET /portfolio/metrics` - Portfolio performance
 - `WS /ws` - WebSocket for real-time updates
+
+### Backtesting Endpoints
+- `POST /backtest/enhanced/run` - Run enhanced backtest with walk-forward analysis
+- `POST /backtest/run` - Run simple backtest
+- `GET /backtest/results/latest` - Get most recent backtest results
+- `GET /backtest/results/history` - Get historical backtest results
+- `GET /backtest/status` - Check if backtest is running
+- `GET /config/backtest-settings` - Get current backtest configuration
 
 ### Paper Trading
 - `GET /paper-trading/status` - Current paper trading status

@@ -33,6 +33,8 @@ class DateTimeEncoder(JSONEncoder):
             return obj.isoformat()
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
+        elif isinstance(obj, np.integer):
+            return int(obj)
         elif hasattr(obj, 'item'):  # numpy scalars
             return obj.item()
         elif isinstance(obj, (np.integer, np.floating)):
@@ -70,7 +72,14 @@ class JSONResponse(FastAPIJSONResponse):
     
     def _clean_for_json(self, obj):
         """Recursively clean object for JSON serialization"""
-        if isinstance(obj, dict):
+        # Handle numpy int64 and other integer types
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, dict):
             return {k: self._clean_for_json(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [self._clean_for_json(v) for v in obj]
@@ -620,7 +629,7 @@ def load_latest_backtest_results():
     global latest_backtest_results
     try:
         # Find the most recent backtest results file
-        result_files = glob.glob('backtest_results_*.json')
+        result_files = glob.glob('/app/data/backtest_results_*.json')
         if result_files:
             latest_file = max(result_files, key=os.path.getctime)
             with open(latest_file, 'r') as f:
@@ -2067,6 +2076,21 @@ async def run_enhanced_backtest(request: EnhancedBacktestRequest):
         if 'market_analysis' in results:
             db.save_market_regime(results['market_analysis'])
         
+        # Convert numpy types in results before storing
+        def convert_numpy_types(obj):
+            if isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(v) for v in obj]
+            elif isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return obj
+        
+        results = convert_numpy_types(results)
         latest_backtest_results = results
         
         return {
@@ -2129,7 +2153,7 @@ async def get_backtest_history(limit: int = 10):
     """Get historical backtest results"""
     try:
         # Find all backtest result files
-        result_files = glob.glob('backtest_results_*.json')
+        result_files = glob.glob('/app/data/backtest_results_*.json')
         result_files.sort(key=os.path.getctime, reverse=True)
         
         history = []

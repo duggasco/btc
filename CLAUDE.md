@@ -317,6 +317,88 @@ The backtesting system uses a walk-forward approach with:
 - Check data flow from raw data to features
 - Add fallback handling for missing columns
 
+## Backtesting System Recent Fixes (2025-07)
+
+### File Path Issues Fixed
+1. **Container volume mapping mismatch**: 
+   - Code was trying to save to `/storage/data/` but container mounts at `/app/data`
+   - Fixed paths in `services/integration.py` and `api/main.py`
+   - Backtest results now save correctly to `/app/data/backtest_results_*.json`
+
+2. **JSON serialization with numpy types**:
+   - Added `_json_default` handler to `DatabaseManager` for numpy int64/float64
+   - Enhanced `DateTimeEncoder` in `api/main.py` to handle numpy integers
+   - Custom `JSONResponse._clean_for_json` recursively converts numpy types
+
+3. **Database parameter mismatch**:
+   - Fixed `add_model_signal()` call using wrong parameter name
+   - Changed `predicted_price` to `price_prediction` in `integration.py`
+
+### Frontend Enhancements
+
+1. **Added backtesting to Analytics page**:
+   - New API client methods for all backtest endpoints
+   - Enhanced visualization handling both simple and enhanced results
+   - Historical backtest results browser with statistics
+   - Adaptive metrics display for different result formats
+
+2. **API Client Updates** (`components/api_client.py`):
+   - `run_enhanced_backtest()`: Run comprehensive backtests
+   - `run_simple_backtest()`: Quick strategy testing
+   - `get_latest_backtest_results()`: Retrieve latest results
+   - `get_backtest_history()`: Browse historical results
+   - `get_backtest_status()`: Check if backtest is running
+
+3. **Visualization Improvements**:
+   - `create_backtest_chart()`: Handles multiple result formats
+   - `create_metrics_chart()`: Bar chart for performance metrics
+   - Automatic format detection and adaptation
+   - Support for both trades-based and metrics-based results
+
+### API Endpoints
+
+#### Enhanced Backtesting
+```bash
+POST /backtest/enhanced/run
+{
+    "symbol": "BTC-USD",
+    "days": 180,
+    "initial_capital": 10000,
+    "settings": {
+        "strategy": "ai_signals",
+        "walk_forward": true,
+        "transaction_costs": 0.0025
+    }
+}
+```
+
+#### Simple Backtesting
+```bash
+POST /backtest/run
+{
+    "strategy": "trend_following",
+    "start_date": "2025-01-01",
+    "end_date": "2025-07-01"
+}
+```
+
+### Common Issues and Solutions
+
+**Problem**: Backtest saves fail with "No such file or directory"
+- Check Docker volume mappings in `docker-compose.yml`
+- Use container paths (`/app/data`) not host paths (`/storage/data`)
+- Ensure directory exists with proper permissions
+
+**Problem**: "Object of type int64 is not JSON serializable"
+- Add custom JSON encoder for numpy types
+- Use `default=str` or custom handler in `json.dumps()`
+- Convert numpy arrays/scalars before serialization
+
+**Problem**: Frontend shows "No backtest results available"
+- Check if results are being saved to correct path
+- Verify API client is calling correct endpoints
+- Ensure result format matches visualization expectations
+
 # Important Instruction Reminders
 Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.

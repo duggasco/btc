@@ -22,6 +22,20 @@ class DatabaseManager:
         
         self.init_database()
     
+    def _json_default(self, obj):
+        """JSON serialization handler for numpy types"""
+        if isinstance(obj, (np.integer, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif hasattr(obj, 'item'):
+            return obj.item()
+        elif isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return str(obj)
+    
     def initialize_database(self):
         """Alias for init_database for test compatibility"""
         self.init_database()
@@ -268,8 +282,8 @@ class DatabaseManager:
             perf_metrics.get('total_return_mean', 0),
             perf_metrics.get('win_rate_mean', 0),
             perf_metrics.get('total_trades', 0),
-            json.dumps(results),
-            json.dumps(config) if config else None
+            json.dumps(results, default=self._json_default),
+            json.dumps(config, default=self._json_default) if config else None
         ))
         
         backtest_id = cursor.lastrowid

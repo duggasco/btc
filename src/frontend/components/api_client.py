@@ -232,4 +232,29 @@ class APIClient:
     def get_portfolio_metrics(self) -> Optional[Dict[str, Any]]:
         """Get portfolio performance metrics"""
         return self.get("/portfolio/metrics")
+    
+    # Backtesting methods
+    def run_enhanced_backtest(self, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Run enhanced backtest with comprehensive analysis"""
+        return self.post("/backtest/enhanced/run", params)
+    
+    def run_simple_backtest(self, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Run simple backtest"""
+        return self.post("/backtest/run", params)
+    
+    def get_latest_backtest_results(self) -> Optional[Dict[str, Any]]:
+        """Get the most recent backtest results"""
+        return self.get("/backtest/results/latest")
+    
+    def get_backtest_history(self, limit: int = 10) -> Optional[List[Dict[str, Any]]]:
+        """Get historical backtest results"""
+        return self.get(f"/backtest/results/history?limit={limit}")
+    
+    def get_backtest_status(self) -> Optional[Dict[str, Any]]:
+        """Get current backtest status"""
+        return self.get("/backtest/status")
+    
+    def get_backtest_settings(self) -> Optional[Dict[str, Any]]:
+        """Get current backtest configuration"""
+        return self.get("/config/backtest-settings")
 

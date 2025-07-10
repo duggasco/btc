@@ -869,6 +869,7 @@ class AdvancedIntegratedBacktestingSystem:
             logger.info(f"NaN counts: {features.isna().sum().sum()}")
             
             # Step 4: Run advanced backtest
+            logger.info(f"Features length: {len(features)}, optimize_weights: {optimize_weights}")
             if len(features) < 200 and optimize_weights:
                 logger.warning("Limited data, using simplified backtest...")
                 results = self._run_simplified_advanced_backtest(features)
@@ -923,35 +924,66 @@ class AdvancedIntegratedBacktestingSystem:
                 
                 row = test_data.iloc[i]
                 
-                # Technical signals
-                if row.get('rsi', 50) < 30:
+                # Technical signals using enhanced feature names
+                # RSI signals
+                rsi_val = row.get('tech_rsi', 50)
+                if rsi_val < 30:  # Oversold
+                    bull_score += 2
+                    signal_activations['rsi_oversold'] = signal_activations.get('rsi_oversold', 0) + 1
+                elif rsi_val > 70:  # Overbought
+                    bear_score += 2
+                    signal_activations['rsi_overbought'] = signal_activations.get('rsi_overbought', 0) + 1
+                
+                # MACD signals
+                macd_val = row.get('tech_macd', 0)
+                if macd_val > 0.02:  # Bullish momentum
+                    bull_score += 1.5
+                    signal_activations['macd_bullish'] = signal_activations.get('macd_bullish', 0) + 1
+                elif macd_val < -0.02:  # Bearish momentum
+                    bear_score += 1.5
+                    signal_activations['macd_bearish'] = signal_activations.get('macd_bearish', 0) + 1
+                
+                # Bollinger Bands position
+                bb_pos = row.get('tech_bb_position', 0.5)
+                if bb_pos < 0.2:  # Near lower band
                     bull_score += 1
-                elif row.get('rsi', 50) > 70:
+                    signal_activations['bb_oversold'] = signal_activations.get('bb_oversold', 0) + 1
+                elif bb_pos > 0.8:  # Near upper band
+                    bear_score += 1
+                    signal_activations['bb_overbought'] = signal_activations.get('bb_overbought', 0) + 1
+                
+                # Momentum (ROC)
+                roc_val = row.get('tech_roc', 0)
+                if roc_val > 0.05:  # Strong positive momentum
+                    bull_score += 1
+                elif roc_val < -0.05:  # Strong negative momentum
                     bear_score += 1
                 
-                if row.get('macd_bullish_cross', False):
-                    bull_score += 2
-                    signal_activations['macd_bullish_cross'] += 1
-                elif row.get('macd_bearish_cross', False):
-                    bear_score += 2
-                    signal_activations['macd_bearish_cross'] += 1
+                # Volume signals
+                vol_ratio = row.get('tech_volume_ratio', 1.0)
+                if vol_ratio > 1.5 and bull_score > bear_score:
+                    bull_score += 0.5
+                    signal_activations['volume_spike'] = signal_activations.get('volume_spike', 0) + 1
                 
-                # Sentiment signals
-                if row.get('extreme_fear', False):
+                # Sentiment signals (if available)
+                fear_val = row.get('sent_fear_proxy', 0.5)
+                if fear_val < 0.3:  # Extreme fear (contrarian buy)
                     bull_score += 1.5
-                elif row.get('extreme_greed', False):
+                elif fear_val > 0.7:  # Extreme greed (contrarian sell)
                     bear_score += 1.5
                 
-                # Volume signals
-                if row.get('volume_spike', False) and bull_score > bear_score:
+                # On-chain signals
+                net_flow = row.get('onchain_net_exchange_flow', 0)
+                if net_flow < -0.1:  # Outflow from exchanges (bullish)
                     bull_score += 1
-                    signal_activations['volume_spike'] += 1
+                elif net_flow > 0.1:  # Inflow to exchanges (bearish)
+                    bear_score += 1
                 
-                # Generate position
-                if bull_score > bear_score + 1:
-                    position = min(bull_score / 5, 1.5)  # Scale position
-                elif bear_score > bull_score + 1:
-                    position = max(-bear_score / 5, -1.5)
+                # Generate position with lower threshold for more trades
+                if bull_score > bear_score + 0.5:
+                    position = min(bull_score / 4, 1.0)  # Scale position
+                elif bear_score > bull_score + 0.5:
+                    position = max(-bear_score / 4, -1.0)
                 else:
                     position = 0
                 
@@ -986,7 +1018,14 @@ class AdvancedIntegratedBacktestingSystem:
             # Generate results
             cumulative_returns = (1 + returns).cumprod()
             
+            # Log debug info
+            logger.info(f"Generated {len(positions)} positions, non-zero: {(np.array(positions) != 0).sum()}")
+            logger.info(f"Total trades: {(np.diff(positions) != 0).sum() if len(positions) > 1 else 0}")
+            logger.info(f"Signal activations: {signal_activations}")
+            logger.info(f"Sample feature values - RSI: {test_data['tech_rsi'].iloc[0] if 'tech_rsi' in test_data.columns else 'N/A'}, MACD: {test_data['tech_macd'].iloc[0] if 'tech_macd' in test_data.columns else 'N/A'}")
+            
             results = {
+                'timestamp': datetime.now().isoformat(),
                 'sortino_ratio_mean': self._calculate_sortino(returns),
                 'calmar_ratio_mean': abs(np.mean(returns) * 252 / self._calculate_max_drawdown(cumulative_returns)),
                 'max_drawdown_mean': self._calculate_max_drawdown(cumulative_returns),
@@ -998,7 +1037,7 @@ class AdvancedIntegratedBacktestingSystem:
                 'composite_score': 0.5,  # Simplified
                 'periods_tested': 1,
                 'success': True,
-                'total_trades': (np.diff(positions) != 0).sum() if len(positions) > 1 else 0,
+                'total_trades': int((np.diff(positions) != 0).sum() if len(positions) > 1 else 0),
                 'signal_activations': signal_activations,
                 'optimal_weights': {
                     'technical': 0.40,

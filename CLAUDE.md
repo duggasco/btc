@@ -319,6 +319,24 @@ The backtesting system uses a walk-forward approach with:
 
 ## Backtesting System Recent Fixes (2025-07)
 
+### Zero Trades Issue Fixed (2025-07-10)
+1. **Feature column name mismatch**:
+   - Backtest was looking for columns like `rsi`, `macd_bullish_cross` that didn't exist
+   - Fixed to use actual enhanced feature names: `tech_rsi`, `tech_macd`, `tech_bb_position`
+   - Updated signal generation logic to use numeric thresholds instead of boolean flags
+
+2. **Signal generation improvements**:
+   - RSI: Now checks `tech_rsi < 30` (oversold) and `> 70` (overbought)
+   - MACD: Uses `tech_macd > 0.02` (bullish) and `< -0.02` (bearish)
+   - Bollinger Bands: Checks `tech_bb_position < 0.2` (near lower) and `> 0.8` (near upper)
+   - Added on-chain signals: `onchain_net_exchange_flow` for exchange in/outflows
+   - Lowered position threshold from 1.0 to 0.5 to generate more trades
+
+3. **Type and timestamp fixes**:
+   - Fixed `total_trades` type from string to int (was causing division errors)
+   - Added missing `timestamp` field to prevent frontend parsing errors
+   - Added debug logging for position generation and signal activations
+
 ### File Path Issues Fixed
 1. **Container volume mapping mismatch**: 
    - Code was trying to save to `/storage/data/` but container mounts at `/app/data`
@@ -384,6 +402,12 @@ POST /backtest/run
 
 ### Common Issues and Solutions
 
+**Problem**: Backtest returns zero trades
+- Check feature column names match what the backtest expects
+- Verify signal thresholds are appropriate for your data
+- Lower position generation threshold if too strict
+- Add debug logging to track signal activations
+
 **Problem**: Backtest saves fail with "No such file or directory"
 - Check Docker volume mappings in `docker-compose.yml`
 - Use container paths (`/app/data`) not host paths (`/storage/data`)
@@ -398,6 +422,7 @@ POST /backtest/run
 - Check if results are being saved to correct path
 - Verify API client is calling correct endpoints
 - Ensure result format matches visualization expectations
+- Check for missing timestamp fields in results
 
 # Important Instruction Reminders
 Do what has been asked; nothing more, nothing less.

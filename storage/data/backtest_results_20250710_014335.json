@@ -1,0 +1,112 @@
+{
+  "sortino_ratio_mean": -15.874507866387537,
+  "calmar_ratio_mean": NaN,
+  "max_drawdown_mean": 0.0,
+  "profit_factor_mean": 2.0,
+  "win_rate_mean": 0.0,
+  "total_return_mean": 0.0,
+  "sharpe_ratio_mean": 0.0,
+  "volatility_mean": 0.0,
+  "composite_score": 0,
+  "periods_tested": 1,
+  "success": true,
+  "total_trades": "0",
+  "signal_activations": {},
+  "optimal_weights": {
+    "technical": 0.4,
+    "onchain": 0.3,
+    "sentiment": 0.2,
+    "macro": 0.1
+  },
+  "market_analysis": {
+    "regime": "Low Volatility Ranging",
+    "dominant_trend": "Insufficient data",
+    "volatility_regime": "Normal"
+  },
+  "feature_analysis": {
+    "top_correlations": {
+      "tech_roc": -0.128,
+      "tech_cci": -0.113,
+      "tech_obv_trend": -0.105,
+      "tech_bb_position": -0.102
+    },
+    "feature_importance": {
+      "tech_roc": 0.006523575722699056,
+      "bullish_divergence": 0.006388466413518597,
+      "tech_macd": 0.004262384620749021,
+      "Volume": 0.0009678042714344957,
+      "tech_bb_position": 0.0007031220471455896,
+      "tech_sar_trend": 0.0002665986683907566,
+      "tech_volume_ratio": 3.3005426198536158e-06,
+      "bearish_divergence": 2.1293823353894295e-07,
+      "tech_mfi": 0.0,
+      "onchain_net_exchange_flow": 0.0,
+      "onchain_active_addr_growth": 0.0,
+      "onchain_hash_rate_growth": 0.0,
+      "sent_fear_proxy": 0.0,
+      "sent_greed_proxy": 0.0,
+      "sent_twitter_bullish": 0.0,
+      "macro_sp500_returns": 0.0,
+      "macro_btc_sp500_corr": 0.0,
+      "macro_gold_returns": 0.0,
+      "macro_btc_gold_corr": 0.0,
+      "macro_dxy_returns": 0.0,
+      "macro_btc_dxy_corr": 0.0,
+      "macro_vix_level": 0.0,
+      "macro_vix_change": 0.0,
+      "onchain_features": 0.0,
+      "sentiment_features": 0.0,
+      "macro_features": 0.0,
+      "Open": 0.0,
+      "tech_stoch_k": -0.00016151365013928823,
+      "tech_cmf": -0.00023902316714746345,
+      "tech_aroon_bullish": -0.00035400981325849263,
+      "tech_rsi": -0.00046739942261797974,
+      "tech_atr_normalized": -0.0011878759357969932,
+      "tech_volatility_ratio": -0.0021136249061075476,
+      "tech_adx": -0.00631319274796258,
+      "onchain_hodl_proxy": -0.010622743187440477,
+      "tech_obv_trend": -0.025942477930282957
+    }
+  },
+  "signal_analysis": {
+    "effectiveness": {
+      "status": "No signal performance data"
+    },
+    "optimal_combinations": []
+  },
+  "risk_analysis": {
+    "decomposition": {
+      "market_risk": 0.0,
+      "specific_risk": 0.0,
+      "model_risk": 0.0,
+      "total_risk": 0.0
+    },
+    "stress_scenarios": {
+      "flash_crash": {
+        "impact": -0.18143319531157198,
+        "max_drawdown": -0.17979278087331863
+      },
+      "bull_rally": {
+        "impact": 0.34925271936649227,
+        "max_drawdown": 0.0
+      },
+      "high_volatility": {
+        "impact": 0.38282205674459213,
+        "max_drawdown": -0.1775592399858954
+      },
+      "low_volatility": {
+        "impact": 0.09813403124849152,
+        "max_drawdown": -0.05049124524331462
+      }
+    }
+  },
+  "recommendations": [
+    "Consider reducing position sizes to improve risk-adjusted returns",
+    "Ranging market - consider mean reversion strategies",
+    "Use support/resistance levels for entry/exit",
+    "Omega ratio suggests adjusting profit targets relative to stop losses",
+    "Focus on tech_roc which shows highest predictive power"
+  ],
+  "confidence_score": 0.5
+}

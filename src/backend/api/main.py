@@ -2172,9 +2172,16 @@ async def get_backtest_history(limit: int = 10):
                         sortino_ratio = data.get('sortino_ratio_mean', 0)
                         max_drawdown = data.get('max_drawdown_mean', 0)
                     
+                    # Get timestamp from data or use file creation time as fallback
+                    timestamp = data.get('timestamp')
+                    if not timestamp or timestamp == 'Unknown':
+                        # Use file creation time as fallback
+                        file_ctime = os.path.getctime(file_path)
+                        timestamp = datetime.fromtimestamp(file_ctime).isoformat()
+                    
                     history.append({
                         "filename": os.path.basename(file_path),
-                        "timestamp": data.get('timestamp', 'Unknown'),
+                        "timestamp": timestamp,
                         "composite_score": composite_score,
                         "sortino_ratio": sortino_ratio,
                         "max_drawdown": max_drawdown,

@@ -1113,7 +1113,7 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
     def _apply_granular_weights(self, data: pd.DataFrame, weights: EnhancedSignalWeights) -> np.ndarray:
         """Apply granular sub-category weights"""
         # First, extract all features into a consistent structure
-        all_features = []
+        weighted_features = []
         
         # Define feature groups with fixed order
         tech_features = {
@@ -1135,12 +1135,9 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
             'fear_greed': ['extreme_fear', 'extreme_greed', 'google_interest_high']
         }
         
-        # Create feature matrix with consistent size
-        n_features = len(tech_features) + len(onchain_features) + len(sentiment_features) + 1  # +1 for macro
-        feature_matrix = np.zeros((len(data), n_features))
-        
+        # Process each row
         for idx in range(len(data)):
-            feature_idx = 0
+            row_features = []
             
             # Technical signals
             for category, signals in tech_features.items():
@@ -1154,17 +1151,10 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
                             cat_values.append(float(val))
                 
                 weighted_val = np.mean(cat_values) * cat_weight * weights.technical_weight if cat_values else 0.0
-                feature_matrix[idx, feature_idx] = weighted_val
-                feature_idx += 1
+                row_features.append(weighted_val)
             
             # On-chain signals with sub-weights
             if weights.onchain_weight > 0:
-                onchain_features = {
-                    'flow': ['net_exchange_flow', 'bullish_exchange_flow', 'stablecoin_bullish'],
-                    'network': ['active_addr_growth', 'tx_volume_growth', 'hash_rate_growth'],
-                    'holder': ['whale_accumulation', 'mvrv_low', 'sopr_bullish']
-                }
-                
                 for category, signals in onchain_features.items():
                     cat_weight = getattr(weights, f'{category}_weight', 0.33)
                     cat_values = []
@@ -1174,18 +1164,15 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
                             if pd.notna(val):
                                 cat_values.append(float(val))
                     
-                    if cat_values:
-                        weighted_val = np.mean(cat_values) * cat_weight * weights.onchain_weight
-                        row_features.append(weighted_val)
+                    weighted_val = np.mean(cat_values) * cat_weight * weights.onchain_weight if cat_values else 0.0
+                    row_features.append(weighted_val)
+            else:
+                # Add zeros for onchain features if weight is 0
+                for _ in onchain_features:
+                    row_features.append(0.0)
             
             # Sentiment signals with sub-weights
             if weights.sentiment_weight > 0:
-                sentiment_features = {
-                    'social': ['twitter_bullish', 'reddit_spike', 'extreme_fear'],
-                    'derivatives': ['funding_extreme_negative', 'extreme_shorts', 'high_put_call'],
-                    'fear_greed': ['extreme_fear', 'extreme_greed', 'google_interest_high']
-                }
-                
                 for category, signals in sentiment_features.items():
                     cat_weight = getattr(weights, f'{category}_weight', 0.33)
                     cat_values = []
@@ -1195,9 +1182,12 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
                             if pd.notna(val):
                                 cat_values.append(float(val))
                     
-                    if cat_values:
-                        weighted_val = np.mean(cat_values) * cat_weight * weights.sentiment_weight
-                        row_features.append(weighted_val)
+                    weighted_val = np.mean(cat_values) * cat_weight * weights.sentiment_weight if cat_values else 0.0
+                    row_features.append(weighted_val)
+            else:
+                # Add zeros for sentiment features if weight is 0
+                for _ in sentiment_features:
+                    row_features.append(0.0)
             
             # Macro features (original)
             if weights.macro_weight > 0 and 'macro_features' in data.columns:
@@ -1205,12 +1195,19 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
                 if isinstance(macro_val, (list, np.ndarray)):
                     macro_val = np.mean(macro_val) if len(macro_val) > 0 else 0.0
                 else:
-                    macro_val = float(macro_val)
+                    macro_val = float(macro_val) if pd.notna(macro_val) else 0.0
                 row_features.append(macro_val * weights.macro_weight)
+            else:
+                row_features.append(0.0)
             
             weighted_features.append(row_features)
         
-        return np.array(weighted_features)
+        # Convert to numpy array and ensure 2D shape
+        feature_matrix = np.array(weighted_features)
+        if feature_matrix.ndim == 1:
+            feature_matrix = feature_matrix.reshape(-1, 1)
+        
+        return feature_matrix
     
     def _calculate_enhanced_returns(self, data: pd.DataFrame, predictions: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Enhanced return calculation with sophisticated position sizing"""

@@ -671,7 +671,16 @@ def show_analytics():
                 # Format the dataframe for display
                 display_df = history_df[['timestamp', 'composite_score', 'sortino_ratio', 
                                        'max_drawdown', 'confidence_score']].copy()
-                display_df['timestamp'] = pd.to_datetime(display_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M')
+                
+                # Handle timestamp conversion with error handling
+                try:
+                    display_df['timestamp'] = pd.to_datetime(display_df['timestamp'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
+                    # Replace any NaT values with a fallback
+                    display_df['timestamp'] = display_df['timestamp'].fillna('Unknown')
+                except Exception as e:
+                    logger.error(f"Error converting timestamps: {e}")
+                    display_df['timestamp'] = display_df['timestamp'].astype(str)
+                
                 display_df.columns = ['Date', 'Composite Score', 'Sortino Ratio', 'Max Drawdown', 'Confidence']
                 
                 # Display as interactive table

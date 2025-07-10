@@ -131,8 +131,8 @@ build_and_start() {
     print_info "Building and starting services..."
     discord_info "Building Docker images and starting services..."
     
-    docker compose build
-    docker compose up -d
+    docker compose -f docker/docker-compose.yml -f docker/docker-compose.yml build
+    docker compose -f docker/docker-compose.yml -f docker/docker-compose.yml up -d
     
     print_info "Waiting for services to start..."
     sleep 10
@@ -149,13 +149,13 @@ run_tests() {
     sleep 5
     
     if command -v python3 &> /dev/null; then
-        if [ -f test_system.py ]; then
-            python3 test_system.py quick || {
+        if [ -f tests/scripts/test_system.py ]; then
+            python3 tests/scripts/test_system.py quick || {
                 discord_error "System tests failed"
                 print_warning "Some tests failed - check logs for details"
             }
         else
-            print_warning "test_system.py not found - skipping tests"
+            print_warning "tests/scripts/test_system.py not found - skipping tests"
         fi
     else
         print_warning "Python3 not found - skipping tests"
@@ -195,9 +195,9 @@ show_status() {
     echo "  API Docs:        http://localhost:8080/docs"
     echo ""
     echo -e "${BLUE}📝 Management Commands:${NC}"
-    echo "  View logs:       docker compose logs -f"
-    echo "  Stop services:   docker compose down"
-    echo "  Restart:         docker compose restart"
+    echo "  View logs:       docker compose -f docker/docker-compose.yml logs -f"
+    echo "  Stop services:   docker compose -f docker/docker-compose.yml down"
+    echo "  Restart:         docker compose -f docker/docker-compose.yml restart"
     echo ""
     echo -e "${BLUE}📁 Storage:${NC}"
     echo "  Data:            /storage/data/"
@@ -244,7 +244,7 @@ case "${1:-deploy}" in
         ;;
     "start")
         discord_info "Starting BTC Trading System..."
-        docker compose up -d
+        docker compose -f docker/docker-compose.yml up -d
         sleep 5
         run_tests
         show_status
@@ -252,24 +252,24 @@ case "${1:-deploy}" in
         ;;
     "stop")
         discord_info "Stopping BTC Trading System..."
-        docker compose down
+        docker compose -f docker/docker-compose.yml down
         print_status "Services stopped"
         discord_success "System stopped successfully"
         ;;
     "restart")
         discord_info "Restarting BTC Trading System..."
-        docker compose restart
+        docker compose -f docker/docker-compose.yml restart
         sleep 5
         run_tests
         show_status
         discord_success "System restarted successfully"
         ;;
     "logs")
-        docker compose logs -f
+        docker compose -f docker/docker-compose.yml logs -f
         ;;
     "build")
         discord_info "Building Docker images..."
-        docker compose build --no-cache
+        docker compose -f docker/docker-compose.yml build --no-cache
         print_status "Build complete"
         discord_success "Docker images built successfully"
         ;;
@@ -278,13 +278,13 @@ case "${1:-deploy}" in
         ;;
     "clean")
         discord_warning "Cleaning up Docker resources..."
-        docker compose down --volumes --remove-orphans
+        docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
         docker system prune -f
         print_status "Cleanup complete"
         discord_success "Cleanup completed successfully"
         ;;
     "status")
-        docker compose ps
+        docker compose -f docker/docker-compose.yml ps
         echo ""
         show_status
         ;;
@@ -297,14 +297,14 @@ case "${1:-deploy}" in
         export DOCKER_BUILDKIT_TIMEOUT=600
         export COMPOSE_HTTP_TIMEOUT=600
         
-        docker compose -f docker-compose.test-enhanced.yml build --no-cache
-        docker compose -f docker-compose.test-enhanced.yml up --abort-on-container-exit --timeout 600
-        docker compose -f docker-compose.test-enhanced.yml down
+        docker compose -f docker/docker-compose.test-enhanced.yml build --no-cache
+        docker compose -f docker/docker-compose.test-enhanced.yml up --abort-on-container-exit --timeout 600
+        docker compose -f docker/docker-compose.test-enhanced.yml down
         
         # If system is running, test the endpoints
-        if docker compose ps | grep -q "Up"; then
+        if docker compose -f docker/docker-compose.yml ps | grep -q "Up"; then
             print_info "Testing enhanced LSTM endpoints..."
-            docker run --rm --network=btc_default -v $(pwd)/scripts:/scripts python:3.11-slim \
+            docker run --rm --network=btc_default -v $(pwd)/tests/scripts:/scripts python:3.11-slim \
                 bash -c "pip install requests && python /scripts/test_enhanced_system.py"
         fi
         

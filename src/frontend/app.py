@@ -6,6 +6,9 @@ import sys
 # Add the parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Import configuration
+import config
+
 # Import components
 from components.api_client import APIClient
 
@@ -16,8 +19,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        "Get Help": "https://github.com/yourusername/btc-trading-system",
-        "Report a bug": "https://github.com/yourusername/btc-trading-system/issues",
+        "Get Help": config.GITHUB_REPO_URL,
+        "Report a bug": f"{config.GITHUB_REPO_URL}/issues",
         "About": "# BTC Trading System\\nAI-powered Bitcoin trading with 50+ indicators and real-time analysis"
     }
 )
@@ -178,7 +181,7 @@ if "last_update" not in st.session_state:
 if "ws_connected" not in st.session_state:
     st.session_state.ws_connected = False
 if "api_client" not in st.session_state:
-    st.session_state.api_client = APIClient(base_url=os.getenv("API_BASE_URL", "http://localhost:8090"))
+    st.session_state.api_client = APIClient(base_url=config.API_BASE_URL)
 
 # Sidebar with enhanced system status
 with st.sidebar:

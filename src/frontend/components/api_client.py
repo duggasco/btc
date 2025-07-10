@@ -2,24 +2,24 @@
 import requests
 import logging
 from typing import Optional, Dict, Any, List
-from functools import lru_cache
 import time
 from datetime import datetime, timedelta
 import json
+from config import API_TIMEOUT, CACHE_TTL, CACHE_MAX_SIZE, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, API_RETRY_ATTEMPTS
 
 logger = logging.getLogger(__name__)
 
 class APIClient:
     """Enhanced API client with caching, retry logic, and batch requests"""
     
-    def __init__(self, base_url: str, timeout: int = 30):
+    def __init__(self, base_url: str, timeout: int = API_TIMEOUT):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
         self._cache = {}
-        self._cache_ttl = 60  # Cache TTL in seconds
+        self._cache_ttl = CACHE_TTL  # Cache TTL in seconds
         self._request_history = []
-        self._rate_limit_remaining = 100
+        self._rate_limit_remaining = RATE_LIMIT_MAX
         self._rate_limit_reset = datetime.now()
         
         # Set default headers
@@ -64,7 +64,7 @@ class APIClient:
         # Record request
         request_start = time.time()
         
-        retries = 3
+        retries = API_RETRY_ATTEMPTS
         for attempt in range(retries):
             try:
                 response = self.session.request(
@@ -141,7 +141,7 @@ class APIClient:
         self._cache[key] = (data, time.time())
         
         # Limit cache size
-        if len(self._cache) > 1000:
+        if len(self._cache) > CACHE_MAX_SIZE:
             # Remove oldest entries
             sorted_cache = sorted(self._cache.items(), key=lambda x: x[1][1])
             for old_key, _ in sorted_cache[:100]:

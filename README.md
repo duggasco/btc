@@ -49,6 +49,7 @@ btc/
 │   │       └── cache_maintenance.py # Automated cache optimization
 │   └── frontend/
 │       ├── app.py                   # Main Streamlit application
+│       ├── config.py                # Centralized configuration (NEW)
 │       ├── components/              # Reusable UI components
 │       │   ├── api_client.py       # API client with caching
 │       │   ├── charts.py           # Interactive Plotly charts
@@ -353,6 +354,21 @@ DISCORD_WEBHOOK_URL=optional_webhook
 - 10-100x faster response times for cached data
 - Automated cache maintenance ensures optimal performance
 - Persistent storage for all trading data
+
+## 🧹 Recent Updates (January 2025)
+
+### Code Cleanup
+- **Removed redundant files**: Eliminated ~15 duplicate and backup files
+- **Fixed import issues**: Resolved duplicate imports and circular dependencies
+- **Centralized configuration**: New `config.py` for frontend settings
+- **Bug fixes**: Fixed chart rendering error and improved error handling
+- **Consistent API usage**: All frontend components use same backend URL
+
+### Improvements
+- Better code organization with single source of truth for utilities
+- Environment variable support for all configuration
+- Cleaner project structure with no Python cache files
+- Enhanced maintainability and easier updates
 
 ## ⚠️ Disclaimer
 

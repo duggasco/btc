@@ -1,22 +1,7 @@
 import streamlit as st
 import pandas as pd
 from typing import Dict, Any, Optional, List
-
-def format_currency(value: float, symbol: str = "$", decimals: int = 2) -> str:
-    """Format value as currency"""
-    if value is None or pd.isna(value):
-        return f"{symbol}0.00"
-    return f"{symbol}{value:,.{decimals}f}"
-
-def format_percentage(value: float, decimals: int = 2, with_sign: bool = True) -> str:
-    """Format value as percentage"""
-    if value is None or pd.isna(value):
-        return "0.00%"
-    
-    formatted = f"{value:.{decimals}f}%"
-    if with_sign and value > 0:
-        formatted = f"+{formatted}"
-    return formatted
+from utils.helpers import format_currency, format_percentage
 
 def display_price_metrics(data: Dict[str, Any], columns: Optional[List] = None):
     """Display enhanced price metrics"""

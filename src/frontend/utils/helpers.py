@@ -4,10 +4,8 @@ Enhanced helper functions for the Streamlit application
 
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-from typing import Union, List, Dict, Any, Optional, Tuple
-import hashlib
-import json
+from datetime import timedelta
+from typing import Union, List, Dict, Any, Optional
 
 def format_currency(value: float, symbol: str = "$", decimals: int = 2) -> str:
     """Format value as currency with proper handling"""

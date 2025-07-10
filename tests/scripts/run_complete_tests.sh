@@ -15,28 +15,28 @@ NC='\033[0m'
 
 # Clean up any existing test containers
 echo -e "${YELLOW}Cleaning up existing test containers...${NC}"
-docker compose -f docker-compose.test-complete.yml down -v 2>/dev/null || true
+docker compose -f docker/docker-compose.test-frontend.yml down -v 2>/dev/null || true
 
 # Create test reports directory
 mkdir -p test_reports
 
 # Build fresh images
 echo -e "${YELLOW}Building backend image with latest changes...${NC}"
-docker compose -f docker-compose.test-complete.yml build backend
+docker compose -f docker/docker-compose.test-frontend.yml build backend
 
 echo -e "${YELLOW}Building test runner image...${NC}"
-docker compose -f docker-compose.test-complete.yml build test-runner
+docker compose -f docker/docker-compose.test-frontend.yml build test-runner
 
 # Start backend
 echo -e "${YELLOW}Starting backend service...${NC}"
-docker compose -f docker-compose.test-complete.yml up -d backend
+docker compose -f docker/docker-compose.test-frontend.yml up -d backend
 
 # Wait for backend to be healthy
 echo -e "${YELLOW}Waiting for backend to be healthy...${NC}"
 RETRIES=30
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $RETRIES ]; do
-    HEALTH=$(docker inspect btc-backend-test --format='{{.State.Health.Status}}' 2>/dev/null)
+    HEALTH=$(docker inspect btc-trading-backend-test --format='{{.State.Health.Status}}' 2>/dev/null)
     if [ "$HEALTH" == "healthy" ]; then
         echo -e "${GREEN}Backend is healthy!${NC}"
         break
@@ -49,13 +49,13 @@ done
 if [ $RETRY_COUNT -eq $RETRIES ]; then
     echo -e "${RED}Backend failed to become healthy!${NC}"
     echo "Backend logs:"
-    docker logs btc-backend-test --tail 50
+    docker logs btc-trading-backend-test --tail 50
     exit 1
 fi
 
 # Run tests
 echo -e "${YELLOW}Running API tests...${NC}"
-docker compose -f docker-compose.test-complete.yml run --rm test-runner
+docker compose -f docker/docker-compose.test-frontend.yml run --rm test-runner
 
 # Check if test reports were generated
 REPORT_COUNT=$(ls -1 test_reports/api_test_report_*.json 2>/dev/null | wc -l)
@@ -115,12 +115,12 @@ read -n 1 -r SHOW_LOGS
 echo
 if [[ $SHOW_LOGS =~ ^[Yy]$ ]]; then
     echo -e "\n${BLUE}Backend logs:${NC}"
-    docker logs btc-backend-test --tail 30
+    docker logs btc-trading-backend-test --tail 30
 fi
 
 # Cleanup
 echo -e "\n${YELLOW}Cleaning up test environment...${NC}"
-docker compose -f docker-compose.test-complete.yml down
+docker compose -f docker/docker-compose.test-frontend.yml down
 
 echo -e "\n${GREEN}Test suite completed!${NC}"
 

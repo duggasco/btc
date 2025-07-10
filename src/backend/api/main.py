@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import threading
 import time
 import os
@@ -17,18 +17,16 @@ import sqlite3
 from contextlib import asynccontextmanager
 import uuid
 from collections import deque
+from json import JSONEncoder
+
+# Local imports
 from models.paper_trading import PersistentPaperTrading
 from services.data_fetcher import get_fetcher
 from models.database import DatabaseManager
 from models.lstm import TradingSignalGenerator
 from services.cache_maintenance import get_maintenance_manager
 
-
 # Custom JSON encoder for datetime serialization
-from json import JSONEncoder
-from datetime import datetime, date
-import numpy as np
-
 class DateTimeEncoder(JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (datetime, date)):
@@ -87,11 +85,7 @@ class JSONResponse(FastAPIJSONResponse):
         return obj
 
 
-# Import compatibility layer
-try:
-    import import_compat
-except ImportError:
-    pass  # Not needed in Docker environment
+# Import compatibility layer removed - not needed with Docker setup
 
 # Import the ENHANCED classes from NEW enhanced modules
 from services.enhanced_integration import EnhancedTradingSystem

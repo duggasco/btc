@@ -874,16 +874,28 @@ class WalkForwardBacktester:
         positions = np.where(predictions > 0.02, 1, 
                            np.where(predictions < -0.02, -1, 0))
         
-        # Calculate raw returns
-        price_returns = data['Close'].pct_change().fillna(0).values
-        strategy_returns = positions[:-1] * price_returns[1:]
+        # Calculate raw returns - use target column if available for proper alignment
+        if 'target' in data.columns:
+            # Target already contains next period returns
+            price_returns = data['target'].fillna(0).values
+            # Align positions with returns (predictions[i] → returns[i])
+            strategy_returns = positions[:len(price_returns)] * price_returns
+        elif 'Close' in data.columns:
+            # Calculate next period returns manually
+            price_returns = data['Close'].pct_change().shift(-1).fillna(0).values
+            # Align positions with returns
+            strategy_returns = positions[:len(price_returns)] * price_returns
+        else:
+            logger.warning("No price data available for return calculation")
+            return np.zeros(len(predictions) - 1)
         
         # Apply transaction costs on position changes
-        position_changes = np.diff(positions)
-        transaction_costs = np.abs(position_changes) * self.config.transaction_cost
-        
-        # Net returns
-        net_returns = strategy_returns - transaction_costs
+        if len(positions) > 1:
+            position_changes = np.diff(positions[:len(strategy_returns) + 1])
+            transaction_costs = np.abs(position_changes[:len(strategy_returns)]) * self.config.transaction_cost
+            net_returns = strategy_returns - transaction_costs
+        else:
+            net_returns = strategy_returns
         
         return net_returns
     
@@ -984,7 +996,21 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
         """Enhanced backtest with all 50+ signals"""
         # Calculate all signals
         logger.info("Calculating comprehensive signal suite...")
-        data_with_signals = self.signal_calculator.calculate_all_signals(data)
+        
+        # Check if data has required columns for signal calculation
+        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        missing_cols = [col for col in required_cols if col not in data.columns]
+        
+        if missing_cols:
+            logger.warning(f"Missing required columns for signal calculation: {missing_cols}")
+            logger.info(f"Available columns: {list(data.columns)[:20]}...")
+            # If essential price data is missing, skip signal calculation
+            if 'Close' not in data.columns:
+                logger.error("Cannot calculate signals without Close price data")
+                return self._aggregate_results([])
+            data_with_signals = data.copy()
+        else:
+            data_with_signals = self.signal_calculator.calculate_all_signals(data)
         
         # Run original backtest logic
         splits = self.create_walk_forward_splits(data_with_signals)
@@ -998,7 +1024,20 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
                 splits = [(train_data, test_data)]
             else:
                 logger.error("Insufficient data for backtesting")
-                return self._get_empty_results()
+                return {
+                    'sortino_ratio_mean': 0.0,
+                    'calmar_ratio_mean': 0.0,
+                    'max_drawdown_mean': 0.0,
+                    'profit_factor_mean': 0.0,
+                    'win_rate_mean': 0.0,
+                    'total_return_mean': 0.0,
+                    'sharpe_ratio_mean': 0.0,
+                    'volatility_mean': 0.0,
+                    'composite_score': 0.0,
+                    'periods_tested': 0,
+                    'success': False,
+                    'error_message': 'Insufficient data for backtesting'
+                }
         
         all_results = []
         signal_contributions = {}
@@ -1026,6 +1065,10 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
                 test_features = self._apply_enhanced_signal_weights(test_data, signal_weights)
                 predictions = model.predict(test_features)
                 
+                # Log prediction statistics
+                logger.info(f"Predictions - min: {np.min(predictions):.4f}, max: {np.max(predictions):.4f}, mean: {np.mean(predictions):.4f}, std: {np.std(predictions):.4f}")
+                logger.info(f"Non-zero predictions: {np.sum(predictions != 0)} out of {len(predictions)}")
+                
                 # Calculate returns with enhanced logic
                 returns, positions = self._calculate_enhanced_returns(test_data, predictions)
                 
@@ -1042,7 +1085,17 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
                 
             except Exception as e:
                 logger.error(f"Error in split {i+1}: {e}")
-                all_results.append(self._get_default_split_metrics())
+                all_results.append({
+                    'sortino_ratio': 0.0,
+                    'calmar_ratio': 0.0,
+                    'max_drawdown': 0.0,
+                    'profit_factor': 1.0,
+                    'win_rate': 0.5,
+                    'total_return': 0.0,
+                    'sharpe_ratio': 0.0,
+                    'avg_daily_return': 0.0,
+                    'volatility': 0.2
+                })
         
         # Aggregate results with signal analysis
         aggregated_results = self._aggregate_enhanced_results(all_results, signal_contributions)
@@ -1059,31 +1112,50 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
     
     def _apply_granular_weights(self, data: pd.DataFrame, weights: EnhancedSignalWeights) -> np.ndarray:
         """Apply granular sub-category weights"""
-        weighted_features = []
+        # First, extract all features into a consistent structure
+        all_features = []
+        
+        # Define feature groups with fixed order
+        tech_features = {
+            'momentum': ['rsi', 'roc', 'stoch_k', 'mfi'],
+            'trend': ['macd', 'adx', 'aroon_bullish', 'sar_trend'],
+            'volatility': ['bb_position', 'atr_normalized', 'cci'],
+            'volume': ['obv_trend', 'volume_spike', 'cmf']
+        }
+        
+        onchain_features = {
+            'flow': ['net_exchange_flow', 'bullish_exchange_flow', 'stablecoin_bullish'],
+            'network': ['active_addr_growth', 'tx_volume_growth', 'hash_rate_growth'],
+            'holder': ['whale_accumulation', 'mvrv_low', 'sopr_bullish']
+        }
+        
+        sentiment_features = {
+            'social': ['twitter_bullish', 'reddit_spike', 'extreme_fear'],
+            'derivatives': ['funding_extreme_negative', 'extreme_shorts', 'high_put_call'],
+            'fear_greed': ['extreme_fear', 'extreme_greed', 'google_interest_high']
+        }
+        
+        # Create feature matrix with consistent size
+        n_features = len(tech_features) + len(onchain_features) + len(sentiment_features) + 1  # +1 for macro
+        feature_matrix = np.zeros((len(data), n_features))
         
         for idx in range(len(data)):
-            row_features = []
+            feature_idx = 0
             
-            # Technical signals with sub-weights
-            tech_features = {
-                'momentum': ['rsi', 'roc', 'stoch_k', 'mfi'],
-                'trend': ['macd', 'adx', 'aroon_bullish', 'sar_trend'],
-                'volatility': ['bb_position', 'atr_normalized', 'cci'],
-                'volume': ['obv_trend', 'volume_spike', 'cmf']
-            }
-            
+            # Technical signals
             for category, signals in tech_features.items():
                 cat_weight = getattr(weights, f'{category}_weight', 0.25)
                 cat_values = []
                 for signal in signals:
-                    if signal in data.columns:
-                        val = data.iloc[idx].get(signal, 0)
+                    col_name = f'tech_{signal}' if not signal.startswith('tech_') else signal
+                    if col_name in data.columns:
+                        val = data.iloc[idx].get(col_name, 0)
                         if pd.notna(val):
                             cat_values.append(float(val))
                 
-                if cat_values:
-                    weighted_val = np.mean(cat_values) * cat_weight * weights.technical_weight
-                    row_features.append(weighted_val)
+                weighted_val = np.mean(cat_values) * cat_weight * weights.technical_weight if cat_values else 0.0
+                feature_matrix[idx, feature_idx] = weighted_val
+                feature_idx += 1
             
             # On-chain signals with sub-weights
             if weights.onchain_weight > 0:
@@ -1142,12 +1214,15 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
     
     def _calculate_enhanced_returns(self, data: pd.DataFrame, predictions: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Enhanced return calculation with sophisticated position sizing"""
-        # Get price returns
-        if 'Close' in data.columns:
-            price_returns = data['Close'].pct_change().fillna(0).values
-        elif 'target' in data.columns:
-            price_returns = data['target'].values
+        # Get price returns - properly aligned with predictions
+        if 'target' in data.columns:
+            # Target already contains next period returns
+            price_returns = data['target'].fillna(0).values
+        elif 'Close' in data.columns:
+            # Calculate next period returns
+            price_returns = data['Close'].pct_change().shift(-1).fillna(0).values
         else:
+            logger.warning("No price data available for return calculation")
             price_returns = np.zeros(len(data))
         
         # Enhanced position sizing based on signal strength and market conditions
@@ -1183,11 +1258,9 @@ class EnhancedWalkForwardBacktester(WalkForwardBacktester):
             
             positions[i] = np.clip(base_position, -1.5, 1.5)  # Allow some leverage
         
-        # Calculate strategy returns
-        strategy_returns = np.zeros(len(price_returns) - 1)
-        for i in range(len(strategy_returns)):
-            if i < len(positions) - 1:
-                strategy_returns[i] = positions[i] * price_returns[i + 1]
+        # Calculate strategy returns - properly aligned
+        min_len = min(len(positions), len(price_returns))
+        strategy_returns = positions[:min_len] * price_returns[:min_len]
         
         # Apply transaction costs with consideration for position changes
         if len(positions) > 1:
@@ -1677,7 +1750,20 @@ class EnhancedBacktestingPipeline(BacktestingPipeline):
             logger.error(f"Backtesting pipeline failed: {e}")
             return {
                 'timestamp': datetime.now().isoformat(),
-                'performance_metrics': self.backtester._get_empty_results(),
+                'performance_metrics': {
+                    'sortino_ratio_mean': 0.0,
+                    'calmar_ratio_mean': 0.0,
+                    'max_drawdown_mean': 0.0,
+                    'profit_factor_mean': 0.0,
+                    'win_rate_mean': 0.0,
+                    'total_return_mean': 0.0,
+                    'sharpe_ratio_mean': 0.0,
+                    'volatility_mean': 0.0,
+                    'composite_score': 0.0,
+                    'periods_tested': 0,
+                    'success': False,
+                    'error_message': str(e)
+                },
                 'optimal_weights': self._get_default_weights_dict(optimal_weights),
                 'risk_assessment': {'overall_risk': 'Unknown'},
                 'recommendations': [f"Backtesting failed: {str(e)}"],

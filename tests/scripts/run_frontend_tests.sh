@@ -16,10 +16,10 @@ NC='\033[0m' # No Color
 mkdir -p test_reports
 
 echo -e "${YELLOW}Building test containers...${NC}"
-docker compose -f docker-compose.test-frontend.yml build
+docker compose -f docker/docker-compose.test-frontend.yml build
 
 echo -e "${YELLOW}Starting test environment...${NC}"
-docker compose -f docker-compose.test-frontend.yml up -d backend frontend
+docker compose -f docker/docker-compose.test-frontend.yml up -d backend frontend
 
 # Wait for services to be healthy
 echo -e "${YELLOW}Waiting for services to be ready...${NC}"
@@ -47,7 +47,7 @@ echo -e "${GREEN}Services are healthy!${NC}"
 
 # Run the tests
 echo -e "${YELLOW}Running frontend tests...${NC}"
-docker compose -f docker-compose.test-frontend.yml run --rm test-frontend
+docker compose -f docker/docker-compose.test-frontend.yml run --rm test-frontend
 
 # Copy test reports
 echo -e "${YELLOW}Copying test reports...${NC}"
@@ -85,6 +85,6 @@ fi
 
 # Cleanup
 echo -e "${YELLOW}Cleaning up test environment...${NC}"
-docker compose -f docker-compose.test-frontend.yml down
+docker compose -f docker/docker-compose.test-frontend.yml down
 
 echo -e "${GREEN}Testing complete!${NC}"

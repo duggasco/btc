@@ -646,7 +646,7 @@ def create_monte_carlo_chart(simulations: List[np.ndarray],
                     mode="lines",
                     name=percentile_colors[key]["name"],
                     line=dict(color=percentile_colors[key]["color"], width=2),
-                    hovertemplate=f"{percentile_colors[key][name]}<br>Value: $%{{y:,.0f}}<extra></extra>"
+                    hovertemplate=f"{percentile_colors[key]['name']}<br>Value: $%{{y:,.0f}}<extra></extra>"
                 ),
                 row=1, col=1
             )

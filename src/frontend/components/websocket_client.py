@@ -7,13 +7,14 @@ import logging
 import time
 from typing import Optional, Callable, Dict, Any, List
 from datetime import datetime
+from config import WS_RECONNECT_INTERVAL
 
 logger = logging.getLogger(__name__)
 
 class EnhancedWebSocketClient:
     """Enhanced WebSocket client with auto-reconnection and event handling"""
     
-    def __init__(self, url: str, reconnect_interval: int = 5):
+    def __init__(self, url: str, reconnect_interval: int = WS_RECONNECT_INTERVAL):
         self.url = url
         self.reconnect_interval = reconnect_interval
         self.ws = None

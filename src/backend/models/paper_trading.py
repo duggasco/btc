@@ -13,6 +13,7 @@ import uuid
 import logging
 import pandas as pd
 import numpy as np
+from utils.timezone import get_est_now, get_est_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +267,7 @@ class PersistentPaperTrading:
             # Add to trades list
             self.portfolio['trades'].append({
                 'id': trade_id,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': get_est_timestamp(),
                 'type': trade_type,
                 'price': price,
                 'amount': amount,
@@ -291,7 +292,7 @@ class PersistentPaperTrading:
                 'value': value,
                 'balance_after': self.portfolio['usd_balance'],
                 'btc_balance_after': self.portfolio['btc_balance'],
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': get_est_timestamp(),
                 'lot_id': lot_id,
                 'pnl': pnl,
                 'pnl_pct': pnl_pct

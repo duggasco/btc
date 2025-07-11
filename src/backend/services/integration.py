@@ -39,6 +39,29 @@ class AdvancedTradingSignalGenerator(IntegratedTradingSignalGenerator):
     """Advanced version with all 50+ signals and LSTM best practices"""
     
     def __init__(self, model_path: str = None, sequence_length: int = 30, use_enhanced_model: bool = True):
+        # Resolve model path for container environment
+        if model_path and not os.path.isabs(model_path):
+            # Try multiple possible locations for the model
+            possible_paths = [
+                # Container paths
+                os.path.join('/app/models', os.path.basename(model_path)),
+                os.path.join('/app/data', os.path.basename(model_path)),
+                # Development paths
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
+                           'storage', 'models', os.path.basename(model_path)),
+                # Original relative path
+                model_path
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    model_path = path
+                    logger.info(f"Found model at: {model_path}")
+                    break
+            else:
+                logger.warning(f"Model not found in any expected location, will train new model")
+                model_path = None
+        
         # Initialize with enhanced model by default
         super().__init__(model_path, sequence_length, use_enhanced_model=use_enhanced_model)
         
@@ -919,22 +942,7 @@ class AdvancedIntegratedBacktestingSystem:
     def __init__(self, db_path: str = None, model_path: str = None, use_enhanced_model: bool = True):
         self.db = DatabaseManager(db_path)
         
-        # Initialize signal generator with proper model path handling
-        if model_path and not os.path.exists(model_path):
-            # Try storage/models directory
-            storage_path = os.path.join('/app/data', os.path.basename(model_path))
-            if os.path.exists(storage_path):
-                model_path = storage_path
-            else:
-                # Try default path
-                default_path = '/app/data/lstm_btc_model.pth'
-                if os.path.exists(default_path):
-                    logger.warning(f"Model not found at {model_path}, using default at {default_path}")
-                    model_path = default_path
-                else:
-                    logger.warning(f"No model found at {model_path}, will train new model")
-                    model_path = None
-        
+        # Model path is now handled by AdvancedTradingSignalGenerator
         self.signal_generator = AdvancedTradingSignalGenerator(model_path, use_enhanced_model=use_enhanced_model)
         self.config = BacktestConfig()
         self.config.min_train_test_ratio = 0.5
@@ -1721,7 +1729,19 @@ class AdvancedIntegratedBacktestingSystem:
             logger.info(f"Model retrained in {training_time:.2f} seconds")
             
             if save_model:
-                model_path = f'models/lstm_btc_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pth'
+                # Determine the save directory based on environment
+                if os.path.exists('/app/models'):
+                    save_dir = '/app/models'
+                elif os.path.exists('/app/data'):
+                    save_dir = '/app/data'
+                else:
+                    # Development environment
+                    save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
+                                          'storage', 'models')
+                    os.makedirs(save_dir, exist_ok=True)
+                
+                model_filename = f'lstm_btc_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pth'
+                model_path = os.path.join(save_dir, model_filename)
                 self.signal_generator.save_model(model_path)
                 results['saved_model_path'] = model_path
                 logger.info(f"Model saved to {model_path}")

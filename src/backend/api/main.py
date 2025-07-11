@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 import uuid
 from collections import deque
 from json import JSONEncoder
+import psutil
 
 # Local imports
 from models.paper_trading import PersistentPaperTrading
@@ -26,6 +27,7 @@ from models.database import DatabaseManager
 from models.lstm import TradingSignalGenerator
 from services.cache_maintenance import get_maintenance_manager
 from services.data_upload_service import DataUploadService
+from utils.timezone import get_est_now, get_est_timestamp, format_est_time
 import tempfile
 
 # Custom JSON encoder for datetime serialization
@@ -495,7 +497,7 @@ class SignalUpdater:
             price = get_current_btc_price()
             price_data = {
                 "price": price,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": get_est_timestamp()
             }
             logger.debug(f"Broadcasting price update: ${price:,.2f}")
             await manager.broadcast_price_update(price_data)
@@ -587,7 +589,7 @@ class SignalUpdater:
                 "signal": signal,
                 "confidence": float(confidence) if confidence is not None else 0.5,
                 "predicted_price": float(predicted_price) if predicted_price is not None else 0.0,
-                "timestamp": datetime.now()
+                "timestamp": get_est_now()
             }
             
             latest_enhanced_signal = {
@@ -632,7 +634,7 @@ class SignalUpdater:
                     "signal": "hold",
                     "confidence": 0.5,
                     "predicted_price": get_current_btc_price(),
-                    "timestamp": datetime.now()
+                    "timestamp": get_est_now()
                 }
                 latest_enhanced_signal = {
                     **latest_signal,
@@ -724,7 +726,7 @@ async def lifespan(app: FastAPI):
             "signal": signal,
             "confidence": float(confidence) if confidence is not None else 0.5,
             "predicted_price": float(predicted_price) if predicted_price is not None else 0.0,
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
         latest_enhanced_signal = {
             **latest_signal,
@@ -741,7 +743,7 @@ async def lifespan(app: FastAPI):
             "signal": "hold",
             "confidence": 0.5,
             "predicted_price": get_current_btc_price(),
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
         latest_enhanced_signal = {
             **latest_signal,
@@ -752,9 +754,18 @@ async def lifespan(app: FastAPI):
     
     # Initialize ADVANCED backtest system
     try:
+        # Use environment variable or default model name
+        model_filename = 'lstm_btc_model.pth'
+        model_path = os.path.join(os.getenv('MODEL_PATH', '/app/models'), model_filename)
+        
+        # If the model doesn't exist at the expected path, pass just the filename
+        # The integration service will search for it in multiple locations
+        if not os.path.exists(model_path):
+            model_path = model_filename
+            
         backtest_system = AdvancedIntegratedBacktestingSystem(
             db_path=db_path,
-            model_path='models/lstm_btc_model.pth'
+            model_path=model_path
         )
         logger.info("Advanced backtest system initialized successfully")
     except Exception as e:
@@ -888,7 +899,7 @@ async def root():
     return {
         "message": "Enhanced BTC Trading System API is running", 
         "version": "2.1.0",
-        "timestamp": datetime.now(),
+        "timestamp": get_est_now(),
         "status": "healthy",
         "signal_errors": signal_update_errors,
         "features": ["enhanced_signals", "comprehensive_backtesting", "50+_indicators", "websocket_support", "paper_trading"]
@@ -933,7 +944,7 @@ async def health_check():
         
         response = {
             "status": "healthy",
-            "timestamp": datetime.now(),
+            "timestamp": get_est_now(),
             "components": {
                 "database": db_status,
                 "signal_generator": signal_status,
@@ -959,6 +970,88 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+@app.get("/health/detailed", response_class=JSONResponse)
+async def detailed_health_check():
+    """Detailed health check with system metrics"""
+    try:
+        # Get basic health first
+        basic_health = await health_check()
+        
+        # Get system metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Get process info
+        process = psutil.Process()
+        process_memory = process.memory_info()
+        
+        # Calculate uptime
+        uptime_seconds = time.time() - process.create_time()
+        
+        # Get recent errors (you might want to implement a proper error logging system)
+        recent_errors = []
+        
+        # Enhanced health response
+        response = {
+            "status": basic_health["status"],
+            "timestamp": get_est_now(),
+            "components": {
+                "database": {
+                    "healthy": basic_health["components"]["database"] == "healthy",
+                    "message": f"Database is {basic_health['components']['database']}"
+                },
+                "signal_generator": {
+                    "healthy": basic_health["components"]["signal_generator"] in ["healthy", "no_signal"],
+                    "message": f"Signal generator is {basic_health['components']['signal_generator']}"
+                },
+                "enhanced_signals": {
+                    "healthy": basic_health["components"]["enhanced_signals"] == "active",
+                    "message": f"Enhanced signals are {basic_health['components']['enhanced_signals']}"
+                },
+                "paper_trading": {
+                    "healthy": True,
+                    "message": f"Paper trading is {basic_health['components']['paper_trading']}"
+                },
+                "websocket_connections": {
+                    "healthy": True,
+                    "message": f"{basic_health['components']['websocket_connections']} active connections"
+                },
+                "api_server": {
+                    "healthy": True,
+                    "message": "API server is responding"
+                },
+                "data_pipeline": {
+                    "healthy": basic_health["components"]["database"] == "healthy",
+                    "message": "Data pipeline operational" if basic_health["components"]["database"] == "healthy" else "Data pipeline issues detected"
+                }
+            },
+            "metrics": {
+                "cpu_usage": cpu_percent,
+                "memory_usage": memory.percent,
+                "disk_usage": disk.percent,
+                "uptime": uptime_seconds,
+                "memory_mb": process_memory.rss / 1024 / 1024,
+                "active_threads": process.num_threads()
+            },
+            "recent_errors": recent_errors,
+            "enhanced_features": basic_health["enhanced_features"]
+        }
+        
+        # Determine overall status
+        if any(comp.get("healthy", True) == False for comp in response["components"].values() if isinstance(comp, dict)):
+            response["status"] = "degraded"
+        elif cpu_percent > 90 or memory.percent > 90 or disk.percent > 90:
+            response["status"] = "degraded"
+        else:
+            response["status"] = "healthy"
+        
+        return convert_numpy_to_native(response)
+        
+    except Exception as e:
+        logger.error(f"Detailed health check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Detailed health check failed: {str(e)}")
 
 # Enhanced signal endpoints
 @app.get("/test/fallback", response_class=JSONResponse)
@@ -1049,7 +1142,7 @@ async def get_enhanced_latest_signal():
                             "signal": enhanced_result.get('signal', 'hold'),
                             "confidence": enhanced_result.get('confidence', 0.5),
                             "predicted_price": enhanced_result.get('predicted_price', 0.0),
-                            "timestamp": enhanced_result.get('timestamp', datetime.now().isoformat()),
+                            "timestamp": enhanced_result.get('timestamp', get_est_timestamp()),
                             "analysis": {
                                 "prediction_range": enhanced_result.get('prediction_range', {
                                     'lower': enhanced_result.get('predicted_price', 0.0) * 0.98,
@@ -1075,7 +1168,7 @@ async def get_enhanced_latest_signal():
                             "signal": signal,
                             "confidence": confidence,
                             "predicted_price": predicted_price,
-                            "timestamp": datetime.now(),
+                            "timestamp": get_est_now(),
                             "analysis": analysis,
                             "comprehensive_signals": {}
                         }
@@ -1089,7 +1182,7 @@ async def get_enhanced_latest_signal():
                         "signal": signal,
                         "confidence": confidence,
                         "predicted_price": predicted_price,
-                        "timestamp": datetime.now(),
+                        "timestamp": get_est_now(),
                         "analysis": analysis,
                         "comprehensive_signals": {}
                     }
@@ -1186,7 +1279,7 @@ async def get_comprehensive_signals():
         categorized = {k: v for k, v in categorized.items() if v}
         
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": get_est_timestamp(),
             "total_signals": len(signals_dict),
             "categorized_signals": categorized,
             "all_signals": signals_dict,
@@ -1215,7 +1308,7 @@ async def get_latest_signal():
                     "signal": signal,
                     "confidence": float(confidence) if confidence is not None else 0.5,
                     "predicted_price": float(predicted_price) if predicted_price is not None else 0.0,
-                    "timestamp": datetime.now()
+                    "timestamp": get_est_now()
                 }
                 logger.info(f"Generated new signal: {signal}")
             except Exception as e:
@@ -1226,7 +1319,7 @@ async def get_latest_signal():
                     "signal": "hold",
                     "confidence": 0.5,
                     "predicted_price": get_current_btc_price(),
-                    "timestamp": datetime.now(),
+                    "timestamp": get_est_now(),
                     "error": "Signal generation failed, using default"
                 }
         
@@ -1464,8 +1557,8 @@ async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
                     'Low': float(row['Low']),
                     'close': float(row['Close']),
                     'Close': float(row['Close']),
-                    'volume': float(row['Volume']),
-                    'Volume': float(row['Volume'])
+                    'volume': float(row.get('Volume', 0)),  # Handle missing Volume column
+                    'Volume': float(row.get('Volume', 0))   # Handle missing Volume column
                 }
                 
                 # Add basic indicators always
@@ -1520,8 +1613,8 @@ async def get_btc_data(period: str = "1mo", include_indicators: bool = False):
                     'Low': float(row['Low']),
                     'close': float(row['Close']),
                     'Close': float(row['Close']),
-                    'volume': float(row['Volume']),
-                    'Volume': float(row['Volume'])
+                    'volume': float(row.get('Volume', 0)),  # Handle missing Volume column
+                    'Volume': float(row.get('Volume', 0))   # Handle missing Volume column
                 }
                 dummy_records.append(record)
             
@@ -1595,14 +1688,14 @@ async def get_latest_btc_price():
         
         result = {
             "latest_price": latest_price,
-            "timestamp": datetime.now(),
+            "timestamp": get_est_now(),
             "price_change_percentage_24h": price_data.get("change_24h", 0) if price_data and isinstance(price_data, dict) else 0
         }
         
         # Add 24h high/low and volume from recent data if available
         if recent_data is not None and len(recent_data) > 0:
             # Filter to only the last 24 hours of data
-            now = datetime.now()
+            now = get_est_now()
             last_24h = now - timedelta(hours=24)
             
             # Ensure index is datetime
@@ -1642,7 +1735,7 @@ async def get_latest_btc_price():
         current_price = get_current_btc_price()
         return {
             "latest_price": current_price,
-            "timestamp": datetime.now(),
+            "timestamp": get_est_now(),
             "price_change_percentage_24h": 0,
             "high_24h": current_price * 1.02,  # +2% estimate
             "low_24h": current_price * 0.98,   # -2% estimate
@@ -1669,14 +1762,14 @@ async def get_current_price():
                     "price": current_price,
                     "volume": 0,
                     "change_24h": 0,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": get_est_timestamp()
                 }
             else:
                 return {
                     "price": get_current_btc_price(),
                     "volume": 25000000000,  # ~$25B daily volume
                     "change_24h": 0,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": get_est_timestamp()
                 }
     except Exception as e:
         logger.error(f"Failed to get current price: {e}")
@@ -2051,7 +2144,7 @@ async def get_feature_importance():
                 return {
                     "feature_importance": importance,
                     "top_10_features": dict(list(importance.items())[:10]),
-                    "timestamp": datetime.now()
+                    "timestamp": get_est_now()
                 }
         
         return {
@@ -2184,7 +2277,7 @@ async def get_backtest_status():
     return {
         "in_progress": backtest_in_progress,
         "has_results": latest_backtest_results is not None,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": get_est_timestamp(),
         "system_type": "enhanced"
     }
 
@@ -2536,7 +2629,7 @@ async def trigger_enhanced_model_retrain():
         return {
             "status": "success",
             "message": "Enhanced model retraining completed",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": get_est_timestamp(),
             "results": results
         }
         
@@ -2577,7 +2670,7 @@ async def train_model(request: ModelTrainRequest):
         logger.info(f"Fetched {data_points} data points")
         
         # Train the model
-        start_time = datetime.now()
+        start_time = get_est_now()
         signal_generator.train_enhanced_model(
             btc_data, 
             epochs=request.epochs,
@@ -2585,12 +2678,12 @@ async def train_model(request: ModelTrainRequest):
             early_stopping_patience=10
         )
         
-        training_time = (datetime.now() - start_time).total_seconds()
+        training_time = (get_est_now() - start_time).total_seconds()
         
         # Save model if requested
         saved_path = None
         if request.save_model:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = get_est_now().strftime("%Y%m%d_%H%M%S")
             model_path = f'/app/data/lstm_model_{timestamp}.pth'
             signal_generator.save_model(model_path)
             saved_path = model_path
@@ -2602,7 +2695,7 @@ async def train_model(request: ModelTrainRequest):
             'data_points': data_points,
             'training_time_seconds': training_time,
             'saved_model_path': saved_path,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': get_est_timestamp(),
             'metrics': {
                 'is_trained': signal_generator.is_trained,
                 'feature_importance': dict(list(signal_generator.feature_importance.items())[:10]) if hasattr(signal_generator, 'feature_importance') else {}
@@ -2615,7 +2708,7 @@ async def train_model(request: ModelTrainRequest):
             'status': 'failed',
             'success': False,
             'error': str(e),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_est_timestamp()
         }
 
 @app.get("/model/info", response_class=JSONResponse)
@@ -2637,7 +2730,7 @@ async def get_model_info():
                 model_info['n_features'] = signal_generator.model.input_size
             
             if hasattr(signal_generator, 'is_trained') and signal_generator.is_trained:
-                model_info['last_trained'] = datetime.now().strftime('%Y-%m-%d')
+                model_info['last_trained'] = get_est_now().strftime('%Y-%m-%d')
                 model_info['training_samples'] = 1000  # Estimate
                 model_info['accuracy'] = 0.85  # Placeholder
                 model_info['val_loss'] = 0.0015  # Placeholder
@@ -2686,7 +2779,7 @@ async def get_system_status():
             # Count active trades (trades from last 24 hours)
             if not trades_df.empty and 'timestamp' in trades_df.columns:
                 from datetime import timedelta
-                recent_time = datetime.now() - timedelta(hours=24)
+                recent_time = get_est_now() - timedelta(hours=24)
                 recent_trades = trades_df[pd.to_datetime(trades_df['timestamp']) > recent_time]
                 system_metrics["active_trades"] = len(recent_trades)
             else:
@@ -2718,7 +2811,7 @@ async def get_system_status():
         
         return {
             "status": "operational",
-            "timestamp": datetime.now(),  # This will be serialized properly now
+            "timestamp": get_est_now(),  # This will be serialized properly now
             "components": {
                 "database": "connected" if db else "disconnected",
                 "signal_generator": "active" if latest_signal else "inactive",
@@ -2754,7 +2847,7 @@ async def get_all_indicators():
             return {
                 'message': 'No indicators calculated yet',
                 'status': 'waiting',
-                'timestamp': datetime.now().isoformat()
+                'timestamp': get_est_timestamp()
             }
         
         # Safely convert to dict
@@ -2803,7 +2896,7 @@ async def get_all_indicators():
         return {
             "indicators": indicators,
             "count": len(indicators),
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": get_est_timestamp(),
             "status": "success"
         }
         
@@ -2812,7 +2905,7 @@ async def get_all_indicators():
         return {
             "error": str(e),
             "status": "error",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": get_est_timestamp()
         }
 
 @app.get("/database/stats", response_class=JSONResponse)
@@ -2854,7 +2947,7 @@ async def export_database():
             'trades': db.get_trades().to_dict('records') if not db.get_trades().empty else [],
             'positions': db.get_positions().to_dict('records') if not db.get_positions().empty else [],
             'signals': [],
-            'timestamp': datetime.now().isoformat()
+            'timestamp': get_est_timestamp()
         }
         
         # Get signals
@@ -2987,7 +3080,7 @@ async def get_paper_trading_status():
         "enabled": paper_trading_enabled,
         "portfolio": portfolio,
         "performance": metrics,
-        "timestamp": datetime.now()
+        "timestamp": get_est_now()
     }
 
 @app.post("/paper-trading/toggle", response_class=JSONResponse)
@@ -3178,12 +3271,12 @@ async def run_backtest(request: dict):
         if start_date:
             start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
         else:
-            start_date = datetime.now() - timedelta(days=30)
+            start_date = get_est_now() - timedelta(days=30)
             
         if end_date:
             end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
         else:
-            end_date = datetime.now()
+            end_date = get_est_now()
         
         # Get historical data
         if latest_btc_data is None or len(latest_btc_data) == 0:
@@ -3460,7 +3553,7 @@ async def get_ensemble_prediction():
         },
         "ensemble_signal": latest_enhanced_signal.get("signal"),
         "ensemble_confidence": latest_enhanced_signal.get("confidence"),
-        "timestamp": datetime.now()
+        "timestamp": get_est_now()
     }
 
 # ============= ENHANCED LSTM ENDPOINTS =============
@@ -3502,7 +3595,7 @@ async def train_enhanced_lstm():
         
         # Check if already trained recently
         if enhanced_trading_system.model_trained and enhanced_trading_system.last_training_date:
-            time_since_training = datetime.now() - enhanced_trading_system.last_training_date
+            time_since_training = get_est_now() - enhanced_trading_system.last_training_date
             if time_since_training.days < 1:
                 return {
                     "status": "already_trained",
@@ -3552,7 +3645,7 @@ async def train_enhanced_lstm():
                     }),
                     "selected_features": getattr(enhanced_trading_system, 'selected_features', [])[:20],
                     "optimization": optimization_info,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": get_est_timestamp()
                 }
             else:
                 return {
@@ -3600,7 +3693,7 @@ async def get_enhanced_lstm_prediction():
             "predicted_price": fallback_signal.get("predicted_price", get_current_btc_price()),
             "current_price": get_current_btc_price(),
             "message": "Enhanced LSTM model not trained. Using standard LSTM signals.",
-            "timestamp": datetime.now(),
+            "timestamp": get_est_now(),
             "source": "lstm_fallback",
             "indicators": {
                 "rsi": 50.0,
@@ -4029,7 +4122,7 @@ async def get_sentiment_indicators():
         "fear_greed_index": {
             "value": 65,
             "classification": "Greed",
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         },
         "social_sentiment": {
             "twitter_sentiment": 0.7,
@@ -4224,7 +4317,7 @@ async def execute_paper_trade(request: dict):
             "status": "success",
             "trade": trade_result,
             "portfolio": paper_trading.get_portfolio(),
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
             
     except Exception as e:
@@ -4257,7 +4350,7 @@ async def close_paper_position():
             "status": "success",
             "message": "All positions closed",
             "portfolio": paper_trading.get_portfolio(),
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
     else:
         raise HTTPException(status_code=400, detail=message)
@@ -4470,9 +4563,9 @@ async def get_pnl_analysis():
                     elif isinstance(trade['timestamp'], datetime):
                         date = trade['timestamp'].date()
                     else:
-                        date = datetime.now().date()
+                        date = get_est_now().date()
                 else:
-                    date = datetime.now().date()
+                    date = get_est_now().date()
                 
                 daily_pnl[date] += trade.get('pnl', 0)
             except Exception as e:
@@ -4728,7 +4821,7 @@ async def optimize_strategy(request: OptimizationRequest):
                 results = {
                     'status': 'success',
                     'results': results,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': get_est_timestamp()
                 }
             
             logger.info("Strategy optimization completed successfully")
@@ -4739,7 +4832,7 @@ async def optimize_strategy(request: OptimizationRequest):
             return {
                 "status": "error",
                 "error": "Optimization timed out after 5 minutes. Try reducing iterations or constraints.",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": get_est_timestamp()
             }
         except Exception as e:
             logger.error(f"Optimization failed: {str(e)}")
@@ -4748,7 +4841,7 @@ async def optimize_strategy(request: OptimizationRequest):
             return {
                 "status": "error", 
                 "error": f"Optimization failed: {str(e)}",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": get_est_timestamp()
             }
             
     except Exception as e:
@@ -4758,7 +4851,7 @@ async def optimize_strategy(request: OptimizationRequest):
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": get_est_timestamp()
         }
 
 @app.get("/analytics/strategies", response_class=JSONResponse)
@@ -4859,7 +4952,7 @@ async def get_data_quality_metrics():
         # Get metrics for each data type and source
         data_quality = {
             "summary": {
-                "last_updated": datetime.now().isoformat(),
+                "last_updated": get_est_timestamp(),
                 "total_datapoints": 0,
                 "total_missing_dates": 0,
                 "overall_completeness": 0.0
@@ -4999,7 +5092,7 @@ async def get_data_quality_metrics():
         )
         
         # Get coverage by time period
-        now = datetime.now()
+        now = get_est_now()
         coverage_periods = {
             "last_24h": now - timedelta(hours=24),
             "last_7d": now - timedelta(days=7),
@@ -5040,7 +5133,7 @@ async def get_data_quality_metrics():
         traceback.print_exc()
         return {
             "summary": {
-                "last_updated": datetime.now().isoformat(),
+                "last_updated": get_est_timestamp(),
                 "error": str(e)
             },
             "by_type": {},
@@ -5256,7 +5349,7 @@ async def run_simple_backtest(
             "max_drawdown": -0.15  # Mock
         },
         "trades": trades[-10:],  # Last 10 trades
-        "timestamp": datetime.now()
+        "timestamp": get_est_now()
     }
 
 # Configuration endpoints
@@ -5412,7 +5505,7 @@ async def export_config():
         
         return {
             "config": config,
-            "export_date": datetime.now().isoformat(),
+            "export_date": get_est_timestamp(),
             "version": "1.0"
         }
         
@@ -5467,7 +5560,7 @@ async def get_ml_status():
     status = {
         "lstm": {
             "trained": signal_generator is not None and hasattr(signal_generator, 'model'),
-            "last_update": datetime.now() - timedelta(hours=2),  # Mock
+            "last_update": get_est_now() - timedelta(hours=2),  # Mock
             "accuracy": 0.75,  # Mock
             "version": "1.0"
         },
@@ -5544,7 +5637,7 @@ async def get_ml_feature_importance():
         "features": features,
         "total_features": 50,
         "model": "enhanced_lstm",
-        "timestamp": datetime.now()
+        "timestamp": get_est_now()
     }
 
 # Notification endpoints
@@ -5623,14 +5716,14 @@ async def send_notification(request: dict):
 @app.post("/backup/create", response_class=JSONResponse)
 async def create_backup():
     """Create system backup"""
-    backup_id = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    backup_id = f"backup_{get_est_now().strftime('%Y%m%d_%H%M%S')}"
     
     return {
         "status": "success",
         "backup_id": backup_id,
         "size": "25.3 MB",
         "includes": ["database", "config", "models"],
-        "timestamp": datetime.now()
+        "timestamp": get_est_now()
     }
 
 @app.post("/backup/restore", response_class=JSONResponse)
@@ -5640,7 +5733,7 @@ async def restore_backup(backup_id: str):
         "status": "success",
         "backup_id": backup_id,
         "message": "System restored from backup",
-        "timestamp": datetime.now()
+        "timestamp": get_est_now()
     }
 
 # ============= CACHE MANAGEMENT ENDPOINTS =============
@@ -5715,7 +5808,7 @@ async def invalidate_cache(
             "data_type": data_type,
             "api_source": api_source,
             "reason": reason,
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
     except Exception as e:
         logger.error(f"Error invalidating cache: {e}")
@@ -5732,7 +5825,7 @@ async def clear_expired_cache():
         
         return {
             "entries_removed": entries_removed,
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
     except Exception as e:
         logger.error(f"Error clearing expired cache: {e}")
@@ -5812,7 +5905,7 @@ async def warm_cache(
             "sources": sources,
             "symbols": symbols,
             "periods": periods,
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
         
     except Exception as e:
@@ -5850,7 +5943,7 @@ async def start_maintenance():
     try:
         from services.cache_maintenance import start_cache_maintenance
         start_cache_maintenance()
-        return {"status": "started", "timestamp": datetime.now()}
+        return {"status": "started", "timestamp": get_est_now()}
     except Exception as e:
         logger.error(f"Error starting maintenance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -5861,7 +5954,7 @@ async def stop_maintenance():
     try:
         from services.cache_maintenance import stop_cache_maintenance
         stop_cache_maintenance()
-        return {"status": "stopped", "timestamp": datetime.now()}
+        return {"status": "stopped", "timestamp": get_est_now()}
     except Exception as e:
         logger.error(f"Error stopping maintenance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -5887,7 +5980,7 @@ async def trigger_cache_warm(aggressive: bool = False):
         return {
             "status": "warming triggered",
             "aggressive": aggressive,
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
     except Exception as e:
         logger.error(f"Error triggering cache warm: {e}")
@@ -5904,7 +5997,7 @@ async def update_maintenance_config(config_updates: Dict[str, Any]):
         return {
             "status": "config updated",
             "updates": config_updates,
-            "timestamp": datetime.now()
+            "timestamp": get_est_now()
         }
     except Exception as e:
         logger.error(f"Error updating maintenance config: {e}")

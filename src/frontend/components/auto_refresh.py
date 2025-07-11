@@ -78,7 +78,7 @@ class AutoRefreshManager:
         Returns:
             Tuple of (enabled, interval)
         """
-        container = st.sidebar if sidebar else st
+        container = st.sidebar if sidebar else st.container()
         
         with container:
             st.markdown("### Auto-Refresh Settings")

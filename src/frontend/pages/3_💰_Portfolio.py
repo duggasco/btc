@@ -12,19 +12,89 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from components.api_client import APIClient
 from components.charts import create_portfolio_chart, create_performance_chart
 from components.metrics import display_portfolio_metrics, display_risk_metrics
+from components.page_styling import setup_page
 from utils.helpers import format_currency, format_percentage, calculate_sharpe_ratio
 
-st.set_page_config(page_title="Portfolio Management", page_icon="Portfolio", layout="wide")
+# Setup page with consistent styling
+api_client = setup_page(
+    page_name="Portfolio",
+    page_title="Portfolio Management",
+    page_subtitle="Track positions, analyze performance, and manage risk"
+)
 
-# Initialize API client
-@st.cache_resource
-def get_api_client():
-    return APIClient(os.getenv("API_BASE_URL", "http://backend:8080"))
+# Additional page-specific CSS
+st.markdown("""
+<style>
+/* Portfolio specific styling */
+.portfolio-card {
+    background: var(--bg-secondary);
+    padding: 1.5rem;
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle);
+    transition: all 0.3s ease;
+}
 
-api_client = get_api_client()
+.portfolio-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-focus);
+}
 
-st.title("Portfolio Management")
-st.markdown("Track positions, analyze performance, and manage risk")
+.position-row {
+    background: var(--bg-tertiary);
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.8rem;
+    border: 1px solid var(--border-subtle);
+}
+
+.position-row:hover {
+    border-color: var(--accent-primary);
+}
+
+/* P&L styling */
+.pnl-positive { 
+    color: var(--accent-success); 
+    font-weight: 600; 
+}
+
+.pnl-negative { 
+    color: var(--accent-danger); 
+    font-weight: 600; 
+}
+
+.pnl-neutral {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* Risk metrics */
+.risk-indicator {
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.risk-low {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--accent-success);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.risk-medium {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--accent-warning);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.risk-high {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--accent-danger);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+</style>
+""", unsafe_allow_html=True)
 
 # Fetch portfolio data
 try:
@@ -667,7 +737,7 @@ with tab5:
             ))
             
             fig.update_layout(
-                title="Average Returns by Hour (UTC)",
+                title="Average Returns by Hour (EST)",
                 xaxis_title="Hour",
                 yaxis_title="Average Return (%)",
                 height=350

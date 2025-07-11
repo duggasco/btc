@@ -1,0 +1,684 @@
+/* Professional Trading UI Theme for Streamlit
+   Designed for BTC Trading System
+   Version: 1.0.0
+*/
+
+/* ===== CSS Variables ===== */
+:root {
+    /* Primary Colors */
+    --bg-primary: #0a0a0b;      /* Near black background */
+    --bg-secondary: #131315;    /* Card background */
+    --bg-tertiary: #1a1a1d;     /* Elevated elements */
+    --bg-hover: rgba(255, 255, 255, 0.02);
+    
+    /* Accent Colors */
+    --accent-primary: #f7931a;  /* Bitcoin orange (sparingly) */
+    --accent-success: #22c55e;  /* Profit/Buy signals */
+    --accent-danger: #ef4444;   /* Loss/Sell signals */
+    --accent-warning: #f59e0b;  /* Warning states */
+    --accent-info: #3b82f6;     /* Information */
+    
+    /* Text Colors */
+    --text-primary: #e5e5e7;    /* Main text */
+    --text-secondary: #9ca3af;  /* Secondary text */
+    --text-muted: #6b7280;      /* Muted labels */
+    
+    /* Borders */
+    --border-subtle: #27272a;   /* Subtle borders */
+    --border-focus: #3f3f46;    /* Focus states */
+    
+    /* Spacing Scale */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    
+    /* Typography */
+    --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+}
+
+/* ===== Base Styles ===== */
+html, body, [class*="css"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+}
+
+/* Remove Streamlit defaults */
+.main {
+    background: var(--bg-primary);
+}
+
+.main .block-container {
+    padding-top: 2rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    max-width: none;
+}
+
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+
+/* ===== Typography ===== */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--text-primary);
+    margin: 0;
+    font-weight: 600;
+}
+
+h1 { font-size: 20px; margin-bottom: var(--space-2); }
+h2 { font-size: 16px; margin-bottom: var(--space-2); }
+h3 { font-size: 14px; margin-bottom: var(--space-1); }
+
+/* Numbers should use tabular figures */
+.metric-value,
+.price,
+.percentage,
+[data-testid="stMetricValue"] {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ===== Layout Components ===== */
+
+/* Dashboard Grid */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    grid-template-rows: auto 1fr auto;
+    gap: var(--space-3);
+    height: calc(100vh - 100px);
+}
+
+/* Card Component */
+.card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: var(--space-4);
+    transition: border-color 0.2s ease;
+}
+
+.card:hover {
+    border-color: var(--border-focus);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-3);
+}
+
+.card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* ===== Streamlit Component Overrides ===== */
+
+/* Metrics */
+div[data-testid="metric-container"] {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: var(--space-3);
+    margin: 0;
+}
+
+div[data-testid="metric-container"] label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+div[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+div[data-testid="metric-container"] [data-testid="stMetricDelta"] {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Positive/Negative deltas */
+[data-testid="stMetricDelta"] svg {
+    width: 12px;
+    height: 12px;
+}
+
+[data-testid="stMetricDeltaIcon-Up"] {
+    fill: var(--accent-success);
+}
+
+[data-testid="stMetricDeltaIcon-Down"] {
+    fill: var(--accent-danger);
+}
+
+/* Buttons */
+.stButton > button {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: var(--space-2) var(--space-4);
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    height: auto;
+}
+
+.stButton > button:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-focus);
+}
+
+/* Primary buttons */
+.stButton > button[kind="primary"] {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+}
+
+.stButton > button[kind="primary"]:hover {
+    background: #e6851a;
+    border-color: #e6851a;
+}
+
+/* Input fields */
+.stTextInput > div > div > input,
+.stNumberInput > div > div > input,
+.stSelectbox > div > div > select {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: var(--space-2) var(--space-3);
+    font-size: 13px;
+    transition: border-color 0.2s ease;
+}
+
+.stTextInput > div > div > input:focus,
+.stNumberInput > div > div > input:focus,
+.stSelectbox > div > div > select:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+/* Labels */
+.stTextInput > label,
+.stNumberInput > label,
+.stSelectbox > label,
+.stSlider > label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-bottom: var(--space-1);
+}
+
+/* Sliders */
+.stSlider > div > div {
+    background: var(--border-subtle);
+}
+
+.stSlider > div > div > div {
+    background: var(--accent-primary);
+}
+
+.stSlider > div > div > div > div {
+    background: var(--accent-primary);
+    border: 2px solid var(--bg-primary);
+}
+
+/* Checkboxes */
+.stCheckbox > label {
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.stCheckbox > label > div[role="checkbox"] {
+    border-color: var(--border-focus);
+    background: var(--bg-primary);
+}
+
+.stCheckbox > label > div[aria-checked="true"] {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+/* Radio buttons */
+.stRadio > label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.stRadio > div > label {
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    padding: var(--space-1);
+    gap: var(--space-1);
+}
+
+.stTabs [data-baseweb="tab"] {
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 4px;
+    padding: var(--space-2) var(--space-3);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.stTabs [aria-selected="true"] {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* Expanders */
+.streamlit-expanderHeader {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.streamlit-expanderHeader:hover {
+    border-color: var(--border-focus);
+}
+
+.streamlit-expanderContent {
+    border: 1px solid var(--border-subtle);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    background: var(--bg-secondary);
+}
+
+/* DataFrames/Tables */
+.stDataFrame {
+    font-size: 12px;
+}
+
+.stDataFrame > div > div > div > div > table {
+    background: var(--bg-secondary);
+}
+
+.stDataFrame thead tr th {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.stDataFrame tbody tr {
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.stDataFrame tbody tr:hover {
+    background: var(--bg-hover);
+}
+
+.stDataFrame tbody tr td {
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-primary);
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-subtle);
+}
+
+section[data-testid="stSidebar"] .block-container {
+    padding: var(--space-4);
+}
+
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    color: var(--text-primary);
+}
+
+/* Progress bars */
+.stProgress > div > div {
+    background: var(--border-subtle);
+    height: 4px;
+}
+
+.stProgress > div > div > div {
+    background: var(--accent-primary);
+}
+
+/* Alerts */
+.stAlert {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: var(--space-3);
+    font-size: 13px;
+}
+
+div[data-baseweb="notification"] {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+}
+
+/* Success alert */
+.stSuccess, div[kind="success"] {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: var(--accent-success);
+}
+
+/* Error alert */
+.stError, div[kind="error"] {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: var(--accent-danger);
+}
+
+/* Warning alert */
+.stWarning, div[kind="warning"] {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: var(--accent-warning);
+}
+
+/* Info alert */
+.stInfo, div[kind="info"] {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: var(--accent-info);
+}
+
+/* ===== Custom Components ===== */
+
+/* Signal badges */
+.signal-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-2);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.signal-buy {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--accent-success);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.signal-sell {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--accent-danger);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.signal-hold {
+    background: rgba(156, 163, 175, 0.15);
+    color: var(--text-secondary);
+    border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+/* Price indicators */
+.price-up {
+    color: var(--accent-success);
+}
+
+.price-down {
+    color: var(--accent-danger);
+}
+
+/* Compact metric card */
+.metric-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: var(--space-3);
+    transition: all 0.2s ease;
+}
+
+.metric-card:hover {
+    border-color: var(--border-focus);
+    transform: translateY(-1px);
+}
+
+.metric-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-bottom: var(--space-1);
+}
+
+.metric-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.metric-change {
+    font-size: 12px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-1);
+}
+
+/* Chart containers */
+.chart-container {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: var(--space-4);
+    height: 100%;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-3);
+}
+
+.chart-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.chart-controls {
+    display: flex;
+    gap: var(--space-2);
+}
+
+/* Status indicators */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+.status-dot.connected {
+    background: var(--accent-success);
+}
+
+.status-dot.disconnected {
+    background: var(--accent-danger);
+    animation: none;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* ===== Utility Classes ===== */
+
+/* Spacing */
+.mt-1 { margin-top: var(--space-1); }
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+
+.mb-1 { margin-bottom: var(--space-1); }
+.mb-2 { margin-bottom: var(--space-2); }
+.mb-3 { margin-bottom: var(--space-3); }
+.mb-4 { margin-bottom: var(--space-4); }
+
+.p-1 { padding: var(--space-1); }
+.p-2 { padding: var(--space-2); }
+.p-3 { padding: var(--space-3); }
+.p-4 { padding: var(--space-4); }
+
+/* Text */
+.text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+.text-success { color: var(--accent-success); }
+.text-danger { color: var(--accent-danger); }
+.text-warning { color: var(--accent-warning); }
+
+.text-sm { font-size: 12px; }
+.text-xs { font-size: 11px; }
+
+.font-mono { font-family: var(--font-mono); }
+
+/* Layout */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-focus);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* ===== Animations ===== */
+.fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.slide-up {
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from { 
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ===== Responsive Design ===== */
+@media (max-width: 1024px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+    }
+    
+    .hide-tablet {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    :root {
+        --space-1: 2px;
+        --space-2: 4px;
+        --space-3: 8px;
+        --space-4: 12px;
+        --space-5: 16px;
+        --space-6: 20px;
+        --space-8: 28px;
+    }
+    
+    body {
+        font-size: 12px;
+    }
+    
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; }
+    h3 { font-size: 13px; }
+    
+    .metric-value { font-size: 16px; }
+    
+    .hide-mobile {
+        display: none;
+    }
+}
+
+/* ===== Print Styles ===== */
+@media print {
+    body {
+        background: white;
+        color: black;
+    }
+    
+    .no-print {
+        display: none;
+    }
+}

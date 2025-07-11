@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from typing import Optional, Dict, Any
 import logging
+from utils.timezone import get_est_now, get_est_timestamp, format_est_time
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class DiscordNotifier:
                 {"name": "Predicted Price", "value": self._format_price(predicted_price), "inline": True},
                 {"name": "Expected Move", "value": f"{((predicted_price/current_price - 1) * 100):+.1f}%", "inline": True}
             ],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_est_timestamp()
         }
         
         if signal_changed:
@@ -95,7 +96,7 @@ class DiscordNotifier:
                 {"name": "24h Change", "value": f"{price_change_pct:+.1f}%", "inline": True},
                 {"name": "Daily Range", "value": f"{self._format_price(self.daily_low or current_price)} - {self._format_price(self.daily_high or current_price)}", "inline": True}
             ],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_est_timestamp()
         }
         
         self._send_webhook(embed)
@@ -113,9 +114,9 @@ class DiscordNotifier:
                 {"name": "Size", "value": f"{size:.6f} BTC", "inline": True},
                 {"name": "Value", "value": self._format_price(trade_value), "inline": True},
                 {"name": "Lot ID", "value": f"`{lot_id[:8]}...`" if lot_id else "Auto-generated", "inline": True},
-                {"name": "Timestamp", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "inline": False}
+                {"name": "Timestamp", "value": format_est_time(fmt='%Y-%m-%d %H:%M:%S'), "inline": False}
             ],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_est_timestamp()
         }
         
         self._send_webhook(embed)
@@ -131,7 +132,7 @@ class DiscordNotifier:
                 {"name": "Trigger Price", "value": self._format_price(trigger_price), "inline": True},
                 {"name": "Current Price", "value": self._format_price(current_price), "inline": True}
             ],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_est_timestamp()
         }
         
         if size:
@@ -151,7 +152,7 @@ class DiscordNotifier:
                 {"name": "Today's P&L", "value": self._format_price(daily_pnl), "inline": True},
                 {"name": "Change %", "value": f"{pnl_change_pct:+.1f}%", "inline": True}
             ],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_est_timestamp()
         }
         
         self._send_webhook(embed)
@@ -169,7 +170,7 @@ class DiscordNotifier:
             "title": f"System Status - {status.title()}",
             "color": colors.get(status.lower(), 0x808080),
             "description": message,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_est_timestamp()
         }
         
         self._send_webhook(embed)
@@ -202,7 +203,7 @@ class DiscordNotifier:
             "title": f"{type_icons.get(notification_type, '[NOTIFICATION]')} {notification_type.title()} Notification",
             "description": message,
             "color": type_colors.get(notification_type, 0x808080),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_est_timestamp()
         }
         
         return self._send_webhook(embed)

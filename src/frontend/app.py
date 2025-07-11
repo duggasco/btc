@@ -1,7 +1,7 @@
-
 import streamlit as st
 import os
 import sys
+from pathlib import Path
 
 # Add the parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -14,244 +14,44 @@ from components.api_client import APIClient
 
 # Page configuration
 st.set_page_config(
-    page_title="BTC Trading System - UltraThink Enhanced",
-    page_icon="BTC",
+    page_title="BTC Trading System",
+    page_icon="₿",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
         "Get Help": config.GITHUB_REPO_URL,
         "Report a bug": f"{config.GITHUB_REPO_URL}/issues",
-        "About": "# BTC Trading System\\nAI-powered Bitcoin trading with 50+ indicators and real-time analysis"
+        "About": "# BTC Trading System\nAI-powered Bitcoin trading with 50+ indicators and real-time analysis"
     }
 )
 
-# Enhanced CSS with animations and modern design
-st.markdown("""
-<style>
-/* Modern dark theme */
-:root {
-    --primary-color: #f7931a;  /* Bitcoin orange */
-    --success-color: #00ff88;
-    --danger-color: #ff3366;
-    --warning-color: #ffaa00;
-    --info-color: #00aaff;
-    --bg-dark: #0e1117;
-    --bg-card: #1a1f2e;
-    --text-primary: #ffffff;
-    --text-secondary: #8b92a8;
-}
+def inject_custom_css():
+    """Load and inject custom CSS files"""
+    css_dir = Path(__file__).parent / "styles"
+    css_files = ["professional_theme.css"]
+    
+    combined_css = ""
+    for css_file in css_files:
+        css_path = css_dir / css_file
+        if css_path.exists():
+            with open(css_path, 'r') as f:
+                combined_css += f.read() + "\n"
+    
+    if combined_css:
+        st.markdown(f"<style>{combined_css}</style>", unsafe_allow_html=True)
 
-/* Animated gradient background */
-.main {
-    background: linear-gradient(-45deg, #0e1117, #1a1f2e, #0e1117, #2a2f3e);
-    background-size: 400% 400%;
-    animation: gradientShift 15s ease infinite;
-}
-
-@keyframes gradientShift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
-/* Enhanced metrics with glow effect */
-div[data-testid="metric-container"] {
-    background: rgba(26, 31, 46, 0.8);
-    border: 1px solid rgba(247, 147, 26, 0.3);
-    padding: 15px;
-    border-radius: 15px;
-    backdrop-filter: blur(10px);
-    transition: all 0.3s ease;
-}
-
-div[data-testid="metric-container"]:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(247, 147, 26, 0.3);
-    border-color: rgba(247, 147, 26, 0.6);
-}
-
-/* Trading status badges */
-.trading-badge {
-    padding: 8px 20px;
-    border-radius: 25px;
-    font-weight: bold;
-    text-align: center;
-    margin: 5px;
-    animation: fadeInScale 0.5s ease;
-}
-
-.badge-active {
-    background: linear-gradient(135deg, var(--success-color), #00cc66);
-    color: white;
-    box-shadow: 0 4px 15px rgba(0, 255, 136, 0.4);
-}
-
-.badge-inactive {
-    background: linear-gradient(135deg, var(--danger-color), #cc0033);
-    color: white;
-    box-shadow: 0 4px 15px rgba(255, 51, 102, 0.4);
-}
-
-/* WebSocket status indicator */
-.ws-status {
-    position: fixed;
-    top: 80px;
-    right: 30px;
-    padding: 8px 16px;
-    border-radius: 25px;
-    font-size: 13px;
-    font-weight: bold;
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    backdrop-filter: blur(10px);
-}
-
-.ws-connected {
-    background: rgba(0, 255, 136, 0.2);
-    border: 1px solid var(--success-color);
-    color: var(--success-color);
-}
-
-.ws-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    animation: blink 1s infinite;
-}
-
-@keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-}
-
-/* Enhanced buttons */
-div.stButton > button {
-    background: linear-gradient(135deg, var(--primary-color), #f7731a);
-    color: white;
-    border: none;
-    border-radius: 25px;
-    font-weight: bold;
-    padding: 10px 25px;
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-div.stButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(247, 147, 26, 0.4);
-}
-
-/* Chart containers */
-.chart-container {
-    background: rgba(26, 31, 46, 0.6);
-    border: 1px solid rgba(247, 147, 26, 0.2);
-    border-radius: 20px;
-    padding: 25px;
-    margin: 15px 0;
-    backdrop-filter: blur(10px);
-}
-
-/* Signal cards */
-.signal-card {
-    background: rgba(26, 31, 46, 0.8);
-    border-radius: 20px;
-    padding: 20px;
-    margin: 10px 0;
-    border: 2px solid transparent;
-    transition: all 0.3s ease;
-}
-
-/* Responsive design */
-@media (max-width: 768px) {
-    .ws-status {
-        top: auto;
-        bottom: 20px;
-        right: 20px;
-    }
-}
-</style>
-""", unsafe_allow_html=True)
+# Inject custom CSS
+inject_custom_css()
 
 # Initialize session state
-if "last_update" not in st.session_state:
-    st.session_state.last_update = None
-if "ws_connected" not in st.session_state:
-    st.session_state.ws_connected = False
 if "api_client" not in st.session_state:
     st.session_state.api_client = APIClient(base_url=config.API_BASE_URL)
 
-# Sidebar with enhanced system status
-with st.sidebar:
-    st.markdown("## BTC Trading System")
-    st.markdown("### UltraThink Enhanced Edition")
-    st.markdown("---")
-    
-    # System health indicators
-    health_container = st.container()
-    with health_container:
-        st.markdown("### System Health")
-        
-        # Placeholder for dynamic health status
-        health_status = st.empty()
-        health_status.info("All systems operational")
-    
-    # WebSocket status
-    ws_container = st.container()
-    with ws_container:
-        st.markdown("### Connections")
-        ws_status = st.empty()
-        ws_status.success("WebSocket: Connected")
-    
-    st.markdown("---")
-    
-    # Feature highlights
-    st.markdown("### Features")
-    st.markdown("""
-    - **AI Predictions** - LSTM Neural Network
-    - **50+ Indicators** - Technical, On-chain, Sentiment
-    - **Live Updates** - WebSocket streaming
-    - **Paper Trading** - Risk-free practice
-    - **Discord Alerts** - Real-time notifications
-    - **Mobile Ready** - Responsive design
-    """)
-    
-    st.markdown("---")
-    
-    # Quick actions
-    st.markdown("### Quick Actions")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Refresh", use_container_width=True):
-            st.rerun()
-    with col2:
-        if st.button("Backtest", use_container_width=True):
-            st.switch_page("pages/5_Analytics.py")
-    
-    st.markdown("---")
-    
-    # Keyboard shortcuts
-    with st.expander("Keyboard Shortcuts"):
-        st.markdown("""
-        - `R` - Refresh all data
-        - `T` - Toggle trading mode
-        - `P` - Switch paper/real mode
-        - `S` - View signals
-        - `B` - Run backtest
-        - `Esc` - Emergency stop
-        """)
-
-# Main content with animated header
+# Main content
 st.markdown("""
-<div style="text-align: center; padding: 20px;">
-    <h1 style="font-size: 3em; background: linear-gradient(135deg, #f7931a, #ffaa00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-        BTC Trading System
-    </h1>
-    <p style="font-size: 1.2em; color: #8b92a8;">
-        AI-Powered Trading with 50+ Indicators & Real-Time Analysis
-    </p>
+<div class="global-header">
+    <h1>BTC Trading System</h1>
+    <p class="text-secondary">AI-Powered Trading with 50+ Indicators</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -298,86 +98,177 @@ with stats_container:
     with col5:
         st.metric("Status", "Active", "Real Mode")
 
-# Navigation cards
-st.markdown("### Navigate to Your Trading Dashboard")
+# Navigation cards for all pages
+st.markdown("### Select Your Trading Interface")
 
+# First row - 3 columns
 col1, col2, col3 = st.columns(3)
 
 with col1:
     with st.container():
         st.markdown("""
-        <div class="chart-container" style="text-align: center;">
-            <h3>Real-Time Dashboard</h3>
-            <p>Live BTC prices, WebSocket updates, and market analysis with interactive charts</p>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Dashboard</h3>
+            </div>
+            <p class="text-secondary">Real-time monitoring with live price charts, AI signals, and market overview</p>
+            <ul class="feature-list">
+                <li>Live BTC price updates</li>
+                <li>Real-time signal alerts</li>
+                <li>Market trends & sentiment</li>
+                <li>Quick trade execution</li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Open Dashboard", key="dash", use_container_width=True):
-            st.switch_page("pages/1_Dashboard.py")
+        if st.button("Open Dashboard", key="dashboard", use_container_width=True):
+            st.switch_page("pages/1_🏠_Dashboard.py")
 
 with col2:
     with st.container():
         st.markdown("""
-        <div class="chart-container" style="text-align: center;">
-            <h3>AI Trading Signals</h3>
-            <p>50+ indicators, LSTM predictions, and comprehensive signal analysis</p>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Analytics</h3>
+            </div>
+            <p class="text-secondary">Advanced backtesting, optimization, Monte Carlo analysis, and performance metrics</p>
+            <ul class="feature-list">
+                <li>Strategy backtesting</li>
+                <li>Parameter optimization</li>
+                <li>Risk analysis</li>
+                <li>Performance reports</li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("View Signals", key="sig", use_container_width=True):
-            st.switch_page("pages/2_Signals.py")
+        if st.button("Open Analytics", key="analytics", use_container_width=True):
+            st.switch_page("pages/4_🔬_Analytics.py")
 
 with col3:
     with st.container():
         st.markdown("""
-        <div class="chart-container" style="text-align: center;">
-            <h3>Portfolio Manager</h3>
-            <p>Track positions, P&L analysis, and automated risk management</p>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Signals</h3>
+            </div>
+            <p class="text-secondary">Comprehensive signal analysis with 50+ technical indicators and AI predictions</p>
+            <ul class="feature-list">
+                <li>LSTM model predictions</li>
+                <li>Technical indicators</li>
+                <li>Signal history tracking</li>
+                <li>Confidence analysis</li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Manage Portfolio", key="port", use_container_width=True):
-            st.switch_page("pages/3_Portfolio.py")
+        if st.button("View Signals", key="signals", use_container_width=True):
+            st.switch_page("pages/2_📈_Signals.py")
 
-# Additional features row
+# Second row - 3 columns
+st.markdown("---")
 col1, col2, col3 = st.columns(3)
 
 with col1:
     with st.container():
         st.markdown("""
-        <div class="chart-container" style="text-align: center;">
-            <h3>Paper Trading</h3>
-            <p>Practice risk-free with $10,000 virtual portfolio</p>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Portfolio</h3>
+            </div>
+            <p class="text-secondary">Track your positions, P&L, and trading performance</p>
+            <ul class="feature-list">
+                <li>Position tracking</li>
+                <li>P&L visualization</li>
+                <li>Trade history</li>
+                <li>Performance metrics</li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Start Paper Trading", key="paper", use_container_width=True):
-            st.switch_page("pages/4_Paper_Trading.py")
+        if st.button("View Portfolio", key="portfolio", use_container_width=True):
+            st.switch_page("pages/3_💰_Portfolio.py")
 
 with col2:
     with st.container():
         st.markdown("""
-        <div class="chart-container" style="text-align: center;">
-            <h3>Advanced Analytics</h3>
-            <p>Backtesting, Monte Carlo simulations, and ML insights</p>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Paper Trading</h3>
+            </div>
+            <p class="text-secondary">Practice trading without risking real money</p>
+            <ul class="feature-list">
+                <li>Risk-free practice</li>
+                <li>Detailed analytics</li>
+                <li>Trading journal</li>
+                <li>Performance tracking</li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Run Analytics", key="analytics", use_container_width=True):
-            st.switch_page("pages/5_Analytics.py")
+        if st.button("Open Paper Trading", key="paper_trading", use_container_width=True):
+            st.switch_page("pages/5_📄_Paper_Trading.py")
 
 with col3:
     with st.container():
         st.markdown("""
-        <div class="chart-container" style="text-align: center;">
-            <h3>Configuration</h3>
-            <p>Customize trading rules, API keys, and signal weights</p>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Settings</h3>
+            </div>
+            <p class="text-secondary">Configure trading parameters and monitor system</p>
+            <ul class="feature-list">
+                <li>Trading rules</li>
+                <li>API config</li>
+                <li>Data quality</li>
+                <li>Diagnostics</li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Settings", key="settings", use_container_width=True):
-            st.switch_page("pages/6_Settings.py")
+        if st.button("Configure System", key="settings", use_container_width=True):
+            st.switch_page("pages/6_⚙️_Settings.py")
 
 # Footer
 st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #8b92a8; padding: 20px;">
-    <p>BTC Trading System v2.1.0 - UltraThink Enhanced</p>
-    <p style="font-size: 0.9em;">Powered by LSTM Neural Networks • Real-time WebSocket • Multi-source Data Integration</p>
+<div class="footer">
+    <p class="text-muted">BTC Trading System v2.1.0 - Professional Edition</p>
+    <p class="text-xs text-secondary">Powered by LSTM Neural Networks | Real-time WebSocket | Multi-source Data Integration</p>
 </div>
 """, unsafe_allow_html=True)
 
+# Add custom CSS for the new elements
+st.markdown("""
+<style>
+/* Navigation and layout styles */
+.global-header {
+    text-align: center;
+    padding: 2rem 0;
+    margin-bottom: 2rem;
+}
+
+.global-header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.feature-list {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+}
+
+.feature-list li {
+    padding: 0.25rem 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.feature-list li:before {
+    content: "→ ";
+    color: var(--accent-primary);
+    font-weight: bold;
+}
+
+.footer {
+    text-align: center;
+    padding: 2rem 0;
+}
+</style>
+""", unsafe_allow_html=True)

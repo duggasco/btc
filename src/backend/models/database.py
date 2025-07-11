@@ -8,6 +8,7 @@ import json
 import numpy as np
 import time
 import logging
+from utils.timezone import get_est_now, get_est_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -707,7 +708,7 @@ class DatabaseManager:
         ''')
         
         # Add explicit timestamp to ensure proper ordering in tests
-        timestamp = datetime.now().isoformat()
+        timestamp = get_est_timestamp()
         cursor.execute('''
             INSERT INTO signals (timestamp, signal, confidence, predicted_price, current_price, indicators)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -736,7 +737,7 @@ class DatabaseManager:
             )
         ''')
         
-        timestamp = datetime.now().isoformat()
+        timestamp = get_est_timestamp()
         cursor.execute('''
             INSERT INTO prices (timestamp, price, volume, high, low)
             VALUES (?, ?, ?, ?, ?)
@@ -813,7 +814,7 @@ class DatabaseManager:
             )
         ''')
         
-        timestamp = datetime.now().isoformat()
+        timestamp = get_est_timestamp()
         cursor.execute('''
             INSERT INTO portfolio (timestamp, type, price, amount, total_value)
             VALUES (?, ?, ?, ?, ?)
@@ -854,7 +855,7 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+        cutoff_date = (get_est_now() - timedelta(days=days)).isoformat()
         
         # Clean up old signals
         cursor.execute("DELETE FROM signals WHERE timestamp < ?", (cutoff_date,))

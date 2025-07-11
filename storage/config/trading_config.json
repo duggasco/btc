@@ -193,7 +193,7 @@
       "enabled": false,
       "start": "22:00",
       "end": "08:00",
-      "timezone": "UTC"
+      "timezone": "US/Eastern"
     }
   },
   "performance": {

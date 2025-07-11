@@ -131,16 +131,16 @@ build_and_start() {
     print_info "Building and starting services..."
     discord_info "Starting Docker build process..."
     
-    docker compose down --remove-orphans 2>/dev/null || true
+    docker compose -f docker/docker-compose.yml down --remove-orphans 2>/dev/null || true
     
-    if docker compose build --no-cache; then
+    if docker compose -f docker/docker-compose.yml build --no-cache; then
         discord_success "Docker images built successfully"
     else
         discord_error "Docker build failed"
         print_error "Docker build failed"
     fi
     
-    if docker compose up -d; then
+    if docker compose -f docker/docker-compose.yml up -d; then
         discord_success "Docker containers started"
     else
         discord_error "Failed to start Docker containers"
@@ -279,7 +279,7 @@ case "${1:-deploy}" in
         ;;
     "start")
         discord_info "Starting BTC Trading System..."
-        docker compose up -d
+        docker compose -f docker/docker-compose.yml up -d
         sleep 5
         run_tests
         show_status
@@ -287,24 +287,24 @@ case "${1:-deploy}" in
         ;;
     "stop")
         discord_info "Stopping BTC Trading System..."
-        docker compose down
+        docker compose -f docker/docker-compose.yml down
         print_status "Services stopped"
         discord_success "System stopped successfully"
         ;;
     "restart")
         discord_info "Restarting BTC Trading System..."
-        docker compose restart
+        docker compose -f docker/docker-compose.yml restart
         sleep 5
         run_tests
         show_status
         discord_success "System restarted successfully"
         ;;
     "logs")
-        docker compose logs -f
+        docker compose -f docker/docker-compose.yml logs -f
         ;;
     "build")
         discord_info "Building Docker images..."
-        docker compose build --no-cache
+        docker compose -f docker/docker-compose.yml build --no-cache
         print_status "Build complete"
         discord_success "Docker images built successfully"
         ;;
@@ -313,13 +313,13 @@ case "${1:-deploy}" in
         ;;
     "clean")
         discord_warning "Cleaning up Docker resources..."
-        docker compose down --volumes --remove-orphans
+        docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
         docker system prune -f
         print_status "Cleanup complete"
         discord_success "Cleanup completed successfully"
         ;;
     "status")
-        docker compose ps
+        docker compose -f docker/docker-compose.yml ps
         echo ""
         show_status
         ;;

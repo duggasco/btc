@@ -11,21 +11,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from components.api_client import APIClient
 from components.charts import create_signal_chart, create_correlation_heatmap
+from components.page_styling import setup_page
 from utils.helpers import format_currency, format_percentage, aggregate_signals
 from utils.constants import CHART_COLORS
+from utils.timezone import format_datetime_est
 
-st.set_page_config(page_title="Trading Signals", page_icon="Signals", layout="wide")
+# Setup page with consistent styling
+api_client = setup_page(
+    page_name="Signals",
+    page_title="Trading Signals",
+    page_subtitle="AI-powered signals with 50+ technical indicators"
+)
 
-# Initialize API client
-@st.cache_resource
-def get_api_client():
-    return APIClient(os.getenv("API_BASE_URL", "http://backend:8080"))
-
-api_client = get_api_client()
-
-# Custom CSS for signals page
+# Additional page-specific CSS
 st.markdown("""
 <style>
+/* Signals specific styling */
 .signal-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -33,29 +34,76 @@ st.markdown("""
     margin: 20px 0;
 }
 .indicator-card {
-    background: rgba(26, 31, 46, 0.8);
+    background: var(--bg-secondary);
     border-radius: 15px;
     padding: 20px;
-    border: 1px solid rgba(247, 147, 26, 0.3);
+    border: 1px solid var(--border-subtle);
     transition: all 0.3s ease;
 }
 .indicator-card:hover {
     transform: translateY(-2px);
+    border-color: var(--accent-primary);
     box-shadow: 0 8px 25px rgba(247, 147, 26, 0.3);
 }
 .indicator-value {
     font-size: 2em;
     font-weight: bold;
     margin: 10px 0;
+    color: var(--text-primary);
 }
-.bullish { color: #00ff88; }
-.bearish { color: #ff3366; }
-.neutral { color: #8b92a8; }
+.bullish { color: var(--accent-success); }
+.bearish { color: var(--accent-danger); }
+.neutral { color: var(--text-secondary); }
+.signal-confidence {
+    height: 8px;
+    background: var(--border-subtle);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+.confidence-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-primary), #ffb84d);
+    transition: width 0.3s ease;
+}
+.category-section {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border: 1px solid var(--border-subtle);
+}
+.category-title {
+    font-size: 1.3em;
+    font-weight: 600;
+    margin-bottom: 15px;
+    color: var(--accent-primary);
+}
+.signal-badge {
+    display: inline-block;
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.9em;
+    margin-right: 10px;
+}
+.signal-buy { 
+    background: rgba(34, 197, 94, 0.15); 
+    color: var(--accent-success); 
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+.signal-sell { 
+    background: rgba(239, 68, 68, 0.15); 
+    color: var(--accent-danger); 
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.signal-hold { 
+    background: rgba(156, 163, 175, 0.15); 
+    color: var(--text-secondary); 
+    border: 1px solid rgba(156, 163, 175, 0.3);
+}
 </style>
 """, unsafe_allow_html=True)
-
-st.title("AI Trading Signals & Analysis")
-st.markdown("Comprehensive analysis with 50+ indicators and LSTM predictions")
 
 # Fetch signal data
 try:
@@ -770,7 +818,7 @@ with tab5:
         
         recent_signals = history_df.sort_values('timestamp', ascending=False).head(10)
         display_df = recent_signals[['timestamp', 'signal', 'confidence', 'price_prediction']].copy()
-        display_df['timestamp'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+        display_df['timestamp'] = display_df['timestamp'].apply(format_datetime_est)
         display_df['confidence'] = display_df['confidence'].apply(lambda x: f"{x:.1%}")
         display_df['price_prediction'] = display_df['price_prediction'].apply(lambda x: f"${x:,.0f}")
         # Rename columns for better display

@@ -24,6 +24,7 @@ from urllib.parse import urlencode
 from .cache_service import get_cache_service
 from .cache_integration import cached_api_call, CachedDataFetcher
 from .historical_data_manager import get_historical_manager
+from utils.timezone import convert_unix_to_est, ensure_est_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class CoinGeckoSource(CryptoSource):
             
             # CoinGecko returns OHLC data directly
             df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df['timestamp'] = df['timestamp'].apply(lambda x: convert_unix_to_est(x, unit='ms'))
             df.set_index('timestamp', inplace=True)
             
             # Rename columns to match expected format
@@ -176,7 +177,7 @@ class BinanceSource(CryptoSource):
                 'taker_buy_quote', 'ignore'
             ])
             
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df['timestamp'] = df['timestamp'].apply(lambda x: convert_unix_to_est(x, unit='ms'))
             df.set_index('timestamp', inplace=True)
             
             # Convert to float and rename

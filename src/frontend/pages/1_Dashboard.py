@@ -19,7 +19,7 @@ from components.auto_refresh import AutoRefreshManager
 from utils.constants import TIME_PERIODS, CHART_COLORS
 from utils.helpers import format_currency, format_percentage
 
-st.set_page_config(page_title="Real-Time Dashboard", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Real-Time Dashboard", page_icon="Dashboard", layout="wide")
 
 # Custom CSS for dashboard
 st.markdown("""
@@ -64,12 +64,12 @@ if ws_client:
 # Header with WebSocket status
 col1, col2, col3 = st.columns([3, 1, 1])
 with col1:
-    st.title("📊 Real-Time BTC Dashboard")
+    st.title("Real-Time BTC Dashboard")
 with col2:
-    ws_status = "🟢 Connected" if ws_client and ws_client.is_connected() else "🔴 Disconnected"
+    ws_status = "Connected" if ws_client and ws_client.is_connected() else "Disconnected"
     st.markdown(f'<div style="text-align: right; padding: 10px;">{ws_status}</div>', unsafe_allow_html=True)
 with col3:
-    if st.button("🔄 Refresh", use_container_width=True):
+    if st.button("Refresh", use_container_width=True):
         st.rerun()
 
 # Time period selector
@@ -90,12 +90,12 @@ auto_refresh_enabled, refresh_interval = refresh_manager.render_controls(
 
 # Sidebar additional controls
 with st.sidebar:
-    st.markdown("### 🎨 Chart Settings")
+    st.markdown("### Chart Settings")
     chart_type = st.radio("Chart Type", ["Candlestick", "Line", "OHLC"], key="chart_type_radio")
     show_volume = st.checkbox("Show Volume", value=True, key="show_volume_checkbox")
     show_signals = st.checkbox("Show Buy/Sell Signals", value=True, key="show_signals_checkbox")
     
-    st.markdown("### 🔔 Price Alerts")
+    st.markdown("### Price Alerts")
     price_alert_enabled = st.checkbox("Enable Price Alerts", key="price_alert_checkbox")
     if price_alert_enabled:
         price_alert = st.number_input("Alert Price ($)", min_value=0.0, value=0.0, step=1000.0, key="price_alert_input")
@@ -110,7 +110,7 @@ if "alert_triggered" not in st.session_state:
     st.session_state.alert_triggered = False
 
 # Technical indicators selector (outside the loop)
-with st.expander("📈 Technical Indicators", expanded=True):
+with st.expander("Technical Indicators", expanded=True):
     indicator_cols = st.columns(6)
     
     with indicator_cols[0]:
@@ -188,7 +188,7 @@ try:
     
     with col1:
         # Price chart
-        st.markdown("### 📊 BTC Price Chart")
+        st.markdown("### BTC Price Chart")
         
         # Main chart
         if market_data and "data" in market_data:
@@ -256,7 +256,7 @@ try:
         
         # Volume analysis
         if show_volume and market_data and "data" in market_data:
-            st.markdown("### 📊 Volume Analysis")
+            st.markdown("### Volume Analysis")
             df = pd.DataFrame(market_data["data"])
             if not df.empty and "volume" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -267,7 +267,7 @@ try:
                 avg_volume = df["volume"].mean()
                 current_volume = df["volume"].iloc[-1] if len(df) > 0 else 0
                 volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
-                volume_trend = "📈" if volume_ratio > 1.2 else "📉" if volume_ratio < 0.8 else "➡️"
+                volume_trend = "Up" if volume_ratio > 1.2 else "Down" if volume_ratio < 0.8 else "Stable"
                 
                 with vol_col1:
                     st.metric("Current Volume", f"{current_volume/1e6:.1f}M BTC")
@@ -284,7 +284,7 @@ try:
     
     with col2:
         # Current price display
-        st.markdown("### 💰 Current Price")
+        st.markdown("### Current Price")
         if btc_data and "latest_price" in btc_data:
             current_price = btc_data["latest_price"]
             price_change = btc_data.get("price_change_percentage_24h", 0)
@@ -304,12 +304,12 @@ try:
                 if alert_type == "Above" and current_price >= price_alert and st.session_state.prev_price < price_alert:
                     if not st.session_state.alert_triggered:
                         st.balloons()
-                        st.warning(f"🔔 Price Alert! BTC is above ${price_alert:,.2f}")
+                        st.warning(f"Price Alert! BTC is above ${price_alert:,.2f}")
                         st.session_state.alert_triggered = True
                 elif alert_type == "Below" and current_price <= price_alert and st.session_state.prev_price > price_alert:
                     if not st.session_state.alert_triggered:
                         st.balloons()
-                        st.warning(f"🔔 Price Alert! BTC is below ${price_alert:,.2f}")
+                        st.warning(f"Price Alert! BTC is below ${price_alert:,.2f}")
                         st.session_state.alert_triggered = True
                 elif (alert_type == "Above" and current_price < price_alert) or (alert_type == "Below" and current_price > price_alert):
                     st.session_state.alert_triggered = False
@@ -317,7 +317,7 @@ try:
             st.session_state.prev_price = current_price
         
         # Signal display
-        st.markdown("### 🎯 AI Signal")
+        st.markdown("### AI Signal")
         if latest_signal:
             signal = latest_signal.get("signal", "hold")
             confidence = latest_signal.get("confidence", 0)
@@ -348,12 +348,12 @@ try:
             
             # Key factors
             if "key_factors" in latest_signal:
-                with st.expander("📊 Key Factors"):
+                with st.expander("Key Factors"):
                     for factor in latest_signal["key_factors"]:
                         st.write(f"• {factor}")
             
         # Market stats
-        st.markdown("### 📊 Market Stats")
+        st.markdown("### Market Stats")
         if btc_data:
             st.metric("24h High", f"${btc_data.get('high_24h', 0):,.2f}")
             st.metric("24h Low", f"${btc_data.get('low_24h', 0):,.2f}")
@@ -361,7 +361,7 @@ try:
             st.metric("Market Cap", f"${btc_data.get('market_cap', 0)/1e9:.1f}B")
             
         # Quick metrics
-        st.markdown("### 📈 Quick Metrics")
+        st.markdown("### Quick Metrics")
         if portfolio_metrics:
             total_value = portfolio_metrics.get("total_value", 0)
             total_pnl = portfolio_metrics.get("total_pnl", 0)
@@ -369,7 +369,7 @@ try:
             sharpe = portfolio_metrics.get("sharpe_ratio", 0)
             
             st.metric("Portfolio", f"${total_value:,.2f}")
-            pnl_color = "🟢" if total_pnl >= 0 else "🔴"
+            pnl_color = "Green" if total_pnl >= 0 else "Red"
             st.metric("P&L", f"{pnl_color} ${abs(total_pnl):,.2f}")
             st.metric("Win Rate", f"{win_rate:.1%}")
             st.metric("Sharpe", f"{sharpe:.2f}")
@@ -379,7 +379,7 @@ try:
     with col1:
         st.markdown(f'<p style="text-align: center; color: #8b92a8; font-size: 0.9em;">Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>', unsafe_allow_html=True)
     with col2:
-        data_quality = "🟢 Excellent" if ws_client and ws_client.is_connected() else "🟡 Good"
+        data_quality = "Excellent" if ws_client and ws_client.is_connected() else "Good"
         st.markdown(f'<p style="text-align: right; color: #8b92a8; font-size: 0.9em;">Data Quality: {data_quality}</p>', unsafe_allow_html=True)
     
 except Exception as e:

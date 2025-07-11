@@ -13,12 +13,12 @@
 src/frontend/
 ├── app.py                    # Main entry point
 ├── pages/                    # Individual pages
-│   ├── 1_📊_Dashboard.py
-│   ├── 2_📈_Signals.py
-│   ├── 3_💰_Portfolio.py
-│   ├── 4_📄_Paper_Trading.py
-│   ├── 5_🔬_Analytics.py
-│   └── 6_⚙️_Settings.py
+│   ├── 1_Dashboard.py
+│   ├── 2_Signals.py
+│   ├── 3_Portfolio.py
+│   ├── 4_Paper_Trading.py
+│   ├── 5_Analytics.py
+│   └── 6_Settings.py
 ├── components/              # Reusable components
 │   ├── websocket_client.py
 │   ├── api_client.py

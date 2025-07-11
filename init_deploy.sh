@@ -32,7 +32,7 @@ send_discord_notification() {
 discord_info() { send_discord_notification "ℹ️ $1" 3447003; }      # Blue
 discord_success() { send_discord_notification "✅ $1" 3066993; }   # Green
 discord_error() { send_discord_notification "❌ $1" 15158332; }    # Red
-discord_warning() { send_discord_notification "⚠️ $1" 16776960; }  # Yellow - THIS WAS MISSING!
+discord_warning() { send_discord_notification "⚠️ $1" 16776960; }  # Yellow
 
 check_dependencies() {
     print_info "Checking dependencies..."
@@ -43,7 +43,7 @@ check_dependencies() {
         print_error "Docker is not installed"
     fi
     
-    if ! command -v docker compose &> /dev/null && ! docker compose version &> /dev/null; then
+    if ! command -v docker compose &> /dev/null; then
         discord_error "Docker Compose is not installed"
         print_error "Docker Compose is not installed"
     fi
@@ -60,19 +60,10 @@ check_dependencies() {
 create_storage() {
     print_info "Creating storage directories..."
     discord_info "Creating storage directories..."
-    
-    # Create all necessary directories at /storage
-    sudo mkdir -p /storage/{data,models,logs/{backend,frontend,system},config,backups,uploads,exports}
-    
-    # Set proper permissions (assuming current user should have access)
-    sudo chown -R $(whoami):$(whoami) /storage
-    chmod -R 755 /storage
-    
-    # Create .gitkeep files to preserve directory structure
-    find /storage -type d -exec touch {}/.gitkeep \;
-    
-    print_status "Storage directories created at /storage"
-    discord_success "Storage directories created successfully at /storage"
+    mkdir -p storage/{data,models,logs/{backend,frontend,system},config,backups,uploads,exports}
+    chmod -R 755 storage
+    print_status "Storage directories created"
+    discord_success "Storage directories created successfully"
 }
 
 create_config() {
@@ -88,7 +79,6 @@ create_config() {
     # Use existing webhook or environment variable
     local webhook_to_use="${DISCORD_WEBHOOK_URL:-$existing_webhook}"
     
-    # Create root .env file
     cat > .env << EOL
 DATABASE_PATH=/app/data/trading_system.db
 MODEL_PATH=/app/models
@@ -109,62 +99,107 @@ EOL
         print_info "To enable Discord notifications, set DISCORD_WEBHOOK_URL in .env file"
     fi
 
-    # Create trading config if it doesn't exist
-    if [ ! -f /storage/config/trading_rules.json ]; then
-        cat > /storage/config/trading_rules.json << EOL
+    if [ ! -f storage/config/trading_config.json ]; then
+        cat > storage/config/trading_config.json << 'EOL'
 {
-    "min_trade_size": 0.001,
-    "max_position_size": 0.1,
-    "stop_loss_pct": 5.0,
-    "take_profit_pct": 10.0,
-    "buy_threshold": 0.6,
-    "sell_threshold": 0.6
+    "trading": {
+        "default_symbol": "BTC-USD",
+        "risk_tolerance": 0.02,
+        "max_position_size": 1.0,
+        "stop_loss_percentage": 0.05,
+        "take_profit_percentage": 0.10
+    },
+    "model": {
+        "sequence_length": 60,
+        "update_frequency": 300,
+        "confidence_threshold": 0.7
+    },
+    "api": {
+        "timeout": 30,
+        "retry_attempts": 3,
+        "rate_limit": 100
+    }
 }
 EOL
     fi
-
+    
     print_status "Configuration files created"
-    discord_success "Configuration completed"
+    discord_success "Configuration files created"
 }
 
 build_and_start() {
     print_info "Building and starting services..."
-    discord_info "Building Docker images and starting services..."
+    discord_info "Starting Docker build process..."
     
-    docker compose -f docker/docker-compose.yml -f docker/docker-compose.yml build
-    docker compose -f docker/docker-compose.yml -f docker/docker-compose.yml up -d
+    docker compose down --remove-orphans 2>/dev/null || true
     
-    print_info "Waiting for services to start..."
-    sleep 10
+    if docker compose build --no-cache; then
+        discord_success "Docker images built successfully"
+    else
+        discord_error "Docker build failed"
+        print_error "Docker build failed"
+    fi
     
-    print_status "Services started"
-    discord_success "All services are up and running"
+    if docker compose up -d; then
+        discord_success "Docker containers started"
+    else
+        discord_error "Failed to start Docker containers"
+        print_error "Failed to start containers"
+    fi
+    
+    print_info "Waiting for services to be ready..."
+    discord_info "Waiting for services to initialize..."
+    sleep 15
+    
+    # Check backend health
+    for i in {1..30}; do
+        if curl -f http://localhost:8080/health >/dev/null 2>&1; then
+            print_status "Backend is healthy"
+            discord_success "Backend API is healthy and responding"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            discord_error "Backend failed to start after 30 attempts"
+            print_error "Backend failed to start"
+        fi
+        sleep 2
+    done
+    
+    # Check frontend health
+    for i in {1..30}; do
+        if curl -f http://localhost:8501/_stcore/health >/dev/null 2>&1; then
+            print_status "Frontend is healthy"
+            discord_success "Frontend UI is healthy and responding"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            discord_warning "Frontend may still be starting"
+            print_warning "Frontend may still be starting"
+        fi
+        sleep 2
+    done
+    
+    print_status "Services started successfully"
 }
 
 run_tests() {
     print_info "Running system tests..."
-    discord_info "Running comprehensive system tests..."
-    
-    # Wait a bit more for services to be fully ready
-    sleep 5
-    
-    if command -v python3 &> /dev/null; then
-        if [ -f tests/scripts/test_system.py ]; then
-            python3 tests/scripts/test_system.py quick || {
-                discord_error "System tests failed"
-                print_warning "Some tests failed - check logs for details"
-            }
+    discord_info "Running system tests..."
+    if [ -f test_system.py ]; then
+        if python3 test_system.py quick; then
+            discord_success "System tests passed"
         else
-            print_warning "tests/scripts/test_system.py not found - skipping tests"
+            discord_warning "Some tests failed"
         fi
     else
-        print_warning "Python3 not found - skipping tests"
+        print_warning "test_system.py not found, skipping tests"
+        discord_warning "Test file not found, skipping tests"
     fi
 }
 
 send_system_status() {
-    local backend_status="❌ Not running"
-    local frontend_status="❌ Not running"
+    local backend_status="❌ Down"
+    local frontend_status="❌ Down"
     
     if curl -f http://localhost:8080/health >/dev/null 2>&1; then
         backend_status="✅ Running"
@@ -195,15 +230,16 @@ show_status() {
     echo "  API Docs:        http://localhost:8080/docs"
     echo ""
     echo -e "${BLUE}📝 Management Commands:${NC}"
-    echo "  View logs:       docker compose -f docker/docker-compose.yml logs -f"
-    echo "  Stop services:   docker compose -f docker/docker-compose.yml down"
-    echo "  Restart:         docker compose -f docker/docker-compose.yml restart"
+    echo "  View logs:       docker compose logs -f"
+    echo "  Stop services:   docker compose down"
+    echo "  Restart:         docker compose restart"
+    echo "  Run tests:       python3 test_system.py"
     echo ""
     echo -e "${BLUE}📁 Storage:${NC}"
-    echo "  Data:            /storage/data/"
-    echo "  Models:          /storage/models/"
-    echo "  Logs:            /storage/logs/"
-    echo "  Config:          /storage/config/"
+    echo "  Data:            ./storage/data/"
+    echo "  Models:          ./storage/models/"
+    echo "  Logs:            ./storage/logs/"
+    echo "  Config:          ./storage/config/"
     echo ""
     
     # Check Discord status
@@ -230,7 +266,6 @@ handle_error() {
 
 trap 'handle_error $LINENO' ERR
 
-# Main execution
 case "${1:-deploy}" in
     "deploy"|"init")
         discord_info "🚀 Starting BTC Trading System deployment..."
@@ -244,7 +279,7 @@ case "${1:-deploy}" in
         ;;
     "start")
         discord_info "Starting BTC Trading System..."
-        docker compose -f docker/docker-compose.yml up -d
+        docker compose up -d
         sleep 5
         run_tests
         show_status
@@ -252,24 +287,24 @@ case "${1:-deploy}" in
         ;;
     "stop")
         discord_info "Stopping BTC Trading System..."
-        docker compose -f docker/docker-compose.yml down
+        docker compose down
         print_status "Services stopped"
         discord_success "System stopped successfully"
         ;;
     "restart")
         discord_info "Restarting BTC Trading System..."
-        docker compose -f docker/docker-compose.yml restart
+        docker compose restart
         sleep 5
         run_tests
         show_status
         discord_success "System restarted successfully"
         ;;
     "logs")
-        docker compose -f docker/docker-compose.yml logs -f
+        docker compose logs -f
         ;;
     "build")
         discord_info "Building Docker images..."
-        docker compose -f docker/docker-compose.yml build --no-cache
+        docker compose build --no-cache
         print_status "Build complete"
         discord_success "Docker images built successfully"
         ;;
@@ -278,44 +313,21 @@ case "${1:-deploy}" in
         ;;
     "clean")
         discord_warning "Cleaning up Docker resources..."
-        docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
+        docker compose down --volumes --remove-orphans
         docker system prune -f
         print_status "Cleanup complete"
         discord_success "Cleanup completed successfully"
         ;;
     "status")
-        docker compose -f docker/docker-compose.yml ps
+        docker compose ps
         echo ""
         show_status
         ;;
-    "test-enhanced")
-        discord_info "Running enhanced LSTM tests..."
-        print_info "Testing enhanced LSTM modules..."
-        print_info "Note: This may take 5-10 minutes due to TA-Lib compilation..."
-        
-        # Build and run enhanced tests with extended timeout
-        export DOCKER_BUILDKIT_TIMEOUT=600
-        export COMPOSE_HTTP_TIMEOUT=600
-        
-        docker compose -f docker/docker-compose.test-enhanced.yml build --no-cache
-        docker compose -f docker/docker-compose.test-enhanced.yml up --abort-on-container-exit --timeout 600
-        docker compose -f docker/docker-compose.test-enhanced.yml down
-        
-        # If system is running, test the endpoints
-        if docker compose -f docker/docker-compose.yml ps | grep -q "Up"; then
-            print_info "Testing enhanced LSTM endpoints..."
-            docker run --rm --network=btc_default -v $(pwd)/tests/scripts:/scripts python:3.11-slim \
-                bash -c "pip install requests && python /scripts/test_enhanced_system.py"
-        fi
-        
-        discord_success "Enhanced LSTM tests completed"
-        ;;
     *)
-        echo "Usage: $0 {deploy|start|stop|restart|logs|build|test|test-enhanced|clean|status}"
+        echo "Usage: $0 {deploy|start|stop|restart|logs|build|test|clean|status}"
         echo ""
         echo "Commands:"
-        echo "  deploy        - Full deployment (default)"
-        echo "  test-enhanced - Test enhanced LSTM modules"
+        echo "  deploy    - Full deployment (default)"
         echo "  start     - Start services"
         echo "  stop      - Stop services"
         echo "  restart   - Restart services"
@@ -326,7 +338,5 @@ case "${1:-deploy}" in
         echo "  status    - Show service status"
         echo ""
         echo "Discord notifications: Set DISCORD_WEBHOOK_URL environment variable"
-        echo ""
-        echo "Note: All persistent data is stored in /storage"
         ;;
 esac

@@ -1,19 +1,19 @@
-# BTC Trading System 🚀
+# BTC Trading System
 
 A comprehensive Bitcoin trading system with AI-powered signals, real-time updates, and paper trading capabilities. Built with FastAPI, Streamlit, and LSTM neural networks. Features a complete test suite with 100% passing unit tests.
 
-## 🚀 Features
+## Features
 
 ### Core Capabilities
-- 🤖 **AI-powered trading signals** using LSTM neural networks with confidence intervals
-- 📊 **Real-time BTC price data** with WebSocket support for live updates
-- 💰 **Portfolio management** with P&L tracking and performance analytics
-- 🎯 **Limit orders** and advanced risk management
-- 📈 **Interactive charts** with 50+ technical indicators
-- 🔄 **Automated signal generation** with ensemble predictions
-- 📱 **Modern web interface** with real-time notifications
-- 🐳 **Fully containerized** with Docker
-- 📄 **Paper trading** with persistent portfolio tracking
+- **AI-powered trading signals** using LSTM neural networks with confidence intervals
+- **Real-time BTC price data** with WebSocket support for live updates
+- **Portfolio management** with P&L tracking and performance analytics
+- **Limit orders** and advanced risk management
+- **Interactive charts** with 50+ technical indicators
+- **Automated signal generation** with ensemble predictions
+- **Modern web interface** with real-time notifications
+- **Fully containerized** with Docker
+- **Paper trading** with persistent portfolio tracking
 
 ### Enhanced Features (UltraThink)
 - **50+ Trading Indicators**: Comprehensive technical, on-chain, sentiment, and macro indicators
@@ -31,7 +31,7 @@ A comprehensive Bitcoin trading system with AI-powered signals, real-time update
 - **SQLite API Caching**: Intelligent caching layer reduces API calls by 60-80%
 - **Automated Cache Maintenance**: Self-optimizing cache with health monitoring
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 btc/
@@ -60,12 +60,12 @@ btc/
 │       │   ├── metrics.py          # Metrics display components
 │       │   └── websocket_client.py # Real-time WebSocket client
 │       ├── pages/                   # Multi-page navigation
-│       │   ├── 1_📊_Dashboard.py   # Main trading dashboard
-│       │   ├── 2_📈_Signals.py     # Signal analysis page
-│       │   ├── 3_💰_Portfolio.py   # Portfolio management
-│       │   ├── 4_📄_Paper_Trading.py
-│       │   ├── 5_🔬_Analytics.py
-│       │   └── 6_⚙️_Settings.py
+│       │   ├── 1_Dashboard.py       # Main trading dashboard
+│       │   ├── 2_Signals.py         # Signal analysis page
+│       │   ├── 3_Portfolio.py       # Portfolio management
+│       │   ├── 4_Paper_Trading.py
+│       │   ├── 5_Analytics.py
+│       │   └── 6_Settings.py
 │       └── utils/                   # Helper functions
 ├── tests/                           # Comprehensive test suite
 │   ├── unit/                       # 92 unit tests (100% passing)
@@ -78,7 +78,7 @@ btc/
 └── init_deploy.sh                  # One-click deployment
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - **Docker** and **Docker Compose**
@@ -113,7 +113,7 @@ docker compose up -d
 - **API Documentation:** http://localhost:8080/docs
 - **WebSocket:** ws://localhost:8000/ws
 
-## 📊 Key Features Explained
+## Key Features Explained
 
 ### AI Trading Signals
 - LSTM neural network with attention mechanism
@@ -169,7 +169,7 @@ docker compose up -d
 - VIX volatility index
 - Treasury yields correlation
 
-## 🛠️ Configuration
+## Configuration
 
 ### Trading Rules (`/config/trading-rules`)
 ```json
@@ -204,7 +204,7 @@ docker compose up -d
 }
 ```
 
-## 🔧 Management Commands
+## Management Commands
 
 ```bash
 # Using deployment script (recommended)
@@ -224,7 +224,7 @@ docker compose logs -f    # View logs
 docker compose restart    # Restart services
 ```
 
-## 🧪 Testing
+## Testing
 
 The project includes a comprehensive test suite with 92 unit tests achieving 100% pass rate.
 
@@ -255,9 +255,9 @@ docker run --rm btc-test pytest tests/unit/ -v
 ./init_deploy.sh test
 ```
 
-## 📡 API Endpoints
+## API Endpoints
 
-See [API Documentation](docs/API.md) for complete endpoint reference.
+See [API Documentation](./docs/API.md) for complete endpoint reference.
 
 ### Core Endpoints
 - `GET /` - Health check
@@ -291,7 +291,7 @@ See [API Documentation](docs/API.md) for complete endpoint reference.
 - `POST /cache/optimize` - Optimize cache storage
 - `GET /cache/maintenance/status` - Maintenance system status
 
-## 🔐 Security & API Keys
+## Security & API Keys
 
 ### Optional API Keys for Enhanced Data
 Add to `.env` file:
@@ -306,7 +306,7 @@ CRYPTOPANIC_API_KEY=your_key        # Crypto news
 GLASSNODE_API_KEY=your_key          # On-chain data
 ```
 
-## 🐳 Docker Details
+## Docker Details
 
 ### Services
 - **backend**: FastAPI service with all trading logic
@@ -333,7 +333,7 @@ STREAMLIT_PORT=8501
 DISCORD_WEBHOOK_URL=optional_webhook
 ```
 
-## 🚀 Advanced Usage
+## Advanced Usage
 
 ### Enable All Features
 1. Set up Discord webhook for notifications
@@ -349,7 +349,7 @@ DISCORD_WEBHOOK_URL=optional_webhook
 4. Use paper trading to validate changes
 5. Export results for analysis
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -357,7 +357,7 @@ DISCORD_WEBHOOK_URL=optional_webhook
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📈 Performance
+## Performance
 
 - Handles real-time data for multiple indicators
 - WebSocket support for instant updates
@@ -367,7 +367,7 @@ DISCORD_WEBHOOK_URL=optional_webhook
 - Automated cache maintenance ensures optimal performance
 - Persistent storage for all trading data
 
-## 🧹 Recent Updates (January 2025)
+## Recent Updates (January 2025)
 
 ### Code Cleanup
 - **Removed redundant files**: Eliminated ~15 duplicate and backup files
@@ -382,7 +382,7 @@ DISCORD_WEBHOOK_URL=optional_webhook
 - Cleaner project structure with no Python cache files
 - Enhanced maintainability and easier updates
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project is for **educational and demonstration purposes only**. 
 
@@ -392,11 +392,11 @@ This project is for **educational and demonstration purposes only**.
 - Always do your own research
 - Never invest more than you can afford to lose
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Data provided by CoinGecko, Binance, Blockchain.info
 - Sentiment data from Alternative.me, Reddit, NewsAPI

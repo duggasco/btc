@@ -14,7 +14,7 @@ from components.charts import create_signal_chart, create_correlation_heatmap
 from utils.helpers import format_currency, format_percentage, aggregate_signals
 from utils.constants import CHART_COLORS
 
-st.set_page_config(page_title="Trading Signals", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Trading Signals", page_icon="Signals", layout="wide")
 
 # Initialize API client
 @st.cache_resource
@@ -54,7 +54,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 AI Trading Signals & Analysis")
+st.title("AI Trading Signals & Analysis")
 st.markdown("Comprehensive analysis with 50+ indicators and LSTM predictions")
 
 # Fetch signal data
@@ -104,19 +104,19 @@ if latest_signal:
     with col4:
         signal_strength = latest_signal.get("signal_strength", "Medium")
         strength_color = {
-            "Strong": "🟢",
-            "Medium": "🟡",
-            "Weak": "🔴"
-        }.get(signal_strength, "⚪")
+            "Strong": "[Strong]",
+            "Medium": "[Medium]",
+            "Weak": "[Weak]"
+        }.get(signal_strength, "[Unknown]")
         st.metric("Signal Strength", f"{strength_color} {signal_strength}")
 
 # Tabs for different signal views
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Technical Indicators",
-    "🔗 On-Chain Metrics",
-    "😊 Sentiment Analysis",
-    "🌍 Macro Indicators",
-    "📈 Signal History"
+    "Technical Indicators",
+    "On-Chain Metrics",
+    "Sentiment Analysis",
+    "Macro Indicators",
+    "Signal History"
 ])
 
 # Technical Indicators Tab
@@ -154,7 +154,7 @@ with tab1:
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("#### 📉 Momentum Indicators")
+                st.markdown("#### Momentum Indicators")
                 for indicator, value in momentum_indicators.items():
                     # Determine sentiment
                     sentiment = "neutral"
@@ -176,13 +176,13 @@ with tab1:
                         st.markdown(f'<span class="{sentiment}">{value:.2f}</span>', unsafe_allow_html=True)
                     with col_ind3:
                         if sentiment == "bullish":
-                            st.markdown("🟢")
+                            st.markdown("[Bullish]")
                         elif sentiment == "bearish":
-                            st.markdown("🔴")
+                            st.markdown("[Bearish]")
                         else:
-                            st.markdown("⚪")
+                            st.markdown("[Neutral]")
                 
-                st.markdown("#### 📈 Trend Indicators")
+                st.markdown("#### Trend Indicators")
                 for indicator, value in trend_indicators.items():
                     col_ind1, col_ind2 = st.columns([2, 1])
                     with col_ind1:
@@ -191,7 +191,7 @@ with tab1:
                         st.markdown(f"{value:.2f}")
             
             with col2:
-                st.markdown("#### 📊 Volatility Indicators")
+                st.markdown("#### Volatility Indicators")
                 for indicator, value in volatility_indicators.items():
                     col_ind1, col_ind2 = st.columns([2, 1])
                     with col_ind1:
@@ -199,7 +199,7 @@ with tab1:
                     with col_ind2:
                         st.markdown(f"{value:.2f}")
                 
-                st.markdown("#### 📊 Volume Indicators")
+                st.markdown("#### Volume Indicators")
                 for indicator, value in volume_indicators.items():
                     col_ind1, col_ind2 = st.columns([2, 1])
                     with col_ind1:
@@ -220,7 +220,7 @@ with tab2:
         onchain_data = comprehensive_signals["on_chain"]
         
         # Network Activity
-        st.markdown("#### 🔗 Network Activity")
+        st.markdown("#### Network Activity")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -244,7 +244,7 @@ with tab2:
                      help="Mining difficulty level")
         
         # Value Metrics
-        st.markdown("#### 💎 Value Metrics")
+        st.markdown("#### Value Metrics")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -307,7 +307,7 @@ with tab2:
             <div class="indicator-card">
                 <h4>Net Exchange Flow</h4>
                 <div class="indicator-value {flow_signal}">{net_flow:,.0f} BTC</div>
-                <p>{"🟢 Accumulation" if net_flow > 0 else "🔴 Distribution"}</p>
+                <p>{"Accumulation" if net_flow > 0 else "Distribution"}</p>
                 <small>Positive = More leaving exchanges (bullish)</small>
             </div>
             """, unsafe_allow_html=True)
@@ -390,7 +390,7 @@ with tab3:
             """, unsafe_allow_html=True)
             
             # Social sentiment breakdown
-            st.markdown("#### 📱 Social Media Sentiment")
+            st.markdown("#### Social Media Sentiment")
             reddit_sentiment = sentiment_data.get("reddit_sentiment", 0)
             twitter_sentiment = sentiment_data.get("twitter_sentiment", 0)
             
@@ -446,7 +446,7 @@ with tab3:
             st.plotly_chart(position_fig, use_container_width=True)
         
         # Sentiment Trends
-        st.markdown("#### 📈 Sentiment Trends (7 Days)")
+        st.markdown("#### Sentiment Trends (7 Days)")
         if "sentiment_history" in sentiment_data:
             history_df = pd.DataFrame(sentiment_data["sentiment_history"])
             
@@ -487,7 +487,7 @@ with tab4:
         macro_data = comprehensive_signals["macro_indicators"]
         
         # Correlation Overview
-        st.markdown("#### 📊 BTC Correlations")
+        st.markdown("#### BTC Correlations")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -538,7 +538,7 @@ with tab4:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 💰 Monetary Indicators")
+            st.markdown("#### Monetary Indicators")
             
             # Interest rates
             fed_rate = macro_data.get("fed_funds_rate", 0)
@@ -569,7 +569,7 @@ with tab4:
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.markdown("#### 🌍 Global Markets")
+            st.markdown("#### Global Markets")
             
             # Create correlation heatmap
             correlations = {
@@ -599,7 +599,7 @@ with tab4:
             st.plotly_chart(fig, use_container_width=True)
         
         # Macro Risk Assessment
-        st.markdown("#### ⚠️ Macro Risk Assessment")
+        st.markdown("#### Macro Risk Assessment")
         
         inflation_rate = macro_data.get("inflation_rate", 0)
         gdp_growth = macro_data.get("gdp_growth", 0)

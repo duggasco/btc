@@ -8,7 +8,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from typing import Dict, Tuple, Optional, List, Any
 
-from models.lstm import TradingSignalGenerator
+from models.lstm import TradingSignalGenerator, IntegratedTradingSignalGenerator, EnhancedLSTMTradingModel
 from models.database import DatabaseManager
 from services.backtesting import (
     BacktestConfig, SignalWeights, EnhancedSignalWeights,
@@ -27,6 +27,7 @@ from sklearn.preprocessing import MinMaxScaler
 import warnings
 warnings.filterwarnings('ignore')
 from services.data_fetcher import get_fetcher
+from services.historical_data_manager import get_historical_manager
 
 # Enhanced logging
 logging.basicConfig(level=logging.INFO)
@@ -34,38 +35,144 @@ logger = logging.getLogger(__name__)
 
 # ========== ENHANCED TRADING SIGNAL GENERATOR ==========
 
-class AdvancedTradingSignalGenerator(TradingSignalGenerator):
+class AdvancedTradingSignalGenerator(IntegratedTradingSignalGenerator):
     """Advanced version with all 50+ signals and LSTM best practices"""
     
-    def __init__(self, model_path: str = None, sequence_length: int = 30):
-        super().__init__(model_path, sequence_length)
+    def __init__(self, model_path: str = None, sequence_length: int = 30, use_enhanced_model: bool = True):
+        # Initialize with enhanced model by default
+        super().__init__(model_path, sequence_length, use_enhanced_model=use_enhanced_model)
+        
+        # Override with EnhancedSignalWeights
         self.signal_weights = EnhancedSignalWeights()
         self.performance_history = []
         self._cached_btc_data = None
         self._cached_predictions = {}
         self._fitted_on_features = None
-        self.signal_calculator = ComprehensiveSignalCalculator()
         
-        # LSTM best practices from research
-        self.feature_scaler = MinMaxScaler()
-        self.target_scaler = MinMaxScaler()
-        self.feature_importance = {}
+        # Signal calculator is already initialized in parent
+        # self.signal_calculator = ComprehensiveSignalCalculator()
+        
+        # LSTM best practices from research (already in parent)
+        # self.feature_scaler = MinMaxScaler()
+        # self.target_scaler = MinMaxScaler()
+        # self.feature_importance = {}
         
         # Enhanced model parameters
         self.dropout_rate = 0.2
         self.learning_rate = 0.001
         self.batch_size = 32
         
-        # Use external data fetcher
-        self.data_fetcher = get_fetcher()
+        # Data fetcher already initialized in parent
+        # self.data_fetcher = get_fetcher()
+        
+        # Store whether we're using enhanced model
+        self.use_enhanced_model = use_enhanced_model
+        
+        # Try to load model if path provided
+        if model_path:
+            self._load_model_safe(model_path)
+    
+    def _load_model_safe(self, model_path: str) -> bool:
+        """Safely load model with architecture compatibility checks"""
+        try:
+            if not os.path.exists(model_path):
+                logger.warning(f"Model file not found: {model_path}")
+                return False
+            
+            # Try to load the checkpoint
+            checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+            
+            # Check if it's a valid checkpoint
+            if 'model_state_dict' not in checkpoint:
+                logger.error(f"Invalid model checkpoint format at {model_path}")
+                return False
+            
+            # Get model state dict
+            state_dict = checkpoint['model_state_dict']
+            
+            # Try to determine input size from the saved model
+            # Look for the first LSTM layer's weight shape
+            input_size = None
+            for key, value in state_dict.items():
+                if 'lstm.weight_ih_l0' in key:
+                    # The input size is the second dimension of weight_ih_l0
+                    input_size = value.shape[1]
+                    break
+            
+            if input_size is None:
+                logger.warning("Could not determine input size from saved model, using default")
+                input_size = 16  # Default
+            
+            # Check if we need to create a new model with matching architecture
+            if hasattr(self, 'model') and hasattr(self.model, 'lstm'):
+                current_input_size = self.model.lstm.input_size
+                if current_input_size != input_size:
+                    logger.info(f"Model architecture mismatch. Creating new model with input_size={input_size}")
+                    if self.use_enhanced_model:
+                        self.model = EnhancedLSTMTradingModel(
+                            input_size=input_size,
+                            hidden_size=50,
+                            num_layers=2,
+                            dropout=self.dropout_rate,
+                            use_attention=True
+                        )
+                    else:
+                        from models.lstm import LSTMTradingModel
+                        self.model = LSTMTradingModel(
+                            input_size=input_size,
+                            hidden_size=50,
+                            num_layers=2,
+                            dropout=self.dropout_rate
+                        )
+            
+            # Load the state dict
+            self.model.load_state_dict(state_dict)
+            
+            # Load other components if available
+            if 'scaler' in checkpoint:
+                self.scaler = checkpoint['scaler']
+            if 'feature_scaler' in checkpoint:
+                self.feature_scaler = checkpoint['feature_scaler']
+            if 'target_scaler' in checkpoint:
+                self.target_scaler = checkpoint['target_scaler']
+            if 'is_trained' in checkpoint:
+                self.is_trained = checkpoint['is_trained']
+            if 'sequence_length' in checkpoint:
+                self.sequence_length = checkpoint.get('sequence_length', 60)
+            
+            logger.info(f"Successfully loaded model from {model_path}")
+            logger.info(f"Model input size: {input_size}, sequence length: {self.sequence_length}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to load model from {model_path}: {str(e)}")
+            logger.error(traceback.format_exc())
+            self.is_trained = False
+            return False
         
     def fetch_enhanced_btc_data(self, period: str = "2y", include_macro: bool = True) -> pd.DataFrame:
         """Fetch BTC data with additional market indicators"""
         try:
             logger.info(f"Fetching enhanced BTC data for period: {period}")
             
-            # Get basic BTC data from external fetcher
-            btc_data = self.data_fetcher.fetch_crypto_data('BTC', period)
+            # Get BTC data using enhanced historical capabilities
+            # First try to load existing historical data
+            btc_data = self.data_fetcher.load_combined_data('BTC', granularity='1d')
+            
+            # If not enough data, fetch extended historical data
+            if btc_data is None or len(btc_data) < self.sequence_length:
+                logger.info("Fetching extended historical data...")
+                btc_data = self.data_fetcher.fetch_extended_historical_data('BTC', granularity='1d')
+            
+            # Filter to requested period if we have more data
+            if len(btc_data) > 0:
+                days_map = {
+                    '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
+                    '6mo': 180, '1y': 365, '2y': 730
+                }
+                days = days_map.get(period, 90)
+                if len(btc_data) > days:
+                    btc_data = btc_data.iloc[-days:]
             
             if btc_data is None or len(btc_data) < self.sequence_length:
                 logger.warning("Insufficient BTC data, using fallback")
@@ -702,8 +809,10 @@ class AdvancedTradingSignalGenerator(TradingSignalGenerator):
                               n_predictions: int = 10) -> Tuple[str, float, float, Dict]:
         """Generate predictions with confidence intervals using ensemble"""
         if not self.is_trained:
-            logger.warning("Model not trained, training now...")
-            self.train_enhanced_model(current_data)
+            logger.warning("Model not trained, using rule-based prediction")
+            # Use rule-based prediction instead of training in prediction method
+            signal, confidence, price = self.generate_rule_based_signal(current_data)
+            return signal, confidence, price, {"method": "rule_based", "reason": "model_not_trained"}
         
         # Prepare features
         features = self.prepare_enhanced_features(current_data)
@@ -807,9 +916,26 @@ class ModelWrapper:
 class AdvancedIntegratedBacktestingSystem:
     """Advanced integrated system with all enhancements"""
     
-    def __init__(self, db_path: str = None, model_path: str = None):
+    def __init__(self, db_path: str = None, model_path: str = None, use_enhanced_model: bool = True):
         self.db = DatabaseManager(db_path)
-        self.signal_generator = AdvancedTradingSignalGenerator(model_path)
+        
+        # Initialize signal generator with proper model path handling
+        if model_path and not os.path.exists(model_path):
+            # Try storage/models directory
+            storage_path = os.path.join('/app/data', os.path.basename(model_path))
+            if os.path.exists(storage_path):
+                model_path = storage_path
+            else:
+                # Try default path
+                default_path = '/app/data/lstm_btc_model.pth'
+                if os.path.exists(default_path):
+                    logger.warning(f"Model not found at {model_path}, using default at {default_path}")
+                    model_path = default_path
+                else:
+                    logger.warning(f"No model found at {model_path}, will train new model")
+                    model_path = None
+        
+        self.signal_generator = AdvancedTradingSignalGenerator(model_path, use_enhanced_model=use_enhanced_model)
         self.config = BacktestConfig()
         self.config.min_train_test_ratio = 0.5
         
@@ -1636,7 +1762,7 @@ def main():
         print("="*80)
         
         # Performance Metrics
-        print("\n📊 PERFORMANCE METRICS:")
+        print("\nPERFORMANCE METRICS:")
         print(f"Composite Score: {results.get('composite_score', 0):.3f}")
         print(f"Confidence Score: {results.get('confidence_score', 0):.2%}")
         print(f"Sortino Ratio: {results.get('sortino_ratio_mean', 0):.2f}")
@@ -1647,14 +1773,14 @@ def main():
         print(f"Volatility: {results.get('volatility_mean', 0):.2%}")
         
         # Risk Metrics
-        print("\n⚠️  RISK METRICS:")
+        print("\nRISK METRICS:")
         risk_metrics = results.get('risk_metrics', {})
         print(f"Value at Risk (95%): {risk_metrics.get('var_95', 0):.2%}")
         print(f"Conditional VaR (95%): {risk_metrics.get('cvar_95', 0):.2%}")
         print(f"Omega Ratio: {risk_metrics.get('omega_ratio', 0):.2f}")
         
         # Trading Statistics
-        print("\n📈 TRADING STATISTICS:")
+        print("\nTRADING STATISTICS:")
         trading_stats = results.get('trading_statistics', {})
         print(f"Total Trades: {trading_stats.get('total_trades', 0)}")
         print(f"Long Positions: {trading_stats.get('long_positions', 0)}")
@@ -1662,14 +1788,14 @@ def main():
         print(f"Position Turnover: {trading_stats.get('avg_position_turnover', 0):.2%}")
         
         # Market Analysis
-        print("\n🌐 MARKET ANALYSIS:")
+        print("\nMARKET ANALYSIS:")
         market = results.get('market_analysis', {})
         print(f"Market Regime: {market.get('regime', 'Unknown')}")
         print(f"Dominant Trend: {market.get('dominant_trend', 'Unknown')}")
         print(f"Volatility Regime: {market.get('volatility_regime', 'Unknown')}")
         
         # Optimal Weights
-        print("\n⚖️  OPTIMAL SIGNAL WEIGHTS:")
+        print("\nOPTIMAL SIGNAL WEIGHTS:")
         weights = results.get('optimal_weights', {})
         print(f"Technical: {weights.get('technical', 0):.2%}")
         print(f"On-chain: {weights.get('onchain', 0):.2%}")
@@ -1686,25 +1812,25 @@ def main():
             print(f"    Volume: {tech_sub.get('volume', 0):.2%}")
         
         # Top Signals
-        print("\n🎯 TOP CONTRIBUTING SIGNALS:")
+        print("\nTOP CONTRIBUTING SIGNALS:")
         signal_analysis = results.get('signal_analysis', {})
         top_signals = signal_analysis.get('top_signals', {})
         for i, (signal, perf) in enumerate(list(top_signals.items())[:5], 1):
             print(f"{i}. {signal}: Total Contribution = {perf.get('total_contribution', 0):.4f}")
         
         # Recommendations
-        print("\n💡 RECOMMENDATIONS:")
+        print("\nRECOMMENDATIONS:")
         for i, rec in enumerate(results.get('recommendations', [])[:5], 1):
             print(f"{i}. {rec}")
         
         # Check if retraining needed
         if system.check_and_retrain():
-            print("\n🔄 Model has been retrained with optimized parameters!")
+            print("\nModel has been retrained with optimized parameters!")
         
-        print("\n✅ Advanced backtest complete! Detailed results saved to file.")
+        print("\nAdvanced backtest complete! Detailed results saved to file.")
         
     except Exception as e:
-        print(f"\n❌ Backtest failed: {str(e)}")
+        print(f"\nBacktest failed: {str(e)}")
         logger.error("Main execution failed", exc_info=True)
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ class DiscordNotifier:
         self.last_signal = signal
         
         embed = {
-            "title": f"🤖 AI Signal Update{' - CHANGED!' if signal_changed else ''}",
+            "title": f"AI Signal Update{' - CHANGED!' if signal_changed else ''}",
             "color": self._get_signal_color(signal),
             "fields": [
                 {"name": "Signal", "value": f"**{signal.upper()}**", "inline": True},
@@ -76,7 +76,7 @@ class DiscordNotifier:
         
         if signal_changed:
             embed["fields"].append({
-                "name": "⚠️ Signal Changed",
+                "name": "Signal Changed",
                 "value": f"Previous signal was {self.last_signal}",
                 "inline": False
             })
@@ -88,7 +88,7 @@ class DiscordNotifier:
         self.last_price = current_price
         
         embed = {
-            "title": f"{'📈' if is_positive else '📉'} Price Alert - {'+' if is_positive else ''}{price_change_pct:.1f}% Move",
+            "title": f"Price Alert - {'+' if is_positive else ''}{price_change_pct:.1f}% Move",
             "color": 0x00FF00 if is_positive else 0xFF0000,
             "fields": [
                 {"name": "Current Price", "value": self._format_price(current_price), "inline": True},
@@ -104,7 +104,7 @@ class DiscordNotifier:
                             lot_id: str, trade_value: float):
         """Notify when a trade is executed"""
         embed = {
-            "title": f"{'🟢' if trade_type == 'buy' else '🔴'} Trade Executed - {trade_type.upper()}",
+            "title": f"Trade Executed - {trade_type.upper()}",
             "color": self._get_signal_color(trade_type),
             "fields": [
                 {"name": "Trade ID", "value": f"`{trade_id[:8]}...`", "inline": True},
@@ -124,7 +124,7 @@ class DiscordNotifier:
                              size: Optional[float] = None):
         """Notify when a limit order is triggered"""
         embed = {
-            "title": f"⚡ Limit Order Triggered - {limit_type.replace('_', ' ').title()}",
+            "title": f"Limit Order Triggered - {limit_type.replace('_', ' ').title()}",
             "color": 0xFF9500,  # Orange
             "fields": [
                 {"name": "Limit Type", "value": limit_type.replace('_', ' ').title(), "inline": True},
@@ -144,7 +144,7 @@ class DiscordNotifier:
         is_positive = pnl_change_pct > 0
         
         embed = {
-            "title": f"💰 Major P&L Change - {'+' if is_positive else ''}{pnl_change_pct:.1f}%",
+            "title": f"Major P&L Change - {'+' if is_positive else ''}{pnl_change_pct:.1f}%",
             "color": 0x00FF00 if is_positive else 0xFF0000,
             "fields": [
                 {"name": "Total P&L", "value": self._format_price(total_pnl), "inline": True},
@@ -166,7 +166,7 @@ class DiscordNotifier:
         }
         
         embed = {
-            "title": f"🔔 System Status - {status.title()}",
+            "title": f"System Status - {status.title()}",
             "color": colors.get(status.lower(), 0x808080),
             "description": message,
             "timestamp": datetime.utcnow().isoformat()
@@ -191,15 +191,15 @@ class DiscordNotifier:
         }
         
         type_icons = {
-            'info': 'ℹ️',
-            'success': '✅',
-            'warning': '⚠️',
-            'error': '❌',
-            'signal': '📊'
+            'info': '[INFO]',
+            'success': '[SUCCESS]',
+            'warning': '[WARNING]',
+            'error': '[ERROR]',
+            'signal': '[SIGNAL]'
         }
         
         embed = {
-            "title": f"{type_icons.get(notification_type, '📢')} {notification_type.title()} Notification",
+            "title": f"{type_icons.get(notification_type, '[NOTIFICATION]')} {notification_type.title()} Notification",
             "description": message,
             "color": type_colors.get(notification_type, 0x808080),
             "timestamp": datetime.utcnow().isoformat()

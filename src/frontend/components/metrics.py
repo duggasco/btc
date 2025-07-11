@@ -118,7 +118,7 @@ def display_risk_metrics(risk_data: Dict[str, Any]):
     with col4:
         risk_score = risk_data.get("risk_score", 50)
         risk_level = "Low" if risk_score < 30 else "High" if risk_score > 70 else "Medium"
-        risk_color = "🟢" if risk_score < 30 else "🔴" if risk_score > 70 else "🟡"
+        risk_color = "[LOW]" if risk_score < 30 else "[HIGH]" if risk_score > 70 else "[MEDIUM]"
         st.metric(
             "Risk Score",
             f"{risk_color} {risk_score}/100",
@@ -132,7 +132,7 @@ def display_signal_metrics(signal_data: Dict[str, Any]):
     
     with col1:
         signal = signal_data.get("signal", "HOLD")
-        signal_color = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "🟡"
+        signal_color = "[BUY]" if signal == "BUY" else "[SELL]" if signal == "SELL" else "[HOLD]"
         st.metric(
             "Signal",
             f"{signal_color} {signal}",

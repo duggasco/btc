@@ -15,7 +15,7 @@ from components.charts import create_portfolio_chart
 from utils.helpers import format_currency, format_percentage
 from utils.constants import CHART_COLORS
 
-st.set_page_config(page_title="Paper Trading", page_icon="📄", layout="wide")
+st.set_page_config(page_title="Paper Trading", page_icon="Paper", layout="wide")
 
 # Custom CSS for paper trading
 st.markdown("""
@@ -151,7 +151,7 @@ def create_trade_distribution(trades: list) -> go.Figure:
 def show_paper_trading():
     """Main paper trading interface"""
     
-    st.title("📄 Paper Trading Simulator")
+    st.title("Paper Trading Simulator")
     
     # Fetch current status and data
     try:
@@ -182,7 +182,7 @@ def show_paper_trading():
     col1, col2, col3 = st.columns([2, 1, 1])
     
     with col1:
-        status_text = "🟢 Active" if is_enabled else "🔴 Inactive"
+        status_text = "Active" if is_enabled else "Inactive"
         st.markdown(f"""
         <div class="paper-trading-header">
             <h2>Paper Trading Status: {status_text}</h2>
@@ -191,55 +191,55 @@ def show_paper_trading():
         """, unsafe_allow_html=True)
     
     with col2:
-        if st.button("🔄 Toggle Paper Trading", use_container_width=True,
+        if st.button("Toggle Paper Trading", use_container_width=True,
                      disabled=st.session_state.get('confirming_toggle', False)):
             st.session_state.confirming_toggle = True
             
     with col3:
-        if st.button("🔄 Reset Portfolio", use_container_width=True,
+        if st.button("Reset Portfolio", use_container_width=True,
                      disabled=st.session_state.get('confirming_reset', False)):
             st.session_state.confirming_reset = True
     
     # Confirmation dialogs
     if st.session_state.get('confirming_toggle', False):
         with st.container():
-            st.warning(f"⚠️ {'Disable' if is_enabled else 'Enable'} paper trading?")
+            st.warning(f"{'Disable' if is_enabled else 'Enable'} paper trading?")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅ Confirm", key="confirm_toggle"):
+                if st.button("Confirm", key="confirm_toggle"):
                     result = api_client.toggle_paper_trading()
                     if result:
                         st.success(f"Paper trading {'disabled' if is_enabled else 'enabled'}")
                         st.session_state.confirming_toggle = False
                         st.rerun()
             with col2:
-                if st.button("❌ Cancel", key="cancel_toggle"):
+                if st.button("Cancel", key="cancel_toggle"):
                     st.session_state.confirming_toggle = False
                     st.rerun()
     
     if st.session_state.get('confirming_reset', False):
         with st.container():
-            st.warning("⚠️ Reset portfolio to $10,000? All positions and history will be cleared!")
+            st.warning("Reset portfolio to $10,000? All positions and history will be cleared!")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅ Confirm Reset", key="confirm_reset"):
+                if st.button("Confirm Reset", key="confirm_reset"):
                     result = api_client.post("/paper-trading/reset", {})
                     if result:
                         st.success("Portfolio reset to $10,000")
                         st.session_state.confirming_reset = False
                         st.rerun()
             with col2:
-                if st.button("❌ Cancel", key="cancel_reset"):
+                if st.button("Cancel", key="cancel_reset"):
                     st.session_state.confirming_reset = False
                     st.rerun()
     
     # Main content tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Overview",
-        "💰 Trading",
-        "📈 Positions",
-        "📋 History",
-        "📊 Analytics"
+        "Overview",
+        "Trading",
+        "Positions",
+        "History",
+        "Analytics"
     ])
     
     with tab1:
@@ -272,7 +272,7 @@ def show_paper_trading():
             st.metric("Win Rate", f"{win_rate:.1f}%")
         
         # Performance metrics in expandable section
-        with st.expander("📊 Detailed Performance Metrics", expanded=True):
+        with st.expander("Detailed Performance Metrics", expanded=True):
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -308,7 +308,7 @@ def show_paper_trading():
         st.subheader("Execute Trades")
         
         if not is_enabled:
-            st.warning("⚠️ Paper trading is disabled. Enable it to place trades.")
+            st.warning("Paper trading is disabled. Enable it to place trades.")
         else:
             col1, col2 = st.columns([2, 1])
             
@@ -324,7 +324,7 @@ def show_paper_trading():
                     if latest_signal:
                         signal = latest_signal.get('signal', 'hold')
                         confidence = latest_signal.get('confidence', 0)
-                        signal_emoji = "🟢" if signal == 'buy' else "🔴" if signal == 'sell' else "⚪"
+                        signal_emoji = "[BUY]" if signal == 'buy' else "[SELL]" if signal == 'sell' else "[HOLD]"
                         source = "Enhanced LSTM" if latest_signal.get('source') == 'enhanced_lstm' else "LSTM"
                         st.metric(f"{source} Signal", 
                                  f"{signal_emoji} {signal.upper()}", 
@@ -368,7 +368,7 @@ def show_paper_trading():
                                                  format="%.2f")
                 
                 # Execute button
-                if st.button(f"🚀 Place {trade_direction} Order", 
+                if st.button(f"Place {trade_direction} Order", 
                             use_container_width=True, type="primary"):
                     # Prepare order data
                     order_data = {
@@ -384,13 +384,13 @@ def show_paper_trading():
                     result = api_client.post("/paper-trading/trade", order_data)
                     
                     if result and result.get('success'):
-                        st.success(f"✅ {trade_direction} order executed successfully!")
+                        st.success(f"{trade_direction} order executed successfully!")
                         st.balloons()
                         time.sleep(1)
                         st.rerun()
                     else:
                         error_msg = result.get('error', 'Unknown error') if result else 'Connection error'
-                        st.error(f"❌ Order failed: {error_msg}")
+                        st.error(f"Order failed: {error_msg}")
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             
@@ -403,21 +403,21 @@ def show_paper_trading():
                     confidence = latest_signal.get('confidence', 0)
                     
                     if signal == 'buy' and confidence > 0.6:
-                        st.success("🟢 Strong Buy Signal")
+                        st.success("Strong Buy Signal")
                         suggested_amount = min(0.01, (balance * 0.1) / current_price)
                         st.write(f"Suggested amount: {suggested_amount:.6f} BTC")
                         st.write(f"Risk: ${suggested_amount * current_price:,.2f}")
                     elif signal == 'sell' and confidence > 0.6:
-                        st.error("🔴 Strong Sell Signal")
+                        st.error("Strong Sell Signal")
                         suggested_amount = min(btc_holdings * 0.5, btc_holdings)
                         st.write(f"Suggested amount: {suggested_amount:.6f} BTC")
                     else:
-                        st.info("⚪ Hold - No strong signal")
+                        st.info("Hold - No strong signal")
                         st.write("Wait for stronger signals")
                 
                 # Risk warnings
                 st.markdown("---")
-                st.subheader("⚠️ Risk Management")
+                st.subheader("Risk Management")
                 st.write("• Never risk more than 2% per trade")
                 st.write("• Use stop losses to limit downside")
                 st.write("• Diversify your positions")
@@ -487,7 +487,7 @@ def show_paper_trading():
             # Display options
             col1, col2 = st.columns([3, 1])
             with col1:
-                search = st.text_input("🔍 Search trades", placeholder="Search by type, date...")
+                search = st.text_input("Search trades", placeholder="Search by type, date...")
             with col2:
                 sort_by = st.selectbox("Sort by", ["timestamp", "pnl", "size"])
             

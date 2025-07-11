@@ -257,4 +257,60 @@ class APIClient:
     def get_backtest_settings(self) -> Optional[Dict[str, Any]]:
         """Get current backtest configuration"""
         return self.get("/config/backtest-settings")
+    
+    def upload_data(self, filename: str, csv_data: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Upload data file with multipart/form-data"""
+        import io
+        from requests_toolbelt import MultipartEncoder
+        
+        try:
+            # Create file-like object from CSV string
+            file_obj = io.StringIO(csv_data)
+            
+            # Prepare multipart form data
+            multipart_data = MultipartEncoder(
+                fields={
+                    'file': (filename, file_obj, 'text/csv'),
+                    'data_type': params.get('data_type', 'price'),
+                    'source': params.get('source', 'custom'),
+                    'conflict_strategy': params.get('conflict_strategy', 'skip'),
+                    'date_column': params.get('date_column', ''),
+                    'value_column': params.get('value_column', ''),
+                    'date_format': params.get('date_format', '') or '',
+                    'additional_columns': json.dumps(params.get('additional_columns', {}))
+                }
+            )
+            
+            # Make request with multipart data
+            url = f"{self.base_url}/analytics/upload-data"
+            
+            response = self.session.post(
+                url,
+                data=multipart_data,
+                headers={
+                    'Content-Type': multipart_data.content_type,
+                    'Accept': 'application/json'
+                },
+                timeout=self.timeout * 2  # Double timeout for uploads
+            )
+            
+            response.raise_for_status()
+            return response.json()
+            
+        except requests.exceptions.Timeout:
+            logger.error("Upload timeout")
+            return {"status": "error", "message": "Upload timed out. Try a smaller file."}
+        except requests.exceptions.ConnectionError:
+            logger.error("Connection error during upload")
+            return {"status": "error", "message": "Connection error during upload"}
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error during upload: {e.response.status_code}")
+            try:
+                error_data = e.response.json()
+                return {"status": "error", "message": error_data.get('detail', str(e))}
+            except:
+                return {"status": "error", "message": f"HTTP error {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Unexpected error during upload: {e}")
+            return {"status": "error", "message": str(e)}
 

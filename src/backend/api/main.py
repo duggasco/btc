@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -25,6 +25,8 @@ from services.data_fetcher import get_fetcher
 from models.database import DatabaseManager
 from models.lstm import TradingSignalGenerator
 from services.cache_maintenance import get_maintenance_manager
+from services.data_upload_service import DataUploadService
+import tempfile
 
 # Custom JSON encoder for datetime serialization
 class DateTimeEncoder(JSONEncoder):
@@ -2548,6 +2550,74 @@ async def trigger_model_retrain():
     # Delegate to enhanced endpoint
     return await trigger_enhanced_model_retrain()
 
+class ModelTrainRequest(BaseModel):
+    period: str = "1mo"
+    epochs: int = 50
+    batch_size: int = 32
+    save_model: bool = True
+
+@app.post("/models/train", response_class=JSONResponse)
+async def train_model(request: ModelTrainRequest):
+    """Train the LSTM model with specified parameters"""
+    try:
+        if not signal_generator:
+            raise HTTPException(status_code=500, detail="Signal generator not initialized")
+        
+        # Fetch data for training
+        logger.info(f"Fetching {request.period} of BTC data for training...")
+        btc_data = signal_generator.fetch_enhanced_btc_data(
+            period=request.period, 
+            include_macro=True
+        )
+        
+        if btc_data is None or len(btc_data) < signal_generator.sequence_length:
+            raise ValueError(f"Insufficient data for training")
+        
+        data_points = len(btc_data)
+        logger.info(f"Fetched {data_points} data points")
+        
+        # Train the model
+        start_time = datetime.now()
+        signal_generator.train_enhanced_model(
+            btc_data, 
+            epochs=request.epochs,
+            validation_split=0.2,
+            early_stopping_patience=10
+        )
+        
+        training_time = (datetime.now() - start_time).total_seconds()
+        
+        # Save model if requested
+        saved_path = None
+        if request.save_model:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            model_path = f'/app/data/lstm_model_{timestamp}.pth'
+            signal_generator.save_model(model_path)
+            saved_path = model_path
+            logger.info(f"Model saved to {model_path}")
+        
+        return {
+            'status': 'completed',
+            'success': True,
+            'data_points': data_points,
+            'training_time_seconds': training_time,
+            'saved_model_path': saved_path,
+            'timestamp': datetime.now().isoformat(),
+            'metrics': {
+                'is_trained': signal_generator.is_trained,
+                'feature_importance': dict(list(signal_generator.feature_importance.items())[:10]) if hasattr(signal_generator, 'feature_importance') else {}
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Model training failed: {e}")
+        return {
+            'status': 'failed',
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }
+
 @app.get("/model/info", response_class=JSONResponse)
 async def get_model_info():
     """Get model information"""
@@ -4501,6 +4571,32 @@ class OptimizationRequest(BaseModel):
     optimization_method: Optional[str] = None
     lookback_days: Optional[int] = 180
 
+# Data upload models
+class DataUploadPreviewResponse(BaseModel):
+    """Response model for file preview"""
+    columns: List[str]
+    row_count: int
+    sample_data: List[Dict[str, Any]]
+    suggested_mappings: Dict[str, str]
+    data_types: Dict[str, str]
+
+class DataUploadRequest(BaseModel):
+    """Request model for data upload processing"""
+    source: str
+    data_type: str
+    symbol: str = "BTC"
+    column_mappings: Optional[Dict[str, str]] = None
+
+class DataUploadResponse(BaseModel):
+    """Response model for data upload result"""
+    success: bool
+    rows_processed: int
+    rows_inserted: int
+    duplicate_rows: int
+    data_range: Dict[str, Optional[str]]
+    summary: Dict[str, Any]
+    error: Optional[str] = None
+
 @app.post("/analytics/optimize", response_class=JSONResponse)
 async def optimize_strategy(request: OptimizationRequest):
     """Optimize trading strategy parameters using full Optuna optimization"""
@@ -4570,6 +4666,18 @@ async def optimize_strategy(request: OptimizationRequest):
         try:
             # Run async optimization
             results = await optimizer.optimize_async(opt_config, features)
+            
+            # Check if optimization failed due to validation
+            if results.get('status') == 'error':
+                logger.error(f"Optimization failed: {results.get('error')}")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "status": "error",
+                        "error": results.get('error', 'Optimization failed'),
+                        "validation": results.get('validation', {})
+                    }
+                )
             
             # Add additional metrics if available
             if 'best_parameters' in results:
@@ -4734,6 +4842,358 @@ async def get_performance_by_dow():
         "best_days": ["Tuesday", "Thursday"],
         "worst_days": ["Sunday"]
     }
+
+@app.get("/analytics/data-quality", response_class=JSONResponse)
+async def get_data_quality_metrics():
+    """Get comprehensive data quality metrics for all data sources"""
+    try:
+        from services.historical_data_manager import HistoricalDataManager
+        from services.data_fetcher import DataFetcher
+        import sqlite3
+        from datetime import datetime, timedelta
+        
+        # Initialize managers
+        hdm = HistoricalDataManager()
+        fetcher = DataFetcher()
+        
+        # Get metrics for each data type and source
+        data_quality = {
+            "summary": {
+                "last_updated": datetime.now().isoformat(),
+                "total_datapoints": 0,
+                "total_missing_dates": 0,
+                "overall_completeness": 0.0
+            },
+            "by_type": {},
+            "by_source": {},
+            "gaps": [],
+            "coverage": {}
+        }
+        
+        # Define data types and their expected frequencies
+        data_types = {
+            "price": {"sources": ["binance", "coingecko", "cryptocompare"], "frequency": "daily"},
+            "volume": {"sources": ["binance", "coingecko"], "frequency": "daily"},
+            "onchain": {"sources": ["blockchain.info", "blockchair"], "frequency": "daily"},
+            "sentiment": {"sources": ["alternative.me", "cryptopanic"], "frequency": "daily"},
+            "macro": {"sources": ["fred", "worldbank"], "frequency": "daily"}
+        }
+        
+        # Get historical data metrics
+        for data_type, config in data_types.items():
+            type_metrics = {
+                "total_datapoints": 0,
+                "missing_dates": 0,
+                "completeness": 0.0,
+                "date_range": {"start": None, "end": None},
+                "sources": {}
+            }
+            
+            # Check each source
+            for source in config["sources"]:
+                # Get data availability from historical manager
+                symbol = "BTC" if data_type in ["price", "volume", "onchain"] else "SPY"
+                historical_data = hdm.get_historical_data(
+                    symbol=symbol, 
+                    frequency=config["frequency"], 
+                    source=source
+                )
+                
+                source_metrics = {
+                    "datapoints": 0,
+                    "missing_dates": 0,
+                    "completeness": 0.0,
+                    "last_update": None,
+                    "date_range": {"start": None, "end": None}
+                }
+                
+                if historical_data is not None and len(historical_data) > 0:
+                    source_metrics["datapoints"] = len(historical_data)
+                    source_metrics["date_range"]["start"] = historical_data.index[0].isoformat()
+                    source_metrics["date_range"]["end"] = historical_data.index[-1].isoformat()
+                    source_metrics["last_update"] = historical_data.index[-1].isoformat()
+                    
+                    # Calculate missing dates
+                    expected_dates = pd.date_range(
+                        start=historical_data.index[0],
+                        end=historical_data.index[-1],
+                        freq='D' if config["frequency"] == "daily" else 'H'
+                    )
+                    missing_dates = len(expected_dates) - len(historical_data)
+                    source_metrics["missing_dates"] = missing_dates
+                    source_metrics["completeness"] = (len(historical_data) / len(expected_dates) * 100) if len(expected_dates) > 0 else 0
+                    
+                    # Update type metrics
+                    type_metrics["total_datapoints"] += source_metrics["datapoints"]
+                    type_metrics["missing_dates"] += missing_dates
+                    
+                    # Update date range
+                    if type_metrics["date_range"]["start"] is None or historical_data.index[0] < pd.to_datetime(type_metrics["date_range"]["start"]):
+                        type_metrics["date_range"]["start"] = historical_data.index[0].isoformat()
+                    if type_metrics["date_range"]["end"] is None or historical_data.index[-1] > pd.to_datetime(type_metrics["date_range"]["end"]):
+                        type_metrics["date_range"]["end"] = historical_data.index[-1].isoformat()
+                
+                type_metrics["sources"][source] = source_metrics
+            
+            # Calculate overall completeness for type
+            if type_metrics["date_range"]["start"] and type_metrics["date_range"]["end"]:
+                expected_total = len(pd.date_range(
+                    start=type_metrics["date_range"]["start"],
+                    end=type_metrics["date_range"]["end"],
+                    freq='D'
+                ))
+                type_metrics["completeness"] = (type_metrics["total_datapoints"] / (expected_total * len(config["sources"])) * 100) if expected_total > 0 else 0
+            
+            data_quality["by_type"][data_type] = type_metrics
+            data_quality["summary"]["total_datapoints"] += type_metrics["total_datapoints"]
+            data_quality["summary"]["total_missing_dates"] += type_metrics["missing_dates"]
+        
+        # Get gaps in data
+        gaps = hdm.get_data_gaps("BTC", "daily")
+        data_quality["gaps"] = [
+            {
+                "symbol": "BTC",
+                "granularity": "daily",
+                "start": gap[0].isoformat(),
+                "end": gap[1].isoformat(),
+                "days": (gap[1] - gap[0]).days
+            }
+            for gap in gaps[:10]  # Limit to 10 most recent gaps
+        ]
+        
+        # Get cache metrics
+        cache_db_path = '/app/storage/data/api_cache.db'  # Fixed path
+        if os.path.exists(cache_db_path):
+            try:
+                conn = sqlite3.connect(cache_db_path)
+                cursor = conn.cursor()
+                
+                # Get cache statistics - correct table name is api_cache
+                cursor.execute("SELECT COUNT(*) FROM api_cache")
+                cache_entries = cursor.fetchone()[0]
+                
+                # expires_at is stored as TIMESTAMP, not unix timestamp
+                cursor.execute("SELECT COUNT(*) FROM api_cache WHERE expires_at > datetime('now')")
+                active_cache_entries = cursor.fetchone()[0]
+                
+                conn.close()
+                
+                data_quality["cache_metrics"] = {
+                    "total_entries": cache_entries,
+                    "active_entries": active_cache_entries,
+                    "hit_rate": 0.0  # Would need to track this separately
+                }
+            except Exception as e:
+                logger.warning(f"Failed to get cache metrics: {e}")
+                data_quality["cache_metrics"] = {
+                    "total_entries": 0,
+                    "active_entries": 0,
+                    "hit_rate": 0.0
+                }
+        
+        # Calculate overall completeness
+        total_expected = data_quality["summary"]["total_datapoints"] + data_quality["summary"]["total_missing_dates"]
+        data_quality["summary"]["overall_completeness"] = (
+            (data_quality["summary"]["total_datapoints"] / total_expected * 100) 
+            if total_expected > 0 else 0
+        )
+        
+        # Get coverage by time period
+        now = datetime.now()
+        coverage_periods = {
+            "last_24h": now - timedelta(hours=24),
+            "last_7d": now - timedelta(days=7),
+            "last_30d": now - timedelta(days=30),
+            "last_90d": now - timedelta(days=90),
+            "last_1y": now - timedelta(days=365)
+        }
+        
+        for period_name, start_date in coverage_periods.items():
+            period_coverage = {
+                "price": 0.0,
+                "volume": 0.0,
+                "onchain": 0.0,
+                "sentiment": 0.0,
+                "macro": 0.0
+            }
+            
+            for data_type in data_types.keys():
+                # Check if we have data for this period
+                historical_data = hdm.get_historical_data(
+                    symbol="BTC" if data_type in ["price", "volume", "onchain"] else "SPY",
+                    frequency="daily",
+                    start_date=start_date.date(),
+                    end_date=now.date()
+                )
+                
+                if historical_data is not None and len(historical_data) > 0:
+                    expected_days = (now - start_date).days
+                    period_coverage[data_type] = min((len(historical_data) / expected_days * 100), 100.0) if expected_days > 0 else 0
+            
+            data_quality["coverage"][period_name] = period_coverage
+        
+        return data_quality
+        
+    except Exception as e:
+        logger.error(f"Failed to get data quality metrics: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "summary": {
+                "last_updated": datetime.now().isoformat(),
+                "error": str(e)
+            },
+            "by_type": {},
+            "by_source": {},
+            "gaps": [],
+            "coverage": {}
+        }
+
+# Data upload endpoints
+@app.post("/data/upload/preview", response_class=JSONResponse)
+async def preview_upload(
+    file: UploadFile = File(...),
+    file_type: str = Form(...)
+):
+    """Preview uploaded file and suggest column mappings"""
+    try:
+        # Validate file type
+        if file_type not in ["csv", "xlsx", "xls"]:
+            raise HTTPException(status_code=400, detail="Invalid file type. Must be csv, xlsx, or xls")
+        
+        # Save uploaded file temporarily
+        upload_service = DataUploadService()
+        temp_path = f"/tmp/btc_uploads/{uuid.uuid4()}_{file.filename}"
+        os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+        
+        # Save file
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        try:
+            # Preview file
+            preview_data = upload_service.preview_file(temp_path, file_type)
+            return DataUploadPreviewResponse(**preview_data)
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
+    except Exception as e:
+        logger.error(f"Failed to preview upload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/data/upload", response_class=JSONResponse)
+async def upload_data(
+    file: UploadFile = File(...),
+    file_type: str = Form(...),
+    source: str = Form(...),
+    data_type: str = Form(...),
+    symbol: str = Form("BTC"),
+    column_mappings: Optional[str] = Form(None)
+):
+    """Upload and process data file"""
+    try:
+        # Validate file size (50MB limit)
+        file_size = 0
+        temp_path = f"/tmp/btc_uploads/{uuid.uuid4()}_{file.filename}"
+        os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+        
+        # Save and check file size
+        with open(temp_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):  # Read in 1MB chunks
+                file_size += len(chunk)
+                if file_size > 50 * 1024 * 1024:  # 50MB limit
+                    os.remove(temp_path)
+                    raise HTTPException(status_code=413, detail="File size exceeds 50MB limit")
+                f.write(chunk)
+        
+        # Parse column mappings if provided
+        mappings = None
+        if column_mappings:
+            try:
+                mappings = json.loads(column_mappings)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid column mappings JSON")
+        
+        # Process upload
+        upload_service = DataUploadService()
+        result = upload_service.process_upload(
+            file_path=temp_path,
+            file_type=file_type,
+            source=source,
+            data_type=data_type,
+            symbol=symbol,
+            column_mappings=mappings
+        )
+        
+        return DataUploadResponse(**result)
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to process upload: {e}")
+        return DataUploadResponse(
+            success=False,
+            rows_processed=0,
+            rows_inserted=0,
+            duplicate_rows=0,
+            data_range={},
+            summary={},
+            error=str(e)
+        )
+
+@app.get("/data/upload/templates/{data_type}", response_class=JSONResponse)
+async def get_upload_template(data_type: str):
+    """Get column mapping template for a specific data type"""
+    try:
+        upload_service = DataUploadService()
+        templates = upload_service.get_templates()
+        
+        if data_type not in templates:
+            raise HTTPException(status_code=404, detail=f"Template not found for data type: {data_type}")
+        
+        return {
+            "data_type": data_type,
+            "template": templates[data_type],
+            "example_mappings": {
+                "csv_column_name": "template_column_name",
+                "Date": "timestamp",
+                "Close Price": "price",
+                "Volume (BTC)": "volume"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/data/upload/sources", response_class=JSONResponse)
+async def get_valid_sources():
+    """Get list of valid data sources"""
+    try:
+        upload_service = DataUploadService()
+        return {
+            "sources": upload_service.get_valid_sources(),
+            "descriptions": {
+                "binance": "Binance exchange data",
+                "coingecko": "CoinGecko market data",
+                "cryptowatch": "Cryptowatch market data",
+                "glassnode": "Glassnode on-chain metrics",
+                "santiment": "Santiment social/on-chain data",
+                "custom": "Custom data source"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get sources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Backtest endpoints
 @app.post("/backtest/run", response_class=JSONResponse)
@@ -5448,6 +5908,239 @@ async def update_maintenance_config(config_updates: Dict[str, Any]):
         }
     except Exception as e:
         logger.error(f"Error updating maintenance config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Data Upload Endpoints
+@app.post("/data/validate", response_class=JSONResponse)
+async def validate_data_file(
+    file: UploadFile = File(...),
+    data_type: str = Form(...),
+    symbol: str = Form("BTC"),
+    source: str = Form("upload")
+):
+    """
+    Validate an uploaded data file before processing
+    
+    Args:
+        file: The uploaded CSV/Excel file
+        data_type: Type of data (price, volume, onchain, sentiment, macro)
+        symbol: Trading symbol (default: BTC)
+        source: Data source identifier (default: upload)
+    
+    Returns:
+        Validation results including errors, warnings, and statistics
+    """
+    try:
+        # Initialize upload service
+        upload_service = DataUploadService(db_manager)
+        
+        # Validate file size first
+        file_size = 0
+        contents = await file.read()
+        file_size = len(contents)
+        
+        is_valid, error_msg = upload_service.validate_file_size(file_size)
+        if not is_valid:
+            return {
+                "status": "error",
+                "message": error_msg,
+                "validation": {
+                    "is_valid": False,
+                    "errors": [{"column": "file", "message": error_msg, "severity": "error"}],
+                    "statistics": {"total_rows": 0}
+                }
+            }
+        
+        # Save file temporarily
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file.filename) as tmp:
+            tmp.write(contents)
+            tmp_path = tmp.name
+        
+        try:
+            # Validate the file
+            validation_result = upload_service.validate_file(
+                file_path=tmp_path,
+                data_type=data_type,
+                symbol=symbol,
+                source=source
+            )
+            
+            result = validation_result.to_dict()
+            result["status"] = "success" if validation_result.is_valid else "validation_failed"
+            result["filename"] = file.filename
+            result["file_size"] = file_size
+            
+            return result
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+                
+    except Exception as e:
+        logger.error(f"Error validating file: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "validation": {
+                "is_valid": False,
+                "errors": [{"column": "file", "message": str(e), "severity": "error"}],
+                "statistics": {"total_rows": 0}
+            }
+        }
+
+@app.post("/data/upload", response_class=JSONResponse)
+async def upload_data_file(
+    file: UploadFile = File(...),
+    data_type: str = Form(...),
+    symbol: str = Form("BTC"),
+    source: str = Form("upload"),
+    validate_only: bool = Form(False)
+):
+    """
+    Upload and process a data file
+    
+    Args:
+        file: The uploaded CSV/Excel file
+        data_type: Type of data (price, volume, onchain, sentiment, macro)
+        symbol: Trading symbol (default: BTC)
+        source: Data source identifier (default: upload)
+        validate_only: If true, only validate without saving to database
+    
+    Returns:
+        Upload results including validation status and processed row count
+    """
+    try:
+        # Initialize upload service
+        upload_service = DataUploadService(db_manager)
+        
+        # Read file contents
+        contents = await file.read()
+        file_size = len(contents)
+        
+        # Validate file size
+        is_valid, error_msg = upload_service.validate_file_size(file_size)
+        if not is_valid:
+            return {
+                "status": "error",
+                "message": error_msg
+            }
+        
+        # Save file temporarily
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file.filename) as tmp:
+            tmp.write(contents)
+            tmp_path = tmp.name
+        
+        try:
+            # Validate the file
+            validation_result = upload_service.validate_file(
+                file_path=tmp_path,
+                data_type=data_type,
+                symbol=symbol,
+                source=source
+            )
+            
+            if not validation_result.is_valid:
+                return {
+                    "status": "validation_failed",
+                    "validation": validation_result.to_dict(),
+                    "message": "File validation failed. Please fix errors and try again."
+                }
+            
+            if validate_only:
+                return {
+                    "status": "validation_passed",
+                    "validation": validation_result.to_dict(),
+                    "message": "File validation passed. Ready to upload."
+                }
+            
+            # Process and save the data
+            if validation_result.processed_data is not None:
+                df = validation_result.processed_data
+                
+                # Save to appropriate table based on data type
+                if data_type == 'price':
+                    # Save price data
+                    for _, row in df.iterrows():
+                        db_manager.save_price_data(
+                            symbol=symbol,
+                            timestamp=row['timestamp'],
+                            open_price=row['open'],
+                            high=row['high'],
+                            low=row['low'],
+                            close=row['close'],
+                            volume=row['volume'],
+                            source=source
+                        )
+                elif data_type == 'onchain':
+                    # Save on-chain data
+                    for _, row in df.iterrows():
+                        db_manager.save_onchain_metric(
+                            metric_name=row['metric_name'],
+                            metric_value=row['metric_value'],
+                            timestamp=row['timestamp'],
+                            source=source
+                        )
+                # Add other data type handlers as needed
+                
+                return {
+                    "status": "success",
+                    "message": f"Successfully uploaded {len(df)} rows of {data_type} data",
+                    "rows_processed": len(df),
+                    "validation": validation_result.to_dict()
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "No data to process after validation"
+                }
+                
+        finally:
+            # Clean up temporary file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+                
+    except Exception as e:
+        logger.error(f"Error uploading file: {str(e)}")
+        logger.error(traceback.format_exc())
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.get("/data/sample-format/{data_type}", response_class=JSONResponse)
+async def get_sample_format(data_type: str):
+    """
+    Get a sample CSV format for a specific data type
+    
+    Args:
+        data_type: Type of data (price, volume, onchain, sentiment, macro)
+    
+    Returns:
+        Sample data in the expected format
+    """
+    try:
+        upload_service = DataUploadService()
+        sample_df = upload_service.get_sample_format(data_type)
+        
+        if sample_df.empty:
+            raise HTTPException(status_code=400, detail=f"Invalid data type: {data_type}")
+        
+        # Convert to CSV string
+        csv_string = sample_df.to_csv(index=False)
+        
+        return {
+            "status": "success",
+            "data_type": data_type,
+            "sample_csv": csv_string,
+            "columns": list(sample_df.columns),
+            "sample_data": sample_df.to_dict('records')
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting sample format: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Helper functions for analytics

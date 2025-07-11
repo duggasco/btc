@@ -254,5 +254,16 @@
   },
   "api_keys": {
     "fred": "d639f41cb422efdc16f35abdbc80700c"
+  },
+  "signal_weights": {
+    "technical": 0.3745401188473625,
+    "onchain": 0.9507143064099162,
+    "sentiment": 0.7319939418114051,
+    "macro": -1.0572483670686839
+  },
+  "trading_rules": {
+    "min_confidence": 0.8197056874649611,
+    "position_size": 0.039643541684062936,
+    "stop_loss": 0.02403950683025824
   }
 }

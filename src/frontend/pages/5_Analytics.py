@@ -20,7 +20,7 @@ from utils.constants import CHART_COLORS
 # Set up logging
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="Analytics", page_icon="🔬", layout="wide")
+st.set_page_config(page_title="Analytics", page_icon="Analytics", layout="wide")
 
 # Custom CSS for analytics
 st.markdown("""
@@ -479,7 +479,7 @@ def create_stress_test_chart(stress_scenarios: dict) -> go.Figure:
 def show_analytics():
     """Main analytics interface"""
     
-    st.title("🔬 Advanced Analytics")
+    st.title("Advanced Analytics")
     
     # Header
     st.markdown("""
@@ -491,11 +491,11 @@ def show_analytics():
     
     # Main tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Backtesting",
-        "🎲 Monte Carlo",
-        "📈 Feature Importance",
-        "🌡️ Market Regime",
-        "🔍 Strategy Optimization"
+        "Backtesting",
+        "Monte Carlo",
+        "Feature Importance",
+        "Market Regime",
+        "Strategy Optimization"
     ])
     
     with tab1:
@@ -507,7 +507,7 @@ def show_analytics():
             st.info("Test your trading strategy on historical data with walk-forward analysis")
             
             # Backtest parameters
-            with st.expander("⚙️ Backtest Configuration", expanded=True):
+            with st.expander("Backtest Configuration", expanded=True):
                 col_param1, col_param2, col_param3 = st.columns(3)
                 
                 with col_param1:
@@ -588,7 +588,7 @@ def show_analytics():
                 include_macro = st.checkbox("Include Macro Indicators", value=True, key="include_macro")
                 
             # Run backtest button
-            if st.button("🚀 Run Backtest", type="primary", use_container_width=True):
+            if st.button("Run Backtest", type="primary", use_container_width=True):
                 # Clear previous results to ensure fresh state
                 if 'backtest_results' in st.session_state:
                     del st.session_state['backtest_results']
@@ -645,24 +645,24 @@ def show_analytics():
                     if result:
                         if 'error' in result:
                             error_msg = result.get('error', 'Unknown error')
-                            st.error(f"❌ Backtest failed: {error_msg}")
+                            st.error(f"Backtest failed: {error_msg}")
                         elif 'status' in result and result['status'] == 'error':
                             error_msg = result.get('message', 'Unknown error')
-                            st.error(f"❌ Backtest failed: {error_msg}")
+                            st.error(f"Backtest failed: {error_msg}")
                         else:
-                            st.success("✅ Backtest completed successfully!")
+                            st.success("Backtest completed successfully!")
                             st.session_state['backtest_results'] = result
                             # Force a rerun to display new results
                             st.rerun()
                     else:
-                        st.error("❌ Connection error: Failed to reach backend API")
+                        st.error("Connection error: Failed to reach backend API")
         
         with col2:
             # Quick stats if results available
             if 'backtest_results' in st.session_state:
                 results = st.session_state['backtest_results']
                 
-                st.markdown("### 📊 Quick Stats")
+                st.markdown("### Quick Stats")
                 
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 
@@ -697,7 +697,7 @@ def show_analytics():
             
             # Additional visualizations in tabs
             detail_tab1, detail_tab2, detail_tab3, detail_tab4 = st.tabs([
-                "📊 Detailed Metrics", "🔬 Feature Analysis", "⚠️ Risk Analysis", "📋 Recommendations"
+                "Detailed Metrics", "Feature Analysis", "Risk Analysis", "Recommendations"
             ])
             
             with detail_tab1:
@@ -893,7 +893,7 @@ def show_analytics():
                 )
                 
                 # Option to load a specific backtest
-                if st.button("📊 Load Selected Backtest Results"):
+                if st.button("Load Selected Backtest Results"):
                     selected_idx = st.selectbox("Select backtest to load", 
                                               range(len(history)), 
                                               format_func=lambda x: f"{history[x]['timestamp']} - Score: {history[x]['composite_score']:.3f}")
@@ -901,7 +901,7 @@ def show_analytics():
                     if selected_idx is not None:
                         # Load the full results for the selected backtest
                         st.session_state['backtest_results'] = history[selected_idx]
-                        st.success("✅ Loaded historical backtest results")
+                        st.success("Loaded historical backtest results")
                         st.rerun()
             else:
                 st.info("No historical backtest results available")
@@ -909,7 +909,7 @@ def show_analytics():
         with col_hist2:
             # Summary statistics
             if history and len(history) > 0:
-                st.markdown("### 📊 History Stats")
+                st.markdown("### History Stats")
                 
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 
@@ -933,7 +933,7 @@ def show_analytics():
             st.info("Simulate thousands of possible portfolio paths to assess risk")
             
             # Simulation parameters
-            with st.expander("⚙️ Simulation Parameters", expanded=True):
+            with st.expander("Simulation Parameters", expanded=True):
                 col_sim1, col_sim2, col_sim3 = st.columns(3)
                 
                 with col_sim1:
@@ -963,7 +963,7 @@ def show_analytics():
                                                    value=50)
             
             # Run simulation button
-            if st.button("🎲 Run Monte Carlo Simulation", type="primary", use_container_width=True):
+            if st.button("Run Monte Carlo Simulation", type="primary", use_container_width=True):
                 with st.spinner("Running simulations..."):
                     # Prepare simulation parameters
                     params = {
@@ -981,11 +981,11 @@ def show_analytics():
                     result = api_client.post("/analytics/monte-carlo", params)
                     
                     if result and result.get('status') == 'success':
-                        st.success("✅ Simulation completed!")
+                        st.success("Simulation completed!")
                         st.session_state['monte_carlo_results'] = result.get('results', {})
                     else:
                         error_msg = result.get('error', 'Unknown error') if result else 'Connection error'
-                        st.error(f"❌ Simulation failed: {error_msg}")
+                        st.error(f"Simulation failed: {error_msg}")
         
         with col2:
             # Risk metrics if available
@@ -993,7 +993,7 @@ def show_analytics():
                 mc_results = st.session_state['monte_carlo_results']
                 risk_metrics = mc_results.get('risk_metrics', {})
                 
-                st.markdown("### 🎯 Risk Metrics")
+                st.markdown("### Risk Metrics")
                 
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 
@@ -1014,7 +1014,7 @@ def show_analytics():
             st.plotly_chart(create_monte_carlo_chart(mc_results), use_container_width=True)
             
             # Statistical summary
-            with st.expander("📊 Statistical Summary", expanded=True):
+            with st.expander("Statistical Summary", expanded=True):
                 stats = mc_results.get('statistics', {})
                 
                 col1, col2, col3 = st.columns(3)
@@ -1065,7 +1065,7 @@ def show_analytics():
             st.info("Understand which indicators drive the AI model's predictions")
             
             # Analysis options
-            with st.expander("⚙️ Analysis Options", expanded=True):
+            with st.expander("Analysis Options", expanded=True):
                 col_opt1, col_opt2 = st.columns(2)
                 
                 with col_opt1:
@@ -1086,7 +1086,7 @@ def show_analytics():
                                              value=0.05)
             
             # Run analysis button
-            if st.button("📊 Analyze Feature Importance", type="primary", use_container_width=True):
+            if st.button("Analyze Feature Importance", type="primary", use_container_width=True):
                 with st.spinner("Analyzing features..."):
                     # Prepare parameters
                     params = {
@@ -1100,7 +1100,7 @@ def show_analytics():
                     result = api_client.get("/analytics/feature-importance", params)
                     
                     if result and 'feature_importance' in result:
-                        st.success("✅ Analysis completed!")
+                        st.success("Analysis completed!")
                         st.session_state['feature_importance'] = result.get('feature_importance', {})
                     else:
                         # Fallback to basic feature importance
@@ -1118,14 +1118,14 @@ def show_analytics():
                                         continue
                             st.session_state['feature_importance'] = features_dict
                         else:
-                            st.error("❌ Analysis failed")
+                            st.error("Analysis failed")
         
         with col2:
             # Top features preview
             if 'feature_importance' in st.session_state:
                 features = st.session_state['feature_importance']
                 
-                st.markdown("### 🏆 Top Features")
+                st.markdown("### Top Features")
                 
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 
@@ -1159,7 +1159,7 @@ def show_analytics():
                            use_container_width=True)
             
             # Category breakdown
-            with st.expander("📊 Category Analysis", expanded=True):
+            with st.expander("Category Analysis", expanded=True):
                 # Group features by category
                 categories = {
                     'Technical': ['rsi', 'macd', 'bb_', 'sma', 'ema', 'atr', 'adx'],
@@ -1256,7 +1256,7 @@ def show_analytics():
                 """, unsafe_allow_html=True)
                 
                 # Regime characteristics
-                with st.expander("📊 Regime Characteristics", expanded=True):
+                with st.expander("Regime Characteristics", expanded=True):
                     characteristics = regime_data.get('characteristics', {})
                     
                     col_char1, col_char2, col_char3 = st.columns(3)
@@ -1365,7 +1365,7 @@ def show_analytics():
             st.info("Find optimal parameters for your trading strategy using Bayesian optimization")
             
             # Optimization setup
-            with st.expander("⚙️ Optimization Setup", expanded=True):
+            with st.expander("Optimization Setup", expanded=True):
                 # Parameter ranges
                 st.markdown("**Parameter Ranges to Optimize**")
                 
@@ -1418,7 +1418,7 @@ def show_analytics():
                                                value=50)
             
             # Run optimization
-            if st.button("🎯 Run Optimization", type="primary", use_container_width=True):
+            if st.button("Run Optimization", type="primary", use_container_width=True):
                 with st.spinner(f"Running {num_iterations} iterations... This may take several minutes"):
                     # Prepare optimization parameters
                     params = {
@@ -1439,11 +1439,11 @@ def show_analytics():
                     result = api_client.post("/analytics/optimize", params)
                     
                     if result and result.get('status') == 'success':
-                        st.success("✅ Optimization completed!")
+                        st.success("Optimization completed!")
                         st.session_state['optimization_results'] = result.get('results', {})
                     else:
                         error_msg = result.get('error', 'Unknown error') if result else 'Connection error'
-                        st.error(f"❌ Optimization failed: {error_msg}")
+                        st.error(f"Optimization failed: {error_msg}")
         
         with col2:
             # Best parameters if available
@@ -1451,7 +1451,7 @@ def show_analytics():
                 opt_results = st.session_state['optimization_results']
                 best_params = opt_results.get('best_parameters', {})
                 
-                st.markdown("### 🏆 Optimal Parameters")
+                st.markdown("### Optimal Parameters")
                 
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 
@@ -1503,7 +1503,7 @@ def show_analytics():
             
             # Parameter evolution
             if 'parameter_history' in opt_results:
-                with st.expander("📊 Parameter Evolution", expanded=True):
+                with st.expander("Parameter Evolution", expanded=True):
                     param_history = opt_results['parameter_history']
                     
                     # Create parameter evolution chart
@@ -1553,9 +1553,9 @@ def show_analytics():
                 result = api_client.post("/config/update", config_update)
                 
                 if result and result.get('status') == 'success':
-                    st.success("✅ Optimal parameters applied to trading configuration!")
+                    st.success("Optimal parameters applied to trading configuration!")
                 else:
-                    st.error("❌ Failed to apply parameters")
+                    st.error("Failed to apply parameters")
 
 # Auto-refresh option
 if st.sidebar.checkbox("Auto-refresh (30s)", value=False):

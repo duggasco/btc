@@ -81,7 +81,7 @@ class AutoRefreshManager:
         container = st.sidebar if sidebar else st
         
         with container:
-            st.markdown("### 🔄 Auto-Refresh Settings")
+            st.markdown("### Auto-Refresh Settings")
             
             col1, col2 = st.columns(2)
             
@@ -123,11 +123,11 @@ class AutoRefreshManager:
                     next_refresh = interval - time_since
                     
                     if next_refresh > 0:
-                        st.info(f"⏱️ Next refresh in {int(next_refresh)}s")
+                        st.info(f"Next refresh in {int(next_refresh)}s")
                     else:
-                        st.info("🔄 Refreshing...")
+                        st.info("Refreshing...")
                 else:
-                    st.info(f"⏱️ First refresh in {interval}s")
+                    st.info(f"First refresh in {interval}s")
                 
                 # Show refresh count
                 refresh_count = current_state.get('refresh_count', 0)

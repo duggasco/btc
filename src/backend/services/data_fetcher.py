@@ -23,6 +23,7 @@ from urllib.parse import urlencode
 # Import cache integration
 from .cache_service import get_cache_service
 from .cache_integration import cached_api_call, CachedDataFetcher
+from .historical_data_manager import get_historical_manager
 
 logger = logging.getLogger(__name__)
 
@@ -1475,6 +1476,9 @@ class ExternalDataFetcher(CachedDataFetcher):
         }
         self._default_cache_duration = 300  # 5 minutes default
         
+        # Initialize historical data manager
+        self.historical_manager = get_historical_manager()
+        
         logger.info("External Data Fetcher initialized with SQLite caching and rate limiting")
     
     def _check_rate_limit(self, source_name: str) -> bool:
@@ -2087,6 +2091,141 @@ class ExternalDataFetcher(CachedDataFetcher):
                     expired_keys = [k for k, v in self._cache.items() if v['expires'] < time.time()]
                     for k in expired_keys:
                         del self._cache[k]
+    
+    def fetch_extended_historical_data(self, symbol: str = "BTC", 
+                                     granularity: str = '1d',
+                                     force_refresh: bool = False) -> pd.DataFrame:
+        """
+        Fetch extended historical data using all available sources
+        
+        Args:
+            symbol: Symbol to fetch (e.g., 'BTC')
+            granularity: Data granularity ('1m', '5m', '1h', '1d')
+            force_refresh: Force fetching fresh data even if historical exists
+            
+        Returns:
+            DataFrame with extended historical data
+        """
+        # Check if we already have historical data
+        if not force_refresh:
+            existing_data = self.historical_manager.load_historical_data(
+                symbol, granularity=granularity, combine_with_cache=True
+            )
+            
+            if not existing_data.empty:
+                # Check if data is reasonably up to date
+                latest_date = existing_data.index.max()
+                if (datetime.now() - latest_date).days < 1:
+                    logger.info(f"Using existing historical data for {symbol}")
+                    return existing_data
+        
+        # Fetch maximum historical data from all sources
+        logger.info(f"Fetching extended historical data for {symbol} with {granularity} granularity")
+        
+        # Use appropriate sources based on symbol type
+        if symbol in ['BTC', 'ETH', 'BNB']:
+            sources = self.crypto_sources
+        else:
+            sources = self.macro_sources
+        
+        # Fetch data
+        df = self.historical_manager.fetch_maximum_historical_data(
+            symbol, sources, granularity
+        )
+        
+        return df
+    
+    def load_combined_data(self, symbol: str = "BTC", 
+                          start_date: Optional[datetime] = None,
+                          end_date: Optional[datetime] = None,
+                          granularity: str = '1d') -> pd.DataFrame:
+        """
+        Load data combining historical storage and recent cache
+        
+        Args:
+            symbol: Symbol to load
+            start_date: Start date for data
+            end_date: End date for data
+            granularity: Data granularity
+            
+        Returns:
+            Combined DataFrame with all available data
+        """
+        # Load from historical storage
+        df = self.historical_manager.load_historical_data(
+            symbol, start_date, end_date, granularity, combine_with_cache=True
+        )
+        
+        if df.empty:
+            # If no historical data, try to fetch some
+            logger.info(f"No historical data found for {symbol}, fetching...")
+            df = self.fetch_extended_historical_data(symbol, granularity)
+        
+        return df
+    
+    def get_data_availability(self, symbol: str = "BTC") -> Dict[str, Any]:
+        """
+        Get information about available data for a symbol
+        
+        Returns:
+            Dict with availability info by granularity
+        """
+        return self.historical_manager.get_data_availability(symbol)
+    
+    def fill_data_gaps(self, symbol: str = "BTC", granularity: str = '1d') -> int:
+        """
+        Attempt to fill any gaps in historical data
+        
+        Returns:
+            Number of records added
+        """
+        # Use appropriate sources
+        if symbol in ['BTC', 'ETH', 'BNB']:
+            sources = self.crypto_sources
+        else:
+            sources = self.macro_sources
+        
+        return self.historical_manager.fill_missing_data(symbol, sources, granularity)
+    
+    def aggregate_multi_source_data(self, symbols: List[str], 
+                                  period: str = "3mo",
+                                  granularity: str = '1d') -> Dict[str, pd.DataFrame]:
+        """
+        Aggregate data from multiple sources for multiple symbols
+        
+        Args:
+            symbols: List of symbols to fetch
+            period: Period to fetch
+            granularity: Data granularity
+            
+        Returns:
+            Dict mapping symbols to DataFrames
+        """
+        result = {}
+        
+        for symbol in symbols:
+            try:
+                # First try to load existing historical data
+                df = self.load_combined_data(symbol, granularity=granularity)
+                
+                if df.empty:
+                    # Fallback to regular fetch
+                    if symbol in ['BTC', 'ETH', 'BNB']:
+                        df = self.fetch_crypto_data(symbol, period)
+                    else:
+                        df = self.fetch_macro_data(symbol, period)
+                
+                if not df.empty:
+                    result[symbol] = df
+                    
+            except Exception as e:
+                logger.error(f"Failed to fetch data for {symbol}: {e}")
+        
+        return result
+    
+    def get_historical_stats(self) -> Dict[str, Any]:
+        """Get statistics about historical data collection"""
+        return self.historical_manager.get_collection_stats()
 
 # Singleton instance
 _fetcher_instance = None

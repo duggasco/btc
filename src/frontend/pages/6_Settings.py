@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from components.api_client import APIClient
 from utils.helpers import format_currency, format_percentage
 
-st.set_page_config(page_title="Settings", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Settings", page_icon="Settings", layout="wide")
 
 # Custom CSS for settings
 st.markdown("""
@@ -85,7 +85,7 @@ def validate_weights(weights: dict) -> bool:
 def show_settings():
     """Main settings interface"""
     
-    st.title("⚙️ System Settings")
+    st.title("System Settings")
     
     # Header
     st.markdown("""
@@ -107,13 +107,15 @@ def show_settings():
         enhanced_status = {}
     
     # Main tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Trading Configuration",
-        "⚖️ Signal Weights",
-        "🔔 Notifications",
-        "🤖 Model Settings",
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        "Trading Configuration",
+        "Signal Weights",
+        "Notifications",
+        "Model Settings",
         "🔧 System Preferences",
-        "💾 Backup & Restore"
+        "💾 Backup & Restore",
+        "Data Quality",
+        "📤 Data Upload"
     ])
     
     with tab1:
@@ -297,9 +299,9 @@ def show_settings():
             result = api_client.post("/config/update", {"trading_rules": trading_config})
             
             if result and result.get('status') == 'success':
-                st.success("✅ Trading configuration saved successfully!")
+                st.success("Trading configuration saved successfully!")
             else:
-                st.error("❌ Failed to save configuration")
+                st.error("Failed to save configuration")
     
     with tab2:
         st.subheader("Signal Weight Configuration")
@@ -357,7 +359,7 @@ def show_settings():
         total_weight = technical_weight + onchain_weight + sentiment_weight + macro_weight
         
         if total_weight != 100:
-            st.warning(f"⚠️ Total weight: {total_weight}%. Must equal 100%.")
+            st.warning(f"Total weight: {total_weight}%. Must equal 100%.")
             
             # Auto-adjust button
             if st.button("🔧 Auto-adjust to 100%"):
@@ -369,7 +371,7 @@ def show_settings():
                     macro_weight = 100 - technical_weight - onchain_weight - sentiment_weight
                     st.rerun()
         else:
-            st.success("✅ Weights are properly balanced!")
+            st.success("Weights are properly balanced!")
         
         # Visual weight distribution
         st.markdown("### Weight Distribution")
@@ -392,7 +394,7 @@ def show_settings():
         st.plotly_chart(fig, use_container_width=True)
         
         # Individual indicator weights
-        with st.expander("📊 Advanced: Individual Indicator Weights", expanded=False):
+        with st.expander("Advanced: Individual Indicator Weights", expanded=False):
             st.info("Fine-tune weights for specific indicators within each category")
             
             # Technical indicators
@@ -440,11 +442,11 @@ def show_settings():
                 result = api_client.post("/config/update", weights_config)
                 
                 if result and result.get('status') == 'success':
-                    st.success("✅ Signal weights saved successfully!")
+                    st.success("Signal weights saved successfully!")
                 else:
-                    st.error("❌ Failed to save weights")
+                    st.error("Failed to save weights")
             else:
-                st.error("❌ Please ensure weights sum to 100% before saving")
+                st.error("Please ensure weights sum to 100% before saving")
     
     with tab3:
         st.subheader("Notification Settings")
@@ -468,9 +470,9 @@ def show_settings():
                 if discord_webhook:
                     result = api_client.post("/notifications/test", {"webhook_url": discord_webhook})
                     if result and result.get('status') == 'success':
-                        st.success("✅ Test message sent!")
+                        st.success("Test message sent!")
                     else:
-                        st.error("❌ Failed to send test message")
+                        st.error("Failed to send test message")
                 else:
                     st.warning("Please enter a webhook URL first")
         
@@ -611,9 +613,9 @@ def show_settings():
             result = api_client.post("/config/update", notifications_config)
             
             if result and result.get('status') == 'success':
-                st.success("✅ Notification settings saved successfully!")
+                st.success("Notification settings saved successfully!")
             else:
-                st.error("❌ Failed to save settings")
+                st.error("Failed to save settings")
     
     with tab4:
         st.subheader("Model Settings")
@@ -626,20 +628,20 @@ def show_settings():
             # Access nested lstm status from /ml/status endpoint
             lstm_status = model_status.get('lstm', {})
             if lstm_status.get('trained'):
-                st.markdown('<div class="model-status status-trained">✅ Model Trained</div>', 
+                st.markdown('<div class="model-status status-trained">Model Trained</div>', 
                            unsafe_allow_html=True)
                 st.write(f"Last trained: {lstm_status.get('last_update', 'Unknown')}")
                 st.write(f"Model accuracy: {lstm_status.get('accuracy', 'Unknown')}")
                 st.write(f"Model version: {lstm_status.get('version', 'Unknown')}")
             else:
-                st.markdown('<div class="model-status status-not-trained">❌ Model Not Trained</div>', 
+                st.markdown('<div class="model-status status-not-trained">Model Not Trained</div>', 
                            unsafe_allow_html=True)
         
         with col2:
             st.markdown("### Enhanced LSTM Model")
             # Use model_trained field from /enhanced-lstm/status endpoint
             if enhanced_status.get('model_trained'):
-                st.markdown('<div class="model-status status-trained">✅ Enhanced Model Trained</div>', 
+                st.markdown('<div class="model-status status-trained">Enhanced Model Trained</div>', 
                            unsafe_allow_html=True)
                 st.write(f"Last trained: {enhanced_status.get('last_training_date', 'Unknown')}")
                 st.write(f"Features used: {enhanced_status.get('selected_features', 'Unknown')}")
@@ -648,7 +650,7 @@ def show_settings():
                 if metrics:
                     st.write(f"Test RMSE: {metrics.get('avg_rmse', 'Unknown'):.4f}" if isinstance(metrics.get('avg_rmse'), (int, float)) else f"Test RMSE: {metrics.get('avg_rmse', 'Unknown')}")
             else:
-                st.markdown('<div class="model-status status-not-trained">❌ Enhanced Model Not Trained</div>', 
+                st.markdown('<div class="model-status status-not-trained">Enhanced Model Not Trained</div>', 
                            unsafe_allow_html=True)
         
         # Model configuration
@@ -807,41 +809,41 @@ def show_settings():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("🚀 Train Original LSTM", type="primary", use_container_width=True):
+            if st.button("Train Original LSTM", type="primary", use_container_width=True):
                 with st.spinner("Training model... This may take several minutes"):
                     result = api_client.post("/ml/train", {})
                     if result and result.get('status') == 'training_started':
-                        st.success("✅ Model training started successfully!")
+                        st.success("Model training started successfully!")
                         st.info(f"Estimated time: {result.get('estimated_time', 'Unknown')}")
                         st.info("Check back in a few minutes to see the trained model status.")
                     elif result and result.get('status') == 'unsupported':
-                        st.error(f"❌ {result.get('message', 'Model type not supported')}")
+                        st.error(f"{result.get('message', 'Model type not supported')}")
                     else:
-                        st.error("❌ Training failed to start")
+                        st.error("Training failed to start")
         
         with col2:
-            if st.button("🚀 Train Enhanced LSTM", type="primary", use_container_width=True):
+            if st.button("Train Enhanced LSTM", type="primary", use_container_width=True):
                 with st.spinner("Training enhanced model... This may take 5-10 minutes"):
                     result = api_client.post("/enhanced-lstm/train", {})
                     if result:
                         status = result.get('status')
                         if status == 'success':
-                            st.success("✅ Enhanced model trained successfully!")
+                            st.success("Enhanced model trained successfully!")
                             metrics = result.get('training_metrics', {})
                             if metrics:
                                 st.write(f"Test RMSE: {metrics.get('avg_rmse', 'N/A'):.4f}" if isinstance(metrics.get('avg_rmse'), (int, float)) else f"Test RMSE: {metrics.get('avg_rmse', 'N/A')}")
                             st.rerun()
                         elif status == 'already_trained':
-                            st.info("ℹ️ Model was already trained recently")
+                            st.info("Model was already trained recently")
                             st.write(f"Last trained: {result.get('last_training_date', 'Unknown')}")
                         elif status == 'error':
-                            st.error(f"❌ {result.get('message', 'Training failed')}")
+                            st.error(f"{result.get('message', 'Training failed')}")
                             if result.get('suggestion'):
-                                st.warning(f"💡 {result.get('suggestion')}")
+                                st.warning(f"{result.get('suggestion')}")
                         else:
-                            st.error("❌ Training failed with unknown status")
+                            st.error("Training failed with unknown status")
                     else:
-                        st.error("❌ No response from training endpoint")
+                        st.error("No response from training endpoint")
         
         with col3:
             if st.button("💾 Save Model Settings", use_container_width=True):
@@ -873,9 +875,9 @@ def show_settings():
                 result = api_client.post("/config/update", model_config)
                 
                 if result and result.get('status') == 'success':
-                    st.success("✅ Model settings saved successfully!")
+                    st.success("Model settings saved successfully!")
                 else:
-                    st.error("❌ Failed to save settings")
+                    st.error("Failed to save settings")
     
     with tab5:
         st.subheader("System Preferences")
@@ -1104,9 +1106,9 @@ def show_settings():
             result = api_client.post("/config/update", system_config)
             
             if result and result.get('status') == 'success':
-                st.success("✅ System preferences saved successfully!")
+                st.success("System preferences saved successfully!")
             else:
-                st.error("❌ Failed to save preferences")
+                st.error("Failed to save preferences")
     
     with tab6:
         st.subheader("Backup & Restore")
@@ -1134,7 +1136,7 @@ def show_settings():
         
         with col2:
             st.markdown('<div class="warning-box">', unsafe_allow_html=True)
-            st.markdown("**⚠️ Important:**")
+            st.markdown("**Important:**")
             st.write("• Backups include sensitive data")
             st.write("• Store backups securely")
             st.write("• API keys are encrypted")
@@ -1151,7 +1153,7 @@ def show_settings():
                 result = api_client.post("/backup/create", backup_data)
                 
                 if result and result.get('status') == 'success':
-                    st.success("✅ Backup created successfully!")
+                    st.success("Backup created successfully!")
                     
                     # Download backup
                     backup_content = result.get('backup_data', {})
@@ -1164,7 +1166,7 @@ def show_settings():
                         mime="application/json"
                     )
                 else:
-                    st.error("❌ Failed to create backup")
+                    st.error("Failed to create backup")
         
         # Restore section
         st.markdown("### Restore from Backup")
@@ -1193,7 +1195,7 @@ def show_settings():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    if st.button("🔄 Restore Backup", type="primary", use_container_width=True):
+                    if st.button("Restore Backup", type="primary", use_container_width=True):
                         with st.spinner("Restoring backup..."):
                             restore_data = {
                                 "backup_data": backup_data,
@@ -1203,18 +1205,18 @@ def show_settings():
                             result = api_client.post("/backup/restore", restore_data)
                             
                             if result and result.get('status') == 'success':
-                                st.success("✅ Backup restored successfully!")
+                                st.success("Backup restored successfully!")
                                 st.info("Please restart the application for all changes to take effect")
                             else:
-                                st.error("❌ Failed to restore backup")
+                                st.error("Failed to restore backup")
                 
                 with col2:
-                    st.warning("⚠️ Restoring will overwrite current settings!")
+                    st.warning("Restoring will overwrite current settings!")
                     
             except json.JSONDecodeError:
-                st.error("❌ Invalid backup file format")
+                st.error("Invalid backup file format")
             except Exception as e:
-                st.error(f"❌ Error reading backup file: {str(e)}")
+                st.error(f"Error reading backup file: {str(e)}")
         
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -1224,7 +1226,7 @@ def show_settings():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📄 Export Current Configuration"):
+            if st.button("Export Current Configuration"):
                 config_export = json.dumps(current_config, indent=2)
                 st.download_button(
                     label="📥 Download Configuration",
@@ -1238,10 +1240,489 @@ def show_settings():
                 if st.checkbox("I understand this will reset all settings"):
                     result = api_client.post("/config/reset", {})
                     if result and result.get('status') == 'success':
-                        st.success("✅ Configuration reset to defaults!")
+                        st.success("Configuration reset to defaults!")
                         st.rerun()
                     else:
-                        st.error("❌ Failed to reset configuration")
+                        st.error("Failed to reset configuration")
+    
+    with tab7:
+        st.subheader("Data Quality Metrics")
+        
+        # Fetch data quality metrics
+        with st.spinner("Loading data quality metrics..."):
+            data_quality = api_client.get("/analytics/data-quality")
+        
+        if data_quality and not data_quality.get('summary', {}).get('error'):
+            # Summary section
+            st.markdown('<div class="config-section">', unsafe_allow_html=True)
+            st.markdown("### Summary")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    "Total Datapoints",
+                    f"{data_quality['summary']['total_datapoints']:,}",
+                    help="Total number of data points across all sources"
+                )
+            
+            with col2:
+                st.metric(
+                    "Missing Dates",
+                    f"{data_quality['summary']['total_missing_dates']:,}",
+                    help="Total number of missing dates in the data"
+                )
+            
+            with col3:
+                st.metric(
+                    "Overall Completeness",
+                    f"{data_quality['summary']['overall_completeness']:.1f}%",
+                    help="Percentage of expected data that is available"
+                )
+            
+            with col4:
+                st.metric(
+                    "Last Updated",
+                    pd.to_datetime(data_quality['summary']['last_updated']).strftime('%Y-%m-%d %H:%M'),
+                    help="When these metrics were calculated"
+                )
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Data by Type
+            st.markdown("### Data Completeness by Type")
+            
+            # Create a dataframe for visualization
+            type_data = []
+            for data_type, metrics in data_quality.get('by_type', {}).items():
+                type_data.append({
+                    'Type': data_type.capitalize(),
+                    'Datapoints': metrics['total_datapoints'],
+                    'Missing': metrics['missing_dates'],
+                    'Completeness %': metrics['completeness'],
+                    'Start Date': pd.to_datetime(metrics['date_range']['start']).strftime('%Y-%m-%d') if metrics['date_range']['start'] else 'N/A',
+                    'End Date': pd.to_datetime(metrics['date_range']['end']).strftime('%Y-%m-%d') if metrics['date_range']['end'] else 'N/A'
+                })
+            
+            if type_data:
+                type_df = pd.DataFrame(type_data)
+                
+                # Style the dataframe
+                styled_df = type_df.style.background_gradient(
+                    subset=['Completeness %'],
+                    cmap='RdYlGn',
+                    vmin=0,
+                    vmax=100
+                ).format({
+                    'Datapoints': '{:,}',
+                    'Missing': '{:,}',
+                    'Completeness %': '{:.1f}%'
+                })
+                
+                st.dataframe(styled_df, use_container_width=True)
+            
+            # Data by Source
+            st.markdown("### Data Availability by Source")
+            
+            # Create expandable sections for each data type
+            for data_type, type_metrics in data_quality.get('by_type', {}).items():
+                with st.expander(f"{data_type.capitalize()} Data Sources", expanded=False):
+                    source_data = []
+                    for source, metrics in type_metrics.get('sources', {}).items():
+                        source_data.append({
+                            'Source': source.capitalize(),
+                            'Datapoints': metrics['datapoints'],
+                            'Missing': metrics['missing_dates'],
+                            'Completeness %': metrics['completeness'],
+                            'Last Update': pd.to_datetime(metrics['last_update']).strftime('%Y-%m-%d %H:%M') if metrics['last_update'] else 'N/A'
+                        })
+                    
+                    if source_data:
+                        source_df = pd.DataFrame(source_data)
+                        st.dataframe(
+                            source_df.style.background_gradient(
+                                subset=['Completeness %'],
+                                cmap='RdYlGn',
+                                vmin=0,
+                                vmax=100
+                            ).format({
+                                'Datapoints': '{:,}',
+                                'Missing': '{:,}',
+                                'Completeness %': '{:.1f}%'
+                            }),
+                            use_container_width=True
+                        )
+            
+            # Coverage by Time Period
+            st.markdown("### Data Coverage by Time Period")
+            
+            coverage_data = data_quality.get('coverage', {})
+            if coverage_data:
+                # Create heatmap data
+                periods = list(coverage_data.keys())
+                data_types = ['price', 'volume', 'onchain', 'sentiment', 'macro']
+                
+                heatmap_data = []
+                for period in periods:
+                    row = []
+                    for dtype in data_types:
+                        row.append(coverage_data[period].get(dtype, 0))
+                    heatmap_data.append(row)
+                
+                # Create heatmap using plotly
+                import plotly.graph_objects as go
+                
+                fig = go.Figure(data=go.Heatmap(
+                    z=heatmap_data,
+                    x=[t.capitalize() for t in data_types],
+                    y=[p.replace('_', ' ').title() for p in periods],
+                    colorscale='RdYlGn',
+                    text=[[f'{val:.0f}%' for val in row] for row in heatmap_data],
+                    texttemplate='%{text}',
+                    textfont={"size": 12},
+                    colorbar=dict(title="Coverage %")
+                ))
+                
+                fig.update_layout(
+                    title="Data Coverage Heatmap",
+                    xaxis_title="Data Type",
+                    yaxis_title="Time Period",
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Data Gaps
+            st.markdown("### Data Gaps")
+            
+            gaps = data_quality.get('gaps', [])
+            if gaps:
+                st.warning(f"Found {len(gaps)} gaps in the data")
+                
+                gap_data = []
+                for gap in gaps:
+                    gap_data.append({
+                        'Start': pd.to_datetime(gap['start']).strftime('%Y-%m-%d'),
+                        'End': pd.to_datetime(gap['end']).strftime('%Y-%m-%d'),
+                        'Days Missing': gap['days'],
+                        'Symbol': gap['symbol'],
+                        'Granularity': gap['granularity']
+                    })
+                
+                gap_df = pd.DataFrame(gap_data)
+                st.dataframe(gap_df, use_container_width=True)
+            else:
+                st.success("No significant data gaps found!")
+            
+            # Cache Metrics
+            cache_metrics = data_quality.get('cache_metrics', {})
+            if cache_metrics:
+                st.markdown("### Cache Performance")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric(
+                        "Total Cache Entries",
+                        f"{cache_metrics.get('total_entries', 0):,}",
+                        help="Total number of cached API responses"
+                    )
+                
+                with col2:
+                    st.metric(
+                        "Active Cache Entries",
+                        f"{cache_metrics.get('active_entries', 0):,}",
+                        help="Number of non-expired cache entries"
+                    )
+                
+                with col3:
+                    cache_efficiency = (cache_metrics.get('active_entries', 0) / cache_metrics.get('total_entries', 1) * 100) if cache_metrics.get('total_entries', 0) > 0 else 0
+                    st.metric(
+                        "Cache Efficiency",
+                        f"{cache_efficiency:.1f}%",
+                        help="Percentage of cache entries that are still valid"
+                    )
+            
+            # Actions
+            st.markdown("### Actions")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("Refresh Metrics", use_container_width=True):
+                    st.rerun()
+            
+            with col2:
+                if st.button("📥 Fill Data Gaps", use_container_width=True):
+                    with st.spinner("Attempting to fill data gaps..."):
+                        # This would trigger a background job to fetch missing data
+                        st.info("Data gap filling initiated. This may take several minutes.")
+            
+            with col3:
+                if st.button("🧹 Clear Cache", use_container_width=True):
+                    if st.checkbox("I understand this will clear all cached data"):
+                        # This would clear the cache
+                        st.warning("Cache clearing functionality not yet implemented")
+            
+            # File Upload Section
+            st.markdown("### Data Upload")
+            st.markdown('<div class="config-section">', unsafe_allow_html=True)
+            
+            st.info("Upload historical data from CSV or Excel files to fill gaps or add new data sources")
+            
+            # Show example data formats
+            with st.expander("📋 Example Data Formats", expanded=False):
+                st.markdown("""
+                **Price Data Example (CSV):**
+                ```
+                date,open,high,low,close,volume
+                2024-01-01,42150.00,42500.00,41900.00,42300.00,15234.56
+                2024-01-02,42300.00,42800.00,42100.00,42650.00,18923.12
+                ```
+                
+                **Volume Data Example (CSV):**
+                ```
+                timestamp,volume,type
+                2024-01-01 00:00:00,12345.67,trading
+                2024-01-01 01:00:00,13456.78,trading
+                ```
+                
+                **On-chain Data Example (CSV):**
+                ```
+                date,active_addresses,transaction_count,hash_rate
+                2024-01-01,850000,320000,450.5
+                2024-01-02,870000,335000,455.2
+                ```
+                
+                **Sentiment Data Example (CSV):**
+                ```
+                date,fear_greed_index,social_volume,sentiment_score
+                2024-01-01,65,12500,0.72
+                2024-01-02,68,13200,0.75
+                ```
+                """)
+            
+            # File uploader
+            uploaded_file = st.file_uploader(
+                "Choose a data file",
+                type=['csv', 'xlsx', 'xls'],
+                help="Upload CSV or Excel file containing historical data. File should have columns for date/timestamp and relevant data values. Maximum file size: 100MB"
+            )
+            
+            if uploaded_file is not None:
+                # Check file size (100MB limit)
+                file_size_mb = uploaded_file.size / (1024 * 1024)
+                if file_size_mb > 100:
+                    st.error(f"File too large ({file_size_mb:.1f}MB). Maximum allowed size is 100MB.")
+                    st.info("Consider splitting your data into smaller files or compressing it.")
+                else:
+                    st.info(f"📁 File: {uploaded_file.name} ({file_size_mb:.2f}MB)")
+                
+                    # Configuration options
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Data type selection
+                        data_type = st.selectbox(
+                            "Data Type",
+                            ["price", "volume", "onchain", "sentiment", "macro"],
+                            help="Select the type of data being uploaded"
+                        )
+                        
+                        # Source input with suggestions
+                        source_suggestions = {
+                            "price": ["binance", "coingecko", "kraken", "coinbase", "custom"],
+                            "volume": ["binance", "coingecko", "custom"],
+                            "onchain": ["blockchain.info", "glassnode", "custom"],
+                            "sentiment": ["newsapi", "reddit", "twitter", "custom"],
+                            "macro": ["fred", "yahoo", "custom"]
+                        }
+                        
+                        source = st.text_input(
+                            "Data Source",
+                            help=f"Suggested sources: {', '.join(source_suggestions.get(data_type, ['custom']))}"
+                        )
+                    
+                    with col2:
+                        # Conflict resolution
+                        conflict_strategy = st.radio(
+                            "Conflict Resolution",
+                            ["skip", "overwrite", "average"],
+                            help="How to handle data that already exists:\n• Skip: Keep existing data\n• Overwrite: Replace with new data\n• Average: Average the values"
+                        )
+                        
+                        # Date format hint
+                        date_format = st.text_input(
+                            "Date Format (optional)",
+                            placeholder="YYYY-MM-DD",
+                            help="Specify date format if auto-detection fails. Examples: YYYY-MM-DD, DD/MM/YYYY, MM-DD-YYYY"
+                        )
+                
+                # Preview data
+                try:
+                    # Reset file pointer to beginning
+                    uploaded_file.seek(0)
+                    
+                    # Read file based on type
+                    if uploaded_file.name.endswith('.csv'):
+                        df = pd.read_csv(uploaded_file)
+                    else:
+                        df = pd.read_excel(uploaded_file)
+                    
+                    # Show preview
+                    st.markdown("#### Data Preview (first 10 rows)")
+                    st.dataframe(df.head(10), use_container_width=True)
+                    
+                    # Column mapping
+                    st.markdown("#### Column Mapping")
+                    st.info("Map your file columns to the expected data fields")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        date_column = st.selectbox(
+                            "Date/Time Column",
+                            df.columns.tolist(),
+                            help="Select the column containing dates or timestamps"
+                        )
+                    
+                    with col2:
+                        value_column = st.selectbox(
+                            "Value Column",
+                            df.columns.tolist(),
+                            help="Select the column containing the main data values"
+                        )
+                    
+                    with col3:
+                        # Additional columns based on data type
+                        additional_columns = {}
+                        if data_type == "price":
+                            additional_columns["high"] = st.selectbox(
+                                "High Price Column (optional)",
+                                ["None"] + df.columns.tolist()
+                            )
+                            additional_columns["low"] = st.selectbox(
+                                "Low Price Column (optional)",
+                                ["None"] + df.columns.tolist()
+                            )
+                            additional_columns["close"] = st.selectbox(
+                                "Close Price Column (optional)",
+                                ["None"] + df.columns.tolist()
+                            )
+                        elif data_type == "volume":
+                            additional_columns["volume_type"] = st.selectbox(
+                                "Volume Type",
+                                ["trading", "onchain", "both"]
+                            )
+                    
+                    # Data validation
+                    st.markdown("#### Data Validation")
+                    
+                    # Check date parsing
+                    try:
+                        if date_format:
+                            sample_dates = pd.to_datetime(df[date_column], format=date_format)
+                        else:
+                            sample_dates = pd.to_datetime(df[date_column])
+                        st.success(f"Date column parsed successfully. Date range: {sample_dates.min()} to {sample_dates.max()}")
+                    except Exception as e:
+                        st.error(f"Error parsing dates: {str(e)}")
+                        st.info("Try specifying a date format above")
+                    
+                    # Check numeric values
+                    try:
+                        numeric_values = pd.to_numeric(df[value_column], errors='coerce')
+                        valid_count = numeric_values.notna().sum()
+                        total_count = len(df)
+                        
+                        if valid_count == total_count:
+                            st.success(f"All {total_count} values are numeric")
+                        else:
+                            st.warning(f"{total_count - valid_count} non-numeric values found (will be skipped)")
+                    except Exception as e:
+                        st.error(f"Error checking values: {str(e)}")
+                    
+                    # Upload button
+                    if st.button("📤 Upload Data", type="primary", use_container_width=True):
+                        if not source:
+                            st.error("Please specify a data source")
+                        else:
+                            with st.spinner("Uploading data..."):
+                                # Prepare upload data
+                                upload_params = {
+                                    "data_type": data_type,
+                                    "source": source.lower(),
+                                    "conflict_strategy": conflict_strategy,
+                                    "date_column": date_column,
+                                    "value_column": value_column,
+                                    "date_format": date_format if date_format else None,
+                                    "additional_columns": {k: v for k, v in additional_columns.items() if v != "None"}
+                                }
+                                
+                                # Reset file pointer for re-reading
+                                uploaded_file.seek(0)
+                                
+                                # Re-read the dataframe to ensure we have fresh data
+                                if uploaded_file.name.endswith('.csv'):
+                                    df_upload = pd.read_csv(uploaded_file)
+                                else:
+                                    df_upload = pd.read_excel(uploaded_file)
+                                
+                                # Convert dataframe to CSV for upload
+                                csv_data = df_upload.to_csv(index=False)
+                                
+                                # Use the upload method
+                                result = api_client.upload_data(uploaded_file.name, csv_data, upload_params)
+                                
+                                if result and result.get('status') == 'success':
+                                    st.success(f"Successfully uploaded {result.get('records_imported', 0)} records!")
+                                    
+                                    # Show import summary
+                                    if result.get('summary'):
+                                        col1, col2, col3, col4 = st.columns(4)
+                                        with col1:
+                                            st.metric("Records Imported", result['summary'].get('imported', 0))
+                                        with col2:
+                                            st.metric("Records Skipped", result['summary'].get('skipped', 0))
+                                        with col3:
+                                            st.metric("Errors", result['summary'].get('errors', 0))
+                                        with col4:
+                                            st.metric("Time Taken", f"{result['summary'].get('duration', 0):.1f}s")
+                                    
+                                    # Refresh metrics
+                                    st.info("Refreshing data quality metrics...")
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    error_msg = result.get('message', 'Unknown error') if result else 'No response from server'
+                                    st.error(f"Upload failed: {error_msg}")
+                                    
+                                    # Show detailed errors if available
+                                    if result and result.get('errors'):
+                                        with st.expander("Error Details"):
+                                            for error in result['errors'][:10]:  # Show max 10 errors
+                                                st.write(f"• {error}")
+                
+                except Exception as e:
+                    st.error(f"Error reading file: {str(e)}")
+                    st.info("Please ensure your file is a valid CSV or Excel file")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        else:
+            st.error("Failed to load data quality metrics")
+            if data_quality and data_quality.get('summary', {}).get('error'):
+                st.error(f"Error: {data_quality['summary']['error']}")
+    
+    with tab8:
+        st.subheader("Data Upload")
+        
+        # Import the data uploader component
+        from components.data_uploader import DataUploader
+        
+        # Create and render the uploader
+        uploader = DataUploader(api_client)
+        uploader.render()
 
 # Auto-refresh option
 if st.sidebar.checkbox("Auto-refresh (60s)", value=False):

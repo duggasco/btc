@@ -38,12 +38,12 @@ btc/
 │       │   ├── metrics.py          # Metric display components
 │       │   └── websocket_client.py # WebSocket client for real-time updates
 │       ├── pages/                  # Multi-page Streamlit navigation
-│       │   ├── 1_📊_Dashboard.py   # Real-time trading dashboard
-│       │   ├── 2_📈_Signals.py     # Signal analysis and indicators
-│       │   ├── 3_💰_Portfolio.py   # Portfolio management
-│       │   ├── 4_📄_Paper_Trading.py # Paper trading interface
-│       │   ├── 5_🔬_Analytics.py   # Backtesting and analytics
-│       │   └── 6_⚙️_Settings.py    # Configuration management
+│       │   ├── 1_Dashboard.py       # Real-time trading dashboard
+│       │   ├── 2_Signals.py         # Signal analysis and indicators
+│       │   ├── 3_Portfolio.py       # Portfolio management
+│       │   ├── 4_Paper_Trading.py # Paper trading interface
+│       │   ├── 5_Analytics.py       # Backtesting and analytics
+│       │   └── 6_Settings.py        # Configuration management
 │       └── utils/
 │           ├── constants.py        # Application constants
 │           └── helpers.py          # Utility functions
@@ -95,9 +95,13 @@ btc/
 │
 ├── docs/                        # Documentation
 │   ├── API.md                   # API endpoint documentation
-│   ├── CACHE_MONITORING.md      # Cache system documentation
-│   ├── INTEL_OPTIMIZATION.md    # Intel optimization guide
-│   └── TEST_WORKFLOWS.md        # Testing documentation
+│   ├── ARCHITECTURE.md          # System architecture and design
+│   ├── DATA_UPLOAD_GUIDE.md     # Data upload and management guide
+│   ├── DEPLOYMENT_GUIDE.md      # Deployment and operations guide
+│   ├── DEV_GUIDE.md             # Developer guide and best practices
+│   ├── FUTURE_DEVELOPMENT.md    # Roadmap and enhancement ideas
+│   ├── TEST_SUITE.md            # Comprehensive testing documentation
+│   └── USER_GUIDE.md            # End-user guide for the trading system
 │
 ├── scripts/                     # Utility scripts
 │   ├── create_gitkeeps.sh      # Create .gitkeep files
@@ -127,7 +131,7 @@ btc/
 - **`config.py`**: Centralized configuration for API URLs, timeouts, and settings
 - **`components/api_client.py`**: Handles all API communication with retry logic
 - **`components/websocket_client.py`**: Manages WebSocket connections for real-time updates
-- **`pages/1_📊_Dashboard.py`**: Main trading interface with live price updates
+- **`pages/1_Dashboard.py`**: Main trading interface with live price updates
 
 ### Configuration Files
 

@@ -15,7 +15,7 @@ from components.api_client import APIClient
 # Page configuration
 st.set_page_config(
     page_title="BTC Trading System - UltraThink Enhanced",
-    page_icon="₿",
+    page_icon="BTC",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -185,55 +185,55 @@ if "api_client" not in st.session_state:
 
 # Sidebar with enhanced system status
 with st.sidebar:
-    st.markdown("## ₿ BTC Trading System")
+    st.markdown("## BTC Trading System")
     st.markdown("### UltraThink Enhanced Edition")
     st.markdown("---")
     
     # System health indicators
     health_container = st.container()
     with health_container:
-        st.markdown("### 🏥 System Health")
+        st.markdown("### System Health")
         
         # Placeholder for dynamic health status
         health_status = st.empty()
-        health_status.info("🟢 All systems operational")
+        health_status.info("All systems operational")
     
     # WebSocket status
     ws_container = st.container()
     with ws_container:
-        st.markdown("### 🔌 Connections")
+        st.markdown("### Connections")
         ws_status = st.empty()
         ws_status.success("WebSocket: Connected")
     
     st.markdown("---")
     
     # Feature highlights
-    st.markdown("### ✨ Features")
+    st.markdown("### Features")
     st.markdown("""
-    - 🤖 **AI Predictions** - LSTM Neural Network
-    - 📊 **50+ Indicators** - Technical, On-chain, Sentiment
-    - 📈 **Live Updates** - WebSocket streaming
-    - 💼 **Paper Trading** - Risk-free practice
-    - 🔔 **Discord Alerts** - Real-time notifications
-    - 📱 **Mobile Ready** - Responsive design
+    - **AI Predictions** - LSTM Neural Network
+    - **50+ Indicators** - Technical, On-chain, Sentiment
+    - **Live Updates** - WebSocket streaming
+    - **Paper Trading** - Risk-free practice
+    - **Discord Alerts** - Real-time notifications
+    - **Mobile Ready** - Responsive design
     """)
     
     st.markdown("---")
     
     # Quick actions
-    st.markdown("### ⚡ Quick Actions")
+    st.markdown("### Quick Actions")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("Refresh", use_container_width=True):
             st.rerun()
     with col2:
-        if st.button("📊 Backtest", use_container_width=True):
-            st.switch_page("pages/5_🔬_Analytics.py")
+        if st.button("Backtest", use_container_width=True):
+            st.switch_page("pages/5_Analytics.py")
     
     st.markdown("---")
     
     # Keyboard shortcuts
-    with st.expander("⌨️ Keyboard Shortcuts"):
+    with st.expander("Keyboard Shortcuts"):
         st.markdown("""
         - `R` - Refresh all data
         - `T` - Toggle trading mode
@@ -247,7 +247,7 @@ with st.sidebar:
 st.markdown("""
 <div style="text-align: center; padding: 20px;">
     <h1 style="font-size: 3em; background: linear-gradient(135deg, #f7931a, #ffaa00); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-        🚀 BTC Trading System
+        BTC Trading System
     </h1>
     <p style="font-size: 1.2em; color: #8b92a8;">
         AI-Powered Trading with 50+ Indicators & Real-Time Analysis
@@ -256,7 +256,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Real-time stats banner
-st.markdown("### 📊 Live System Overview")
+st.markdown("### Live System Overview")
 stats_container = st.container()
 with stats_container:
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -299,7 +299,7 @@ with stats_container:
         st.metric("Status", "Active", "Real Mode")
 
 # Navigation cards
-st.markdown("### 🎯 Navigate to Your Trading Dashboard")
+st.markdown("### Navigate to Your Trading Dashboard")
 
 col1, col2, col3 = st.columns(3)
 
@@ -307,34 +307,34 @@ with col1:
     with st.container():
         st.markdown("""
         <div class="chart-container" style="text-align: center;">
-            <h3>📊 Real-Time Dashboard</h3>
+            <h3>Real-Time Dashboard</h3>
             <p>Live BTC prices, WebSocket updates, and market analysis with interactive charts</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button("Open Dashboard", key="dash", use_container_width=True):
-            st.switch_page("pages/1_📊_Dashboard.py")
+            st.switch_page("pages/1_Dashboard.py")
 
 with col2:
     with st.container():
         st.markdown("""
         <div class="chart-container" style="text-align: center;">
-            <h3>📈 AI Trading Signals</h3>
+            <h3>AI Trading Signals</h3>
             <p>50+ indicators, LSTM predictions, and comprehensive signal analysis</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button("View Signals", key="sig", use_container_width=True):
-            st.switch_page("pages/2_📈_Signals.py")
+            st.switch_page("pages/2_Signals.py")
 
 with col3:
     with st.container():
         st.markdown("""
         <div class="chart-container" style="text-align: center;">
-            <h3>💼 Portfolio Manager</h3>
+            <h3>Portfolio Manager</h3>
             <p>Track positions, P&L analysis, and automated risk management</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button("Manage Portfolio", key="port", use_container_width=True):
-            st.switch_page("pages/3_💰_Portfolio.py")
+            st.switch_page("pages/3_Portfolio.py")
 
 # Additional features row
 col1, col2, col3 = st.columns(3)
@@ -343,34 +343,34 @@ with col1:
     with st.container():
         st.markdown("""
         <div class="chart-container" style="text-align: center;">
-            <h3>📄 Paper Trading</h3>
+            <h3>Paper Trading</h3>
             <p>Practice risk-free with $10,000 virtual portfolio</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button("Start Paper Trading", key="paper", use_container_width=True):
-            st.switch_page("pages/4_📄_Paper_Trading.py")
+            st.switch_page("pages/4_Paper_Trading.py")
 
 with col2:
     with st.container():
         st.markdown("""
         <div class="chart-container" style="text-align: center;">
-            <h3>🔬 Advanced Analytics</h3>
+            <h3>Advanced Analytics</h3>
             <p>Backtesting, Monte Carlo simulations, and ML insights</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button("Run Analytics", key="analytics", use_container_width=True):
-            st.switch_page("pages/5_🔬_Analytics.py")
+            st.switch_page("pages/5_Analytics.py")
 
 with col3:
     with st.container():
         st.markdown("""
         <div class="chart-container" style="text-align: center;">
-            <h3>⚙️ Configuration</h3>
+            <h3>Configuration</h3>
             <p>Customize trading rules, API keys, and signal weights</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button("Settings", key="settings", use_container_width=True):
-            st.switch_page("pages/6_⚙️_Settings.py")
+            st.switch_page("pages/6_Settings.py")
 
 # Footer
 st.markdown("---")

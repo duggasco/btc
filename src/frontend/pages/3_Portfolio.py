@@ -14,7 +14,7 @@ from components.charts import create_portfolio_chart, create_performance_chart
 from components.metrics import display_portfolio_metrics, display_risk_metrics
 from utils.helpers import format_currency, format_percentage, calculate_sharpe_ratio
 
-st.set_page_config(page_title="Portfolio Management", page_icon="💰", layout="wide")
+st.set_page_config(page_title="Portfolio Management", page_icon="Portfolio", layout="wide")
 
 # Initialize API client
 @st.cache_resource
@@ -23,7 +23,7 @@ def get_api_client():
 
 api_client = get_api_client()
 
-st.title("💰 Portfolio Management")
+st.title("Portfolio Management")
 st.markdown("Track positions, analyze performance, and manage risk")
 
 # Fetch portfolio data
@@ -47,11 +47,11 @@ if performance:
 
 # Tabs for different views
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📊 Current Positions",
-    "📈 Performance Analysis",
-    "🔄 Trade History",
-    "⚠️ Risk Management",
-    "📊 Analytics",
+    "Current Positions",
+    "Performance Analysis",
+    "Trade History",
+    "Risk Management",
+    "Analytics",
     "💸 P&L Analysis"
 ])
 
@@ -88,7 +88,7 @@ with tab1:
                 "P&L": pnl,
                 "P&L %": pnl_percent,
                 "Duration": f"{duration}d",
-                "Status": "🟢" if pnl > 0 else "🔴"
+                "Status": "[Profit]" if pnl > 0 else "[Loss]"
             })
         
         positions_display = pd.DataFrame(positions_data)
@@ -455,7 +455,7 @@ with tab4:
             "Current": current_value,
             "Limit": limit_value,
             "Usage": f"{(current_value / limit_value * 100):.1f}%" if limit_value > 0 else "0%",
-            "Status": "✅" if status == "OK" else "⚠️"
+            "Status": "[OK]" if status == "OK" else "[Warning]"
         })
     
     if limit_data:

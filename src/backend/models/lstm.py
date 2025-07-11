@@ -70,12 +70,27 @@ class TradingSignalGenerator:
             self.load_model(model_path)
     
     def fetch_btc_data(self, period: str = "3mo") -> pd.DataFrame:
-        """Fetch BTC price data using external data fetcher"""
+        """Fetch BTC price data using external data fetcher with enhanced historical capabilities"""
         try:
             logger.info(f"Fetching BTC data for period: {period}")
             
-            # Use external data fetcher with cascading sources
-            df = self.data_fetcher.fetch_crypto_data('BTC', period)
+            # Try to load existing historical data first
+            df = self.data_fetcher.load_combined_data('BTC', granularity='1d')
+            
+            # If not enough data, fetch extended historical data
+            if df is None or df.empty:
+                logger.info("No existing data found, fetching extended historical data...")
+                df = self.data_fetcher.fetch_extended_historical_data('BTC', granularity='1d')
+            
+            # Filter to requested period if we have more data
+            if not df.empty:
+                days_map = {
+                    '1d': 1, '7d': 7, '1mo': 30, '3mo': 90,
+                    '6mo': 180, '1y': 365, '2y': 730, 'max': 3650
+                }
+                days = days_map.get(period, 90)
+                if len(df) > days:
+                    df = df.iloc[-days:]
             
             if df.empty:
                 logger.warning("Empty dataframe received from data fetcher")
@@ -482,7 +497,11 @@ class EnhancedLSTMTradingModel(LSTMTradingModel):
         # Add optional attention mechanism
         self.use_attention = use_attention
         if use_attention:
-            self.attention = nn.MultiheadAttention(hidden_size, num_heads=4, dropout=dropout)
+            # Ensure hidden_size is divisible by num_heads
+            num_heads = 2 if hidden_size % 2 == 0 else 1
+            if hidden_size % 4 == 0:
+                num_heads = 4
+            self.attention = nn.MultiheadAttention(hidden_size, num_heads=num_heads, dropout=dropout)
             
     def forward(self, x):
         """Forward pass with optional attention"""
@@ -1025,7 +1044,7 @@ def test_integration():
     basic_signal, basic_conf, basic_price = enhanced_gen.predict_signal(basic_data)
     logger.info(f"Base method signal: {basic_signal}, confidence: {basic_conf:.2%}")
     
-    logger.info("\n✅ All integration tests completed successfully!")
+    logger.info("\nAll integration tests completed successfully!")
     
     return enhanced_gen, enhanced_data
 

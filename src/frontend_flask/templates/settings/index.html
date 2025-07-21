@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+
+{% block title %}Settings & Configuration - {{ super() }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <h2>Settings & Configuration</h2>
+    
+    <!-- Tab Navigation -->
+    <div class="tabs">
+        <a href="#trading-rules" class="tab active" data-tab="trading-rules">Trading Rules</a>
+        <a href="#api-config" class="tab" data-tab="api-config">API Configuration</a>
+        <a href="#notifications" class="tab" data-tab="notifications">Notifications</a>
+        <a href="#system-maintenance" class="tab" data-tab="system-maintenance">System Maintenance</a>
+    </div>
+    
+    <!-- Tab Content -->
+    <div class="tab-content">
+        <!-- Trading Rules Tab -->
+        <div id="trading-rules" class="tab-pane active">
+            <form id="trading-rules-form" class="settings-form">
+                <!-- Risk Management -->
+                <div class="form-section">
+                    <h3>Risk Management</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="max-position-size" class="form-label">Max Position Size (BTC)</label>
+                            <input type="number" id="max-position-size" class="form-control" 
+                                   min="0.01" max="10" step="0.01" value="1.0">
+                            <small class="form-help">Maximum BTC allowed per position</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="default-stop-loss" class="form-label">Default Stop Loss (%)</label>
+                            <input type="number" id="default-stop-loss" class="form-control" 
+                                   min="0.5" max="20" step="0.1" value="2.5">
+                            <small class="form-help">Default stop loss percentage</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="risk-per-trade" class="form-label">Risk Per Trade (%)</label>
+                            <input type="number" id="risk-per-trade" class="form-control" 
+                                   min="0.1" max="5" step="0.1" value="1.0">
+                            <small class="form-help">Maximum risk per trade as % of portfolio</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="default-take-profit" class="form-label">Default Take Profit (%)</label>
+                            <input type="number" id="default-take-profit" class="form-control" 
+                                   min="1" max="50" step="0.5" value="5.0">
+                            <small class="form-help">Default take profit percentage</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Signal Thresholds -->
+                <div class="form-section">
+                    <h3>Signal Thresholds</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="min-signal-confidence" class="form-label">
+                                Minimum Signal Confidence: <span id="confidence-value">70%</span>
+                            </label>
+                            <input type="range" id="min-signal-confidence" class="form-control" 
+                                   min="50" max="95" step="5" value="70">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="signal-cooldown" class="form-label">Signal Cooldown (minutes)</label>
+                            <input type="number" id="signal-cooldown" class="form-control" 
+                                   min="0" max="60" step="5" value="15">
+                            <small class="form-help">Minimum time between signals</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="max-daily-trades" class="form-label">Max Daily Trades</label>
+                            <input type="number" id="max-daily-trades" class="form-control" 
+                                   min="1" max="50" step="1" value="10">
+                            <small class="form-help">Maximum trades allowed per day</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="trading-enabled" checked>
+                                Trading Enabled
+                            </label>
+                            <small class="form-help">Master switch for automated trading</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Save Trading Rules</button>
+            </form>
+        </div>
+        
+        <!-- API Configuration Tab -->
+        <div id="api-config" class="tab-pane">
+            <form id="api-config-form" class="settings-form">
+                <!-- Exchange APIs -->
+                <div class="form-section">
+                    <h3>Exchange APIs</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="binance-api-key" class="form-label">Binance API Key</label>
+                            <input type="text" id="binance-api-key" class="form-control" placeholder="Enter API key">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="binance-api-secret" class="form-label">Binance API Secret</label>
+                            <input type="password" id="binance-api-secret" class="form-control" placeholder="Enter API secret">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="coinbase-api-key" class="form-label">Coinbase API Key</label>
+                            <input type="text" id="coinbase-api-key" class="form-control" placeholder="Enter API key">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="coinbase-api-secret" class="form-label">Coinbase API Secret</label>
+                            <input type="password" id="coinbase-api-secret" class="form-control" placeholder="Enter API secret">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Data Provider APIs -->
+                <div class="form-section">
+                    <h3>Data Provider APIs</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="coingecko-api-key" class="form-label">CoinGecko API Key</label>
+                            <input type="text" id="coingecko-api-key" class="form-control" placeholder="Optional">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="alpha-vantage-api-key" class="form-label">Alpha Vantage API Key</label>
+                            <input type="text" id="alpha-vantage-api-key" class="form-control" placeholder="Optional">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="fred-api-key" class="form-label">FRED API Key</label>
+                            <input type="text" id="fred-api-key" class="form-control" placeholder="Optional">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="news-api-key" class="form-label">News API Key</label>
+                            <input type="text" id="news-api-key" class="form-control" placeholder="Optional">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- API Settings -->
+                <div class="form-section">
+                    <h3>API Settings</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="api-timeout" class="form-label">API Timeout (seconds)</label>
+                            <input type="number" id="api-timeout" class="form-control" 
+                                   min="5" max="120" step="5" value="30">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="retry-attempts" class="form-label">Retry Attempts</label>
+                            <input type="number" id="retry-attempts" class="form-control" 
+                                   min="0" max="10" step="1" value="3">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="rate-limit" class="form-label">Rate Limit (requests/min)</label>
+                            <input type="number" id="rate-limit" class="form-control" 
+                                   min="10" max="1000" step="10" value="60">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="enable-api-cache" checked>
+                                Enable API Cache
+                            </label>
+                            <small class="form-help">Cache API responses for better performance</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info">
+                    <strong>Note:</strong> API keys are encrypted and stored securely.
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Save API Configuration</button>
+            </form>
+        </div>
+        
+        <!-- Notifications Tab -->
+        <div id="notifications" class="tab-pane">
+            <form id="notifications-form" class="settings-form">
+                <!-- Discord Notifications -->
+                <div class="form-section">
+                    <h3>Discord Notifications</h3>
+                    <div class="form-group">
+                        <label for="discord-webhook" class="form-label">Discord Webhook URL</label>
+                        <input type="url" id="discord-webhook" class="form-control" 
+                               placeholder="https://discord.com/api/webhooks/...">
+                        <small class="form-help">Enter your Discord webhook URL for notifications</small>
+                    </div>
+                    <button type="button" class="btn btn-secondary" id="test-notification">Test Notification</button>
+                </div>
+                
+                <!-- Notification Types -->
+                <div class="form-section">
+                    <h3>Notification Types</h3>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-signals" checked>
+                            Trading Signals
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-executions" checked>
+                            Trade Executions
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-errors" checked>
+                            System Errors
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-daily">
+                            Daily Summary
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-pnl" checked>
+                            P&L Updates
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="notify-model">
+                            Model Updates
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Alert Thresholds -->
+                <div class="form-section">
+                    <h3>Alert Thresholds</h3>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="price-alert-threshold" class="form-label">Price Alert Threshold (%)</label>
+                            <input type="number" id="price-alert-threshold" class="form-control" 
+                                   min="1" max="20" step="0.5" value="5.0">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="drawdown-alert" class="form-label">Drawdown Alert (%)</label>
+                            <input type="number" id="drawdown-alert" class="form-control" 
+                                   min="5" max="50" step="1" value="10.0">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="volume-spike-alert" class="form-label">Volume Spike Alert (x)</label>
+                            <input type="number" id="volume-spike-alert" class="form-control" 
+                                   min="2" max="10" step="0.5" value="3.0">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="win-rate-alert" class="form-label">Win Rate Alert (%)</label>
+                            <input type="number" id="win-rate-alert" class="form-control" 
+                                   min="20" max="60" step="5" value="40.0">
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Save Notifications</button>
+            </form>
+        </div>
+        
+        <!-- System Maintenance Tab -->
+        <div id="system-maintenance" class="tab-pane">
+            <!-- Data Management -->
+            <div class="form-section">
+                <h3>Data Management</h3>
+                <div class="maintenance-grid">
+                    <div class="maintenance-item">
+                        <div class="maintenance-info">
+                            <h4>Database</h4>
+                            <p class="maintenance-metric" id="database-size">125.3 MB</p>
+                        </div>
+                        <button class="btn btn-secondary" id="compact-database">Compact Database</button>
+                    </div>
+                    
+                    <div class="maintenance-item">
+                        <div class="maintenance-info">
+                            <h4>Cache</h4>
+                            <p class="maintenance-metric" id="cache-size">42.7 MB</p>
+                        </div>
+                        <button class="btn btn-secondary" id="clear-cache">Clear Cache</button>
+                    </div>
+                    
+                    <div class="maintenance-item">
+                        <div class="maintenance-info">
+                            <h4>Log Files</h4>
+                            <p class="maintenance-metric" id="log-size">18.2 MB</p>
+                        </div>
+                        <button class="btn btn-secondary" id="clean-logs">Clean Logs</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Model Management -->
+            <div class="form-section">
+                <h3>Model Management</h3>
+                <form id="model-form" class="settings-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="active-model" class="form-label">Active Model</label>
+                            <select id="active-model" class="form-control">
+                                <option value="enhanced_lstm" selected>Enhanced LSTM</option>
+                                <option value="standard_lstm">Standard LSTM</option>
+                                <option value="ensemble">Ensemble</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="auto-retrain">
+                                Auto-retrain Model
+                            </label>
+                            <small class="form-help">Automatically retrain model at intervals</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="retrain-interval" class="form-label">Retrain Interval (days)</label>
+                            <input type="number" id="retrain-interval" class="form-control" 
+                                   min="1" max="30" step="1" value="7">
+                        </div>
+                        
+                        <div class="form-group">
+                            <button type="button" class="btn btn-secondary" id="retrain-now">Retrain Now</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- System Health -->
+            <div class="form-section">
+                <h3>System Health</h3>
+                <div class="health-metrics">
+                    <div class="health-item">
+                        <span class="health-label">CPU Usage</span>
+                        <span class="health-value" id="cpu-usage">35.2%</span>
+                    </div>
+                    <div class="health-item">
+                        <span class="health-label">Memory Usage</span>
+                        <span class="health-value" id="memory-usage">48.7%</span>
+                    </div>
+                    <div class="health-item">
+                        <span class="health-label">Disk Usage</span>
+                        <span class="health-value" id="disk-usage">62.1%</span>
+                    </div>
+                    <div class="health-item">
+                        <span class="health-label">API Latency</span>
+                        <span class="health-value" id="api-latency">42.5ms</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Backup & Restore -->
+            <div class="form-section">
+                <h3>Backup & Restore</h3>
+                <div class="backup-controls">
+                    <button class="btn btn-primary" id="create-backup">Create Backup</button>
+                    
+                    <div class="restore-section">
+                        <select id="backup-select" class="form-control">
+                            <option value="">Select a backup to restore...</option>
+                        </select>
+                        <button class="btn btn-danger" id="restore-backup" disabled>Restore Backup</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Dialog -->
+<div id="confirmation-dialog" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3 id="confirmation-title">Confirm Action</h3>
+        <p id="confirmation-message">Are you sure you want to proceed?</p>
+        <div class="modal-buttons">
+            <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+            <button class="btn btn-danger" id="confirm-proceed">Proceed</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+<script>
+    // Initialize settings on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeSettings();
+    });
+</script>
+{% endblock %}

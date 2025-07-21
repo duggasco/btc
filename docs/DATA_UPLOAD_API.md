@@ -182,45 +182,24 @@ curl http://localhost:8090/data/upload/templates/price
 
 ### 4. Get Valid Sources
 
-Get list of valid data sources for uploads.
+Get list of suggested data sources for uploads. Note that custom source names are also allowed.
 
 **Endpoint:** `GET /data/upload/sources`
 
 **Response:**
 ```json
 {
-  "sources": [
-    {
-      "id": "binance",
-      "name": "Binance",
-      "description": "Binance exchange data"
-    },
-    {
-      "id": "coingecko",
-      "name": "CoinGecko",
-      "description": "CoinGecko API data"
-    },
-    {
-      "id": "cryptowatch",
-      "name": "Cryptowatch",
-      "description": "Cryptowatch market data"
-    },
-    {
-      "id": "glassnode",
-      "name": "Glassnode",
-      "description": "On-chain analytics"
-    },
-    {
-      "id": "santiment",
-      "name": "Santiment",
-      "description": "Sentiment and social data"
-    },
-    {
-      "id": "custom",
-      "name": "Custom",
-      "description": "User-provided data source"
-    }
-  ]
+  "suggested_sources": ["binance", "coingecko", "cryptowatch", "glassnode", "santiment", "custom"],
+  "custom_allowed": true,
+  "message": "You can use any custom source name. The suggested sources are provided for reference.",
+  "descriptions": {
+    "binance": "Binance exchange data",
+    "coingecko": "CoinGecko market data",
+    "cryptowatch": "Cryptowatch market data",
+    "glassnode": "Glassnode on-chain metrics",
+    "santiment": "Santiment social/on-chain data",
+    "custom": "Any custom data source"
+  }
 }
 ```
 

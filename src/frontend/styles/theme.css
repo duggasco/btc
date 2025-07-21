@@ -1,0 +1,187 @@
+/* BTC Trading System Professional Theme */
+
+:root {
+    /* Primary Colors */
+    --bg-primary: #0a0a0b;      /* Near black background */
+    --bg-secondary: #131315;    /* Card background */
+    --bg-tertiary: #1a1a1d;     /* Elevated elements */
+    
+    /* Accent Colors */
+    --accent-primary: #f7931a;  /* Bitcoin orange (sparingly) */
+    --accent-success: #22c55e;  /* Profit/Buy signals */
+    --accent-danger: #ef4444;   /* Loss/Sell signals */
+    --accent-info: #3b82f6;     /* Information */
+    
+    /* Text Colors */
+    --text-primary: #e5e5e7;    /* Main text */
+    --text-secondary: #9ca3af;  /* Secondary text */
+    --text-muted: #6b7280;      /* Muted labels */
+    
+    /* Borders */
+    --border-subtle: #27272a;   /* Subtle borders */
+    --border-focus: #3f3f46;    /* Focus states */
+    
+    /* Spacing System */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    
+    /* Transitions */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.2s ease;
+    --transition-slow: 0.3s ease;
+    
+    /* Border Radius */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+/* Base Typography */
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headers */
+h1 { 
+    font-size: 20px; 
+    font-weight: 600; 
+    margin: 0 0 8px 0; 
+    color: var(--text-primary);
+}
+
+h2 { 
+    font-size: 16px; 
+    font-weight: 600; 
+    margin: 0 0 6px 0; 
+    color: var(--text-primary);
+}
+
+h3 { 
+    font-size: 14px; 
+    font-weight: 500; 
+    margin: 0 0 4px 0; 
+    color: var(--text-primary);
+}
+
+/* Remove Streamlit default styling */
+.main .block-container {
+    padding-top: 2rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    max-width: none;
+}
+
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+.streamlit-expanderHeader {display: none;}
+
+/* Streamlit specific overrides */
+.stApp {
+    background-color: var(--bg-primary);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-focus);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--border-subtle);
+}
+
+/* Utility Classes */
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted { color: var(--text-muted); }
+.text-success { color: var(--accent-success); }
+.text-danger { color: var(--accent-danger); }
+.text-info { color: var(--accent-info); }
+
+.bg-primary { background-color: var(--bg-primary); }
+.bg-secondary { background-color: var(--bg-secondary); }
+.bg-tertiary { background-color: var(--bg-tertiary); }
+
+/* Spacing utilities */
+.mt-1 { margin-top: var(--space-1); }
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+.mt-5 { margin-top: var(--space-5); }
+
+.mb-1 { margin-bottom: var(--space-1); }
+.mb-2 { margin-bottom: var(--space-2); }
+.mb-3 { margin-bottom: var(--space-3); }
+.mb-4 { margin-bottom: var(--space-4); }
+.mb-5 { margin-bottom: var(--space-5); }
+
+.p-1 { padding: var(--space-1); }
+.p-2 { padding: var(--space-2); }
+.p-3 { padding: var(--space-3); }
+.p-4 { padding: var(--space-4); }
+.p-5 { padding: var(--space-5); }
+
+/* Flex utilities */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+
+/* Data Display */
+.metric-value { 
+    font-size: 18px; 
+    font-weight: 600; 
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+.metric-label { 
+    font-size: 11px; 
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+/* Responsive breakpoints */
+@media (max-width: 1024px) {
+    body { font-size: 12px; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; }
+    h3 { font-size: 13px; }
+}
+
+@media (max-width: 640px) {
+    body { font-size: 12px; }
+    .metric-value { font-size: 16px; }
+    .metric-label { font-size: 10px; }
+}

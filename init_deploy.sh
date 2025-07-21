@@ -153,7 +153,7 @@ build_and_start() {
     
     # Check backend health
     for i in {1..30}; do
-        if curl -f http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -f http://localhost:8090/health >/dev/null 2>&1; then
             print_status "Backend is healthy"
             discord_success "Backend API is healthy and responding"
             break
@@ -167,7 +167,7 @@ build_and_start() {
     
     # Check frontend health
     for i in {1..30}; do
-        if curl -f http://localhost:8501/_stcore/health >/dev/null 2>&1; then
+        if curl -f http://localhost:8502/api/health >/dev/null 2>&1; then
             print_status "Frontend is healthy"
             discord_success "Frontend UI is healthy and responding"
             break
@@ -201,11 +201,11 @@ send_system_status() {
     local backend_status="❌ Down"
     local frontend_status="❌ Down"
     
-    if curl -f http://localhost:8080/health >/dev/null 2>&1; then
+    if curl -f http://localhost:8090/health >/dev/null 2>&1; then
         backend_status="✅ Running"
     fi
     
-    if curl -f http://localhost:8501/_stcore/health >/dev/null 2>&1; then
+    if curl -f http://localhost:8502/api/health >/dev/null 2>&1; then
         frontend_status="✅ Running"
     fi
     
@@ -213,9 +213,9 @@ send_system_status() {
     status_message+="Backend API: $backend_status\n"
     status_message+="Frontend UI: $frontend_status\n"
     status_message+="\n**Access URLs:**\n"
-    status_message+="• Backend: http://localhost:8080\n"
-    status_message+="• Frontend: http://localhost:8501\n"
-    status_message+="• API Docs: http://localhost:8080/docs"
+    status_message+="• Backend: http://localhost:8090\n"
+    status_message+="• Frontend: http://localhost:8502\n"
+    status_message+="• API Docs: http://localhost:8090/docs"
     
     send_discord_notification "$status_message" 3447003
 }
@@ -225,9 +225,9 @@ show_status() {
     echo -e "${GREEN}🎉 BTC Trading System is running!${NC}"
     echo ""
     echo -e "${BLUE}📊 Services:${NC}"
-    echo "  Backend API:     http://localhost:8080"
-    echo "  Frontend UI:     http://localhost:8501"
-    echo "  API Docs:        http://localhost:8080/docs"
+    echo "  Backend API:     http://localhost:8090"
+    echo "  Frontend UI:     http://localhost:8502"
+    echo "  API Docs:        http://localhost:8090/docs"
     echo ""
     echo -e "${BLUE}📝 Management Commands:${NC}"
     echo "  View logs:       docker compose logs -f"

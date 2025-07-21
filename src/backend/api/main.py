@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -224,21 +224,33 @@ def get_current_btc_price() -> float:
         except Exception as e:
             logger.warning(f"Failed to get real-time price: {e}")
     
-    # Fall back to latest historical data
+    # Fall back to latest historical data only if it's recent (within last 24h)
     if latest_btc_data is not None and len(latest_btc_data) > 0:
+        last_timestamp = latest_btc_data.index[-1]
+        hours_old = (pd.Timestamp.now() - last_timestamp).total_seconds() / 3600
         price = float(latest_btc_data['Close'].iloc[-1])
-        logger.warning(f"Using historical BTC price: ${price:,.2f}")
-        return price
+        
+        # Only use historical data if it's less than 24 hours old and price is reasonable
+        if hours_old < 24 and price > 50000:
+            logger.warning(f"Using historical BTC price from {hours_old:.1f} hours ago: ${price:,.2f}")
+            return price
+        else:
+            logger.warning(f"Historical data too old ({hours_old:.1f} hours) or price unrealistic (${price:,.2f})")
     
-    # Last resort - fetch from API
+    # Try direct API call as fallback
     try:
-        fetcher = get_fetcher()
-        price = fetcher.get_current_crypto_price('BTC')
-        logger.warning(f"Using fetched BTC price as fallback: ${price:,.2f}")
-        return price
-    except:
-        logger.error("All price sources failed, using last known price")
-        return 111000.0  # Updated to more recent price
+        import requests
+        response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", timeout=10)
+        if response.status_code == 200:
+            price = float(response.json()['bitcoin']['usd'])
+            logger.warning(f"Using direct CoinGecko API call: ${price:,.2f}")
+            return price
+    except Exception as e:
+        logger.error(f"Direct API call failed: {e}")
+    
+    # Last resort - use a reasonable recent price
+    logger.error("All price sources failed, using fallback price")
+    return 119000.0  # Updated to recent market price as of Jan 2025
 
 def execute_paper_trade(signal: str, confidence: float):
     """Execute paper trades based on signals with persistence"""
@@ -1749,31 +1761,37 @@ async def get_latest_btc_price():
 async def get_current_price():
     """Get current BTC price with market data"""
     try:
+        # First try to get real-time price from enhanced data fetcher
+        current_price = get_current_btc_price()
+        
+        # Try to get additional data from regular fetcher
         fetcher = get_fetcher()
         price_data = fetcher.fetch_current_price()
         
-        if price_data:
+        if price_data and price_data.get('price', 0) > 100000:  # Sanity check for real price
+            # Use the fetcher data if it looks valid
             return price_data
         else:
-            # Fallback to latest known price
-            if latest_btc_data is not None and len(latest_btc_data) > 0:
-                current_price = get_current_btc_price()
-                return {
-                    "price": current_price,
-                    "volume": 0,
-                    "change_24h": 0,
-                    "timestamp": get_est_timestamp()
-                }
-            else:
-                return {
-                    "price": get_current_btc_price(),
-                    "volume": 25000000000,  # ~$25B daily volume
-                    "change_24h": 0,
-                    "timestamp": get_est_timestamp()
-                }
+            # Use enhanced data fetcher price with estimated volume/change
+            return {
+                "price": current_price,
+                "volume": 25000000000,  # ~$25B daily volume estimate
+                "change_24h": 0,  # Would need historical data to calculate
+                "timestamp": get_est_timestamp()
+            }
     except Exception as e:
         logger.error(f"Failed to get current price: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return the enhanced data fetcher price as fallback
+        try:
+            current_price = get_current_btc_price()
+            return {
+                "price": current_price,
+                "volume": 25000000000,
+                "change_24h": 0,
+                "timestamp": get_est_timestamp()
+            }
+        except:
+            raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/price/history", response_class=JSONResponse)
 async def get_price_history(days: int = 7):
@@ -5269,23 +5287,304 @@ async def get_upload_template(data_type: str):
 
 @app.get("/data/upload/sources", response_class=JSONResponse)
 async def get_valid_sources():
-    """Get list of valid data sources"""
+    """Get list of valid data sources - these are suggestions, custom source names are allowed"""
     try:
         upload_service = DataUploadService()
+        source_info = upload_service.get_valid_sources()
+        
+        # Add descriptions to the response
         return {
-            "sources": upload_service.get_valid_sources(),
+            **source_info,
             "descriptions": {
                 "binance": "Binance exchange data",
                 "coingecko": "CoinGecko market data",
                 "cryptowatch": "Cryptowatch market data",
                 "glassnode": "Glassnode on-chain metrics",
                 "santiment": "Santiment social/on-chain data",
-                "custom": "Custom data source"
+                "custom": "Any custom data source"
             }
         }
         
     except Exception as e:
         logger.error(f"Failed to get sources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Data deletion endpoints
+@app.get("/data/available", response_class=JSONResponse)
+async def get_available_data():
+    """Get available data for deletion grouped by type, source, and date range"""
+    try:
+        db_path = "/app/storage/data/historical_data.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        available_data = []
+        
+        # Check OHLCV data
+        cursor.execute("""
+            SELECT 
+                'ohlcv' as data_type,
+                symbol,
+                source,
+                MIN(timestamp) as start_date,
+                MAX(timestamp) as end_date,
+                COUNT(*) as record_count
+            FROM ohlcv_data
+            GROUP BY symbol, source
+        """)
+        
+        for row in cursor.fetchall():
+            available_data.append({
+                "data_type": row[0],
+                "symbol": row[1],
+                "source": row[2],
+                "start_date": row[3],
+                "end_date": row[4],
+                "record_count": row[5]
+            })
+        
+        # Check onchain data
+        cursor.execute("""
+            SELECT 
+                'onchain' as data_type,
+                symbol,
+                source,
+                MIN(timestamp) as start_date,
+                MAX(timestamp) as end_date,
+                COUNT(*) as record_count
+            FROM onchain_data
+            GROUP BY symbol, source
+        """)
+        
+        for row in cursor.fetchall():
+            available_data.append({
+                "data_type": row[0],
+                "symbol": row[1],
+                "source": row[2],
+                "start_date": row[3],
+                "end_date": row[4],
+                "record_count": row[5]
+            })
+        
+        # Check sentiment data
+        cursor.execute("""
+            SELECT 
+                'sentiment' as data_type,
+                symbol,
+                source,
+                MIN(timestamp) as start_date,
+                MAX(timestamp) as end_date,
+                COUNT(*) as record_count
+            FROM sentiment_data
+            GROUP BY symbol, source
+        """)
+        
+        for row in cursor.fetchall():
+            available_data.append({
+                "data_type": row[0],
+                "symbol": row[1],
+                "source": row[2],
+                "start_date": row[3],
+                "end_date": row[4],
+                "record_count": row[5]
+            })
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": available_data,
+            "total_groups": len(available_data)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get available data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/data/delete", response_class=JSONResponse)
+async def delete_data(
+    data_type: str = Query(..., description="Type of data to delete: ohlcv, onchain, sentiment"),
+    source: str = Query(..., description="Source of data to delete"),
+    symbol: str = Query("BTC", description="Symbol to delete data for"),
+    start_date: Optional[str] = Query(None, description="Start date for deletion (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date for deletion (ISO format)"),
+    confirm: bool = Query(False, description="Confirmation flag")
+):
+    """Delete data from database with specified criteria"""
+    try:
+        if not confirm:
+            raise HTTPException(status_code=400, detail="Deletion must be confirmed with confirm=true")
+        
+        db_path = "/app/storage/data/historical_data.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Build the appropriate table name and query
+        table_map = {
+            "ohlcv": "ohlcv_data",
+            "onchain": "onchain_data",
+            "sentiment": "sentiment_data"
+        }
+        
+        if data_type not in table_map:
+            raise HTTPException(status_code=400, detail=f"Invalid data type: {data_type}")
+        
+        table_name = table_map[data_type]
+        
+        # First, count records to be deleted
+        count_query = f"SELECT COUNT(*) FROM {table_name} WHERE symbol = ? AND source = ?"
+        params = [symbol, source]
+        
+        if start_date:
+            count_query += " AND timestamp >= ?"
+            params.append(start_date)
+        
+        if end_date:
+            count_query += " AND timestamp <= ?"
+            params.append(end_date)
+        
+        cursor.execute(count_query, params)
+        records_to_delete = cursor.fetchone()[0]
+        
+        if records_to_delete == 0:
+            conn.close()
+            return {
+                "success": True,
+                "message": "No records found matching the criteria",
+                "deleted_count": 0
+            }
+        
+        # Log the deletion for audit
+        logger.info(f"Deleting {records_to_delete} records from {table_name} - source: {source}, symbol: {symbol}, date range: {start_date} to {end_date}")
+        
+        # Perform deletion
+        delete_query = f"DELETE FROM {table_name} WHERE symbol = ? AND source = ?"
+        delete_params = [symbol, source]
+        
+        if start_date:
+            delete_query += " AND timestamp >= ?"
+            delete_params.append(start_date)
+        
+        if end_date:
+            delete_query += " AND timestamp <= ?"
+            delete_params.append(end_date)
+        
+        cursor.execute(delete_query, delete_params)
+        conn.commit()
+        
+        # Verify deletion
+        cursor.execute(count_query, params)
+        remaining_records = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": f"Successfully deleted {records_to_delete} records",
+            "deleted_count": records_to_delete,
+            "data_type": data_type,
+            "source": source,
+            "symbol": symbol,
+            "date_range": {
+                "start": start_date,
+                "end": end_date
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/data/stats/{data_type}", response_class=JSONResponse)
+async def get_data_statistics(
+    data_type: str,
+    source: str = Query(..., description="Source of data"),
+    symbol: str = Query("BTC", description="Symbol")
+):
+    """Get statistics for specific data before deletion"""
+    try:
+        db_path = "/app/storage/data/historical_data.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        table_map = {
+            "ohlcv": "ohlcv_data",
+            "onchain": "onchain_data",
+            "sentiment": "sentiment_data"
+        }
+        
+        if data_type not in table_map:
+            raise HTTPException(status_code=400, detail=f"Invalid data type: {data_type}")
+        
+        table_name = table_map[data_type]
+        
+        # Get basic statistics
+        cursor.execute(f"""
+            SELECT 
+                COUNT(*) as total_records,
+                MIN(timestamp) as earliest_date,
+                MAX(timestamp) as latest_date
+            FROM {table_name}
+            WHERE symbol = ? AND source = ?
+        """, (symbol, source))
+        
+        row = cursor.fetchone()
+        
+        if row[0] == 0:
+            conn.close()
+            return {
+                "success": True,
+                "message": "No data found for the specified criteria",
+                "stats": {
+                    "total_records": 0,
+                    "data_type": data_type,
+                    "source": source,
+                    "symbol": symbol
+                }
+            }
+        
+        stats = {
+            "total_records": row[0],
+            "earliest_date": row[1],
+            "latest_date": row[2],
+            "data_type": data_type,
+            "source": source,
+            "symbol": symbol
+        }
+        
+        # Get additional stats for OHLCV data
+        if data_type == "ohlcv":
+            cursor.execute(f"""
+                SELECT 
+                    AVG(close) as avg_price,
+                    MIN(low) as min_price,
+                    MAX(high) as max_price,
+                    SUM(volume) as total_volume
+                FROM {table_name}
+                WHERE symbol = ? AND source = ?
+            """, (symbol, source))
+            
+            ohlcv_row = cursor.fetchone()
+            stats.update({
+                "avg_price": float(ohlcv_row[0]) if ohlcv_row[0] else 0,
+                "min_price": float(ohlcv_row[1]) if ohlcv_row[1] else 0,
+                "max_price": float(ohlcv_row[2]) if ohlcv_row[2] else 0,
+                "total_volume": float(ohlcv_row[3]) if ohlcv_row[3] else 0
+            })
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "stats": stats
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get data statistics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Backtest endpoints
@@ -6083,125 +6382,126 @@ async def validate_data_file(
             }
         }
 
-@app.post("/data/upload", response_class=JSONResponse)
-async def upload_data_file(
-    file: UploadFile = File(...),
-    data_type: str = Form(...),
-    symbol: str = Form("BTC"),
-    source: str = Form("upload"),
-    validate_only: bool = Form(False)
-):
-    """
-    Upload and process a data file
-    
-    Args:
-        file: The uploaded CSV/Excel file
-        data_type: Type of data (price, volume, onchain, sentiment, macro)
-        symbol: Trading symbol (default: BTC)
-        source: Data source identifier (default: upload)
-        validate_only: If true, only validate without saving to database
-    
-    Returns:
-        Upload results including validation status and processed row count
-    """
-    try:
-        # Initialize upload service
-        upload_service = DataUploadService(db_manager)
-        
-        # Read file contents
-        contents = await file.read()
-        file_size = len(contents)
-        
-        # Validate file size
-        is_valid, error_msg = upload_service.validate_file_size(file_size)
-        if not is_valid:
-            return {
-                "status": "error",
-                "message": error_msg
-            }
-        
-        # Save file temporarily
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file.filename) as tmp:
-            tmp.write(contents)
-            tmp_path = tmp.name
-        
-        try:
-            # Validate the file
-            validation_result = upload_service.validate_file(
-                file_path=tmp_path,
-                data_type=data_type,
-                symbol=symbol,
-                source=source
-            )
-            
-            if not validation_result.is_valid:
-                return {
-                    "status": "validation_failed",
-                    "validation": validation_result.to_dict(),
-                    "message": "File validation failed. Please fix errors and try again."
-                }
-            
-            if validate_only:
-                return {
-                    "status": "validation_passed",
-                    "validation": validation_result.to_dict(),
-                    "message": "File validation passed. Ready to upload."
-                }
-            
-            # Process and save the data
-            if validation_result.processed_data is not None:
-                df = validation_result.processed_data
-                
-                # Save to appropriate table based on data type
-                if data_type == 'price':
-                    # Save price data
-                    for _, row in df.iterrows():
-                        db_manager.save_price_data(
-                            symbol=symbol,
-                            timestamp=row['timestamp'],
-                            open_price=row['open'],
-                            high=row['high'],
-                            low=row['low'],
-                            close=row['close'],
-                            volume=row['volume'],
-                            source=source
-                        )
-                elif data_type == 'onchain':
-                    # Save on-chain data
-                    for _, row in df.iterrows():
-                        db_manager.save_onchain_metric(
-                            metric_name=row['metric_name'],
-                            metric_value=row['metric_value'],
-                            timestamp=row['timestamp'],
-                            source=source
-                        )
-                # Add other data type handlers as needed
-                
-                return {
-                    "status": "success",
-                    "message": f"Successfully uploaded {len(df)} rows of {data_type} data",
-                    "rows_processed": len(df),
-                    "validation": validation_result.to_dict()
-                }
-            else:
-                return {
-                    "status": "error",
-                    "message": "No data to process after validation"
-                }
-                
-        finally:
-            # Clean up temporary file
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-                
-    except Exception as e:
-        logger.error(f"Error uploading file: {str(e)}")
-        logger.error(traceback.format_exc())
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+# Commented out duplicate endpoint - using the first /data/upload endpoint instead
+# @app.post("/data/upload", response_class=JSONResponse)
+# async def upload_data_file(
+#     file: UploadFile = File(...),
+#     data_type: str = Form(...),
+#     symbol: str = Form("BTC"),
+#     source: str = Form("upload"),
+#     validate_only: bool = Form(False)
+# ):
+#     """
+#     Upload and process a data file
+#     
+#     Args:
+#         file: The uploaded CSV/Excel file
+#         data_type: Type of data (price, volume, onchain, sentiment, macro)
+#         symbol: Trading symbol (default: BTC)
+#         source: Data source identifier (default: upload)
+#         validate_only: If true, only validate without saving to database
+#     
+#     Returns:
+#         Upload results including validation status and processed row count
+#     """
+#     try:
+#         # Initialize upload service
+#         upload_service = DataUploadService(db_manager)
+#         
+#         # Read file contents
+#         contents = await file.read()
+#         file_size = len(contents)
+#         
+#         # Validate file size
+#         is_valid, error_msg = upload_service.validate_file_size(file_size)
+#         if not is_valid:
+#             return {
+#                 "status": "error",
+#                 "message": error_msg
+#             }
+#         
+#         # Save file temporarily
+#         import tempfile
+#         with tempfile.NamedTemporaryFile(delete=False, suffix=file.filename) as tmp:
+#             tmp.write(contents)
+#             tmp_path = tmp.name
+#         
+#         try:
+#             # Validate the file
+#             validation_result = upload_service.validate_file(
+#                 file_path=tmp_path,
+#                 data_type=data_type,
+#                 symbol=symbol,
+#                 source=source
+#             )
+#             
+#             if not validation_result.is_valid:
+#                 return {
+#                     "status": "validation_failed",
+#                     "validation": validation_result.to_dict(),
+#                     "message": "File validation failed. Please fix errors and try again."
+#                 }
+#             
+#             if validate_only:
+#                 return {
+#                     "status": "validation_passed",
+#                     "validation": validation_result.to_dict(),
+#                     "message": "File validation passed. Ready to upload."
+#                 }
+#             
+#             # Process and save the data
+#             if validation_result.processed_data is not None:
+#                 df = validation_result.processed_data
+#                 
+#                 # Save to appropriate table based on data type
+#                 if data_type == 'price':
+#                     # Save price data
+#                     for _, row in df.iterrows():
+#                         db_manager.save_price_data(
+#                             symbol=symbol,
+#                             timestamp=row['timestamp'],
+#                             open_price=row['open'],
+#                             high=row['high'],
+#                             low=row['low'],
+#                             close=row['close'],
+#                             volume=row['volume'],
+#                             source=source
+#                         )
+#                 elif data_type == 'onchain':
+#                     # Save on-chain data
+#                     for _, row in df.iterrows():
+#                         db_manager.save_onchain_metric(
+#                             metric_name=row['metric_name'],
+#                             metric_value=row['metric_value'],
+#                             timestamp=row['timestamp'],
+#                             source=source
+#                         )
+#                 # Add other data type handlers as needed
+#                 
+#                 return {
+#                     "status": "success",
+#                     "message": f"Successfully uploaded {len(df)} rows of {data_type} data",
+#                     "rows_processed": len(df),
+#                     "validation": validation_result.to_dict()
+#                 }
+#             else:
+#                 return {
+#                     "status": "error",
+#                     "message": "No data to process after validation"
+#                 }
+#                 
+#         finally:
+#             # Clean up temporary file
+#             if os.path.exists(tmp_path):
+#                 os.unlink(tmp_path)
+#                 
+#     except Exception as e:
+#         logger.error(f"Error uploading file: {str(e)}")
+#         logger.error(traceback.format_exc())
+#         return {
+#             "status": "error",
+#             "message": str(e)
+#         }
 
 @app.get("/data/sample-format/{data_type}", response_class=JSONResponse)
 async def get_sample_format(data_type: str):

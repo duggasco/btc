@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Data Quality - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="data-quality-container">
+    <div class="page-header">
+        <h2>Data Quality Dashboard</h2>
+        <p class="page-subtitle">Monitor data completeness, gaps, and quality metrics</p>
+    </div>
+
+    <!-- Summary Metrics -->
+    <div class="quality-metrics-grid">
+        <div class="metric-card">
+            <div class="metric-card-label">Total Data Points</div>
+            <div class="metric-card-value" id="total-data-points">--</div>
+            <div class="metric-card-sublabel">Across all types</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-card-label">Data Coverage</div>
+            <div class="metric-card-value" id="data-coverage">--%</div>
+            <div class="metric-card-sublabel">Last 365 days</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-card-label">Data Sources</div>
+            <div class="metric-card-value" id="data-sources">--</div>
+            <div class="metric-card-sublabel">Active sources</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-card-label">Data Gaps</div>
+            <div class="metric-card-value" id="data-gaps">--</div>
+            <div class="metric-card-sublabel">Missing periods</div>
+        </div>
+    </div>
+
+    <!-- Data Type Completeness -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h3>Data Type Completeness</h3>
+            <div class="card-controls">
+                <button id="refresh-quality-btn" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="completeness-table-container">
+                <table class="data-table" id="completeness-table">
+                    <thead>
+                        <tr>
+                            <th>Data Type</th>
+                            <th>Symbol</th>
+                            <th>Records</th>
+                            <th>Date Range</th>
+                            <th>Coverage</th>
+                            <th>Gaps</th>
+                            <th>Quality Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Coverage Heatmap -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h3>Data Coverage Heatmap</h3>
+            <div class="card-controls">
+                <select id="heatmap-type" class="form-control form-control-sm">
+                    <option value="ohlcv">OHLCV Data</option>
+                    <option value="onchain">On-Chain Data</option>
+                    <option value="sentiment">Sentiment Data</option>
+                    <option value="all">All Data Types</option>
+                </select>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="coverage-heatmap" style="height: 300px;"></div>
+        </div>
+    </div>
+
+    <!-- Data Gaps Analysis -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h3>Data Gaps Analysis</h3>
+        </div>
+        <div class="card-body">
+            <div id="gaps-analysis">
+                <div class="gaps-summary mb-3">
+                    <p id="gaps-summary-text">Analyzing data gaps...</p>
+                </div>
+                <div id="gaps-table-container">
+                    <table class="data-table" id="gaps-table">
+                        <thead>
+                            <tr>
+                                <th>Data Type</th>
+                                <th>Symbol</th>
+                                <th>Gap Start</th>
+                                <th>Gap End</th>
+                                <th>Missing Days</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Source Quality Metrics -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h3>Data Source Quality</h3>
+        </div>
+        <div class="card-body">
+            <div id="source-quality-chart" style="height: 400px;"></div>
+        </div>
+    </div>
+
+    <!-- Cache Performance -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h3>Cache Performance</h3>
+        </div>
+        <div class="card-body">
+            <div class="cache-metrics">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="cache-metric">
+                            <h5>Hit Rate</h5>
+                            <div class="metric-value" id="cache-hit-rate">--%</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="cache-metric">
+                            <h5>Total Requests</h5>
+                            <div class="metric-value" id="cache-total-requests">--</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="cache-metric">
+                            <h5>Cache Size</h5>
+                            <div class="metric-value" id="cache-size">-- MB</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="cache-metric">
+                            <h5>Avg Response Time</h5>
+                            <div class="metric-value" id="cache-response-time">-- ms</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/data-quality.js') }}"></script>
+{% endblock %}

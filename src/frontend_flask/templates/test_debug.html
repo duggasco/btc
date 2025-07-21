@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Test</title>
+    <script src="/static/js/api-client.js"></script>
+</head>
+<body>
+    <h1>Debug Test</h1>
+    <div id="debug-output">Loading...</div>
+    
+    <script>
+        async function testAPI() {
+            const output = document.getElementById('debug-output');
+            try {
+                // Test API client
+                output.innerHTML = '<p>Testing API client...</p>';
+                
+                const data = await window.apiClient.getDashboardData();
+                
+                output.innerHTML += '<p>API Response received:</p>';
+                output.innerHTML += '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                
+                // Test DOM updates
+                output.innerHTML += '<h2>Testing DOM Updates:</h2>';
+                output.innerHTML += '<p>BTC Price: <span id="test-price">$0.00</span></p>';
+                
+                const priceElement = document.getElementById('test-price');
+                if (priceElement) {
+                    priceElement.textContent = `$${data.price.current.toLocaleString()}`;
+                    output.innerHTML += '<p style="color: green;">✓ DOM update successful!</p>';
+                } else {
+                    output.innerHTML += '<p style="color: red;">✗ Could not find price element</p>';
+                }
+                
+            } catch (error) {
+                output.innerHTML = '<p style="color: red;">Error: ' + error.message + '</p>';
+                console.error('Debug test error:', error);
+            }
+        }
+        
+        // Run test when page loads
+        document.addEventListener('DOMContentLoaded', testAPI);
+    </script>
+</body>
+</html>

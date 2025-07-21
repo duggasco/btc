@@ -19,8 +19,9 @@ class DataUploadService:
     # Valid data types and their expected columns
     DATA_TYPE_TEMPLATES = {
         "price": {
-            "required": ["timestamp", "price"],
-            "optional": ["volume", "open", "high", "low", "close"]
+            "required": ["timestamp", "open", "high", "low", "close", "volume"],
+            "optional": ["price"],
+            "description": "OHLCV data - requires all standard OHLCV fields"
         },
         "volume": {
             "required": ["timestamp", "volume"],
@@ -40,8 +41,8 @@ class DataUploadService:
         }
     }
     
-    # Valid sources
-    VALID_SOURCES = ["binance", "coingecko", "cryptowatch", "glassnode", "santiment", "custom"]
+    # Suggested sources (custom sources are also allowed)
+    SUGGESTED_SOURCES = ["binance", "coingecko", "cryptowatch", "glassnode", "santiment", "custom"]
     
     def __init__(self, db_path: str = "/root/btc/storage/data/historical_data.db"):
         self.db_path = db_path
@@ -52,9 +53,13 @@ class DataUploadService:
         """Get column mapping templates for all data types"""
         return self.DATA_TYPE_TEMPLATES
     
-    def get_valid_sources(self) -> List[str]:
-        """Get list of valid data sources"""
-        return self.VALID_SOURCES
+    def get_valid_sources(self) -> Dict[str, Any]:
+        """Get information about data sources"""
+        return {
+            "suggested_sources": self.SUGGESTED_SOURCES,
+            "custom_allowed": True,
+            "message": "You can use any custom source name. The suggested sources are provided for reference."
+        }
     
     def preview_file(self, file_path: str, file_type: str) -> Dict[str, Any]:
         """Preview uploaded file and suggest column mappings"""
@@ -98,8 +103,7 @@ class DataUploadService:
         """Process uploaded file and store in database"""
         try:
             # Validate inputs
-            if source not in self.VALID_SOURCES:
-                raise ValueError(f"Invalid source: {source}. Must be one of {self.VALID_SOURCES}")
+            # Note: Custom source names are allowed, no validation needed
             
             if data_type not in self.DATA_TYPE_TEMPLATES:
                 raise ValueError(f"Invalid data type: {data_type}. Must be one of {list(self.DATA_TYPE_TEMPLATES.keys())}")
@@ -252,62 +256,135 @@ class DataUploadService:
         if db_path.startswith('/root/btc/'):
             db_path = db_path.replace('/root/btc/', '/app/')
         
+        logger.info(f"Storing {len(df)} rows to database at {db_path}")
+        logger.info(f"Data type: {data_type}, Source: {source}, Symbol: {symbol}")
+        
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Create table if not exists
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS historical_data (
-                timestamp TEXT,
-                symbol TEXT,
-                source TEXT,
-                data_type TEXT,
-                data JSON,
-                created_at TEXT,
-                PRIMARY KEY (timestamp, symbol, source, data_type)
-            )
-        """)
-        
         rows_inserted = 0
         
-        for _, row in df.iterrows():
-            # Prepare data dict
-            data = row.to_dict()
-            if 'timestamp' in data:
-                timestamp = data.pop('timestamp')
-                if pd.isna(timestamp):
+        # For price/OHLCV data, store in the proper ohlcv_data table
+        if data_type == "price":
+            # Don't create table - use existing schema
+            # The table already exists with granularity column
+            
+            # Determine granularity from data frequency
+            granularity = self._infer_granularity(df)
+            
+            # Insert OHLCV data
+            for _, row in df.iterrows():
+                try:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO ohlcv_data 
+                        (symbol, timestamp, open, high, low, close, volume, source, granularity)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        symbol,
+                        row['timestamp'].isoformat() if hasattr(row['timestamp'], 'isoformat') else str(row['timestamp']),
+                        float(row['open']),
+                        float(row['high']),
+                        float(row['low']),
+                        float(row['close']),
+                        float(row['volume']) if pd.notna(row['volume']) else 0.0,
+                        source,
+                        granularity
+                    ))
+                    rows_inserted += 1
+                except Exception as e:
+                    logger.error(f"Error inserting OHLCV row: {e}")
+                    logger.error(f"Row data: timestamp={row['timestamp']}, open={row['open']}, high={row['high']}, low={row['low']}, close={row['close']}, volume={row.get('volume', 0)}")
+        
+        else:
+            # For other data types, use the generic historical_data table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS historical_data (
+                    timestamp TEXT,
+                    symbol TEXT,
+                    source TEXT,
+                    data_type TEXT,
+                    data JSON,
+                    created_at TEXT,
+                    PRIMARY KEY (timestamp, symbol, source, data_type)
+                )
+            """)
+            
+            for _, row in df.iterrows():
+                # Prepare data dict
+                data = row.to_dict()
+                if 'timestamp' in data:
+                    timestamp = data.pop('timestamp')
+                    if pd.isna(timestamp):
+                        continue
+                    timestamp_str = timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp)
+                else:
                     continue
-                timestamp_str = timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp)
-            else:
-                continue
-            
-            # Convert NaN values to None for JSON
-            data = {k: (None if pd.isna(v) else v) for k, v in data.items()}
-            
-            try:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO historical_data 
-                    (timestamp, symbol, source, data_type, data, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    timestamp_str,
-                    symbol,
-                    source,
-                    data_type,
-                    json.dumps(data),
-                    datetime.now().isoformat()
-                ))
-                rows_inserted += 1
-            except sqlite3.IntegrityError:
-                # Duplicate entry, skip
-                pass
-            except Exception as e:
-                logger.error(f"Error inserting row: {e}")
+                
+                # Convert NaN values to None for JSON
+                data = {k: (None if pd.isna(v) else v) for k, v in data.items()}
+                
+                try:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO historical_data 
+                        (timestamp, symbol, source, data_type, data, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        timestamp_str,
+                        symbol,
+                        source,
+                        data_type,
+                        json.dumps(data),
+                        datetime.now().isoformat()
+                    ))
+                    rows_inserted += 1
+                except sqlite3.IntegrityError:
+                    # Duplicate entry, skip
+                    pass
+                except Exception as e:
+                    logger.error(f"Error inserting row: {e}")
         
         conn.commit()
         conn.close()
         
+        logger.info(f"Database operation complete. Rows inserted: {rows_inserted}")
         return rows_inserted
+    
+    def _infer_granularity(self, df: pd.DataFrame) -> str:
+        """Infer time granularity from dataframe timestamps"""
+        if 'timestamp' not in df.columns or len(df) < 2:
+            return '1h'  # Default to hourly
+        
+        # Calculate time differences
+        sorted_df = df.sort_values('timestamp')
+        time_diffs = sorted_df['timestamp'].diff().dropna()
+        
+        if len(time_diffs) == 0:
+            return '1h'
+        
+        # Get median time difference in seconds
+        median_diff = time_diffs.median().total_seconds()
+        
+        # Map to standard granularities
+        if median_diff < 300:  # < 5 minutes
+            return '1m'
+        elif median_diff < 900:  # < 15 minutes
+            return '5m'
+        elif median_diff < 1800:  # < 30 minutes
+            return '15m'
+        elif median_diff < 3600:  # < 1 hour
+            return '30m'
+        elif median_diff < 7200:  # < 2 hours
+            return '1h'
+        elif median_diff < 14400:  # < 4 hours
+            return '2h'
+        elif median_diff < 28800:  # < 8 hours
+            return '4h'
+        elif median_diff < 86400:  # < 1 day
+            return '12h'
+        elif median_diff < 604800:  # < 1 week
+            return '1d'
+        else:
+            return '1w'
     
     def _generate_summary(self, df: pd.DataFrame, data_type: str) -> Dict[str, Any]:
         """Generate summary statistics for uploaded data"""
@@ -318,13 +395,22 @@ class DataUploadService:
         }
         
         # Add type-specific summaries
-        if data_type == "price" and 'price' in df.columns:
-            summary["price_stats"] = {
-                "min": float(df['price'].min()),
-                "max": float(df['price'].max()),
-                "mean": float(df['price'].mean()),
-                "std": float(df['price'].std())
-            }
+        if data_type == "price":
+            # For OHLCV data, use close price for stats
+            if 'close' in df.columns:
+                summary["price_stats"] = {
+                    "min": float(df['close'].min()),
+                    "max": float(df['close'].max()),
+                    "mean": float(df['close'].mean()),
+                    "std": float(df['close'].std())
+                }
+            # Add OHLCV-specific stats
+            if all(col in df.columns for col in ['open', 'high', 'low', 'close']):
+                summary["ohlcv_stats"] = {
+                    "high_max": float(df['high'].max()),
+                    "low_min": float(df['low'].min()),
+                    "avg_range": float((df['high'] - df['low']).mean())
+                }
         
         if 'volume' in df.columns:
             summary["volume_stats"] = {

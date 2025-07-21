@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Price Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .price { font-size: 24px; font-weight: bold; margin: 10px 0; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Direct Price Test</h1>
+    
+    <div class="price">API Price: <span id="api-price">Loading...</span></div>
+    <div class="price">JavaScript Status: <span id="js-status">Checking...</span></div>
+    
+    <h2>Debug Info:</h2>
+    <pre id="debug-info"></pre>
+    
+    <script>
+        // Inline JavaScript to avoid any loading issues
+        document.getElementById('js-status').textContent = 'JavaScript is working!';
+        document.getElementById('js-status').className = 'success';
+        
+        // Fetch price data directly
+        fetch('/api/dashboard-data')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('api-price').textContent = '$' + data.price.current.toLocaleString();
+                document.getElementById('api-price').className = 'success';
+                
+                document.getElementById('debug-info').textContent = JSON.stringify({
+                    price: data.price,
+                    timestamp: new Date().toISOString(),
+                    userAgent: navigator.userAgent
+                }, null, 2);
+            })
+            .catch(error => {
+                document.getElementById('api-price').textContent = 'Error: ' + error.message;
+                document.getElementById('api-price').className = 'error';
+            });
+    </script>
+</body>
+</html>

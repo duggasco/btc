@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}Data Upload - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="data-upload-container">
+    <div class="page-header">
+        <h2>Data Upload</h2>
+        <p class="page-subtitle">Upload historical data for analysis and signal generation</p>
+    </div>
+
+    <!-- Upload Section -->
+    <div class="upload-section">
+        <div class="card">
+            <div class="card-header">
+                <h3>Upload Data File</h3>
+            </div>
+            <div class="card-body">
+                <form id="upload-form" enctype="multipart/form-data">
+                    <!-- Data Type Selection -->
+                    <div class="form-group">
+                        <label for="data-type" class="form-label">Data Type</label>
+                        <select id="data-type" class="form-control" required>
+                            <option value="ohlcv">OHLCV Data (Price/Volume)</option>
+                            <option value="onchain">On-Chain Data</option>
+                            <option value="sentiment">Sentiment Data</option>
+                            <option value="macro">Macro Economic Data</option>
+                        </select>
+                    </div>
+
+                    <!-- Symbol Input -->
+                    <div class="form-group">
+                        <label for="symbol" class="form-label">Symbol</label>
+                        <input type="text" id="symbol" class="form-control" value="BTC" placeholder="BTC, GLD, VIX, etc." required>
+                        <small class="form-text">For OHLCV data: BTC, GLD, VIX, TNX (10-year), etc.</small>
+                    </div>
+
+                    <!-- Source Input -->
+                    <div class="form-group">
+                        <label for="source" class="form-label">Data Source</label>
+                        <input type="text" id="source" class="form-control" value="manual_upload" placeholder="e.g., binance, coingecko, your_custom_source">
+                        <small class="form-text">You can use any custom source name. Suggested: binance, coingecko, cryptowatch, glassnode, santiment</small>
+                    </div>
+
+                    <!-- File Upload -->
+                    <div class="form-group">
+                        <label for="file-input" class="form-label">Select File</label>
+                        <div class="file-upload-area">
+                            <input type="file" id="file-input" accept=".csv,.xlsx" required>
+                            <div class="file-upload-placeholder">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p>Drag and drop a file here or click to browse</p>
+                                <small>CSV or XLSX files only (max 100MB)</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Upload Button -->
+                    <div class="form-actions">
+                        <button type="button" id="preview-btn" class="btn btn-secondary" disabled>
+                            <i class="fas fa-eye"></i> Preview
+                        </button>
+                        <button type="submit" id="upload-btn" class="btn btn-primary" disabled>
+                            <i class="fas fa-upload"></i> Upload Data
+                            <span id="upload-spinner" class="spinner-border spinner-border-sm" style="display: none;"></span>
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Progress Bar -->
+                <div id="upload-progress" class="upload-progress" style="display: none;">
+                    <div class="progress">
+                        <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <p class="progress-text">Uploading...</p>
+                </div>
+
+                <!-- Messages -->
+                <div id="upload-messages" class="mt-3"></div>
+            </div>
+        </div>
+
+        <!-- Data Preview Section -->
+        <div id="preview-section" class="card mt-4" style="display: none;">
+            <div class="card-header">
+                <h3>Data Preview</h3>
+            </div>
+            <div class="card-body">
+                <div id="preview-content">
+                    <!-- Preview content will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sample Formats Section -->
+    <div class="sample-formats-section mt-4">
+        <div class="card">
+            <div class="card-header">
+                <h3>Sample Data Formats</h3>
+            </div>
+            <div class="card-body">
+                <div class="format-grid">
+                    <div class="format-item">
+                        <h4>OHLCV Data</h4>
+                        <p>Price and volume data for any asset</p>
+                        <ul>
+                            <li>date, open, high, low, close, volume</li>
+                            <li>Supports: BTC, GLD, VIX, TNX, etc.</li>
+                        </ul>
+                        <a href="/data/api/download-template/ohlcv" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-download"></i> Download Template
+                        </a>
+                    </div>
+                    
+                    <div class="format-item">
+                        <h4>On-Chain Data</h4>
+                        <p>Blockchain metrics and network statistics</p>
+                        <ul>
+                            <li>date, active_addresses, transaction_count</li>
+                            <li>hash_rate, difficulty, block_size, fees, supply</li>
+                        </ul>
+                        <a href="/data/api/download-template/onchain" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-download"></i> Download Template
+                        </a>
+                    </div>
+                    
+                    <div class="format-item">
+                        <h4>Sentiment Data</h4>
+                        <p>Market sentiment indicators</p>
+                        <ul>
+                            <li>timestamp, fear_greed_index</li>
+                            <li>reddit/twitter/news sentiment, google_trends</li>
+                        </ul>
+                        <a href="/data/api/download-template/sentiment" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-download"></i> Download Template
+                        </a>
+                    </div>
+                    
+                    <div class="format-item">
+                        <h4>Macro Data</h4>
+                        <p>Economic indicators and market data</p>
+                        <ul>
+                            <li>date, symbol, value, indicator_type</li>
+                            <li>DXY, bond yields, commodities</li>
+                        </ul>
+                        <a href="/data/api/download-template/macro" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-download"></i> Download Template
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/data-upload.js') }}"></script>
+{% endblock %}

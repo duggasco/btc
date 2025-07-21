@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}Trading Dashboard - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Main Grid Layout -->
+    <div class="dashboard-grid">
+        <!-- Left Column - Main Content -->
+        <div class="dashboard-main">
+            <!-- Price Display -->
+            <div class="price-display-section">
+                <div class="price-card-container">
+                    <div class="price-card">
+                        <div class="price-card-header">
+                            <h4>BTC/USD</h4>
+                            <span class="price-update-time" id="price-update-time">--:--</span>
+                        </div>
+                        <div class="price-card-body">
+                            <div class="current-price">
+                                <span class="price-value" id="current-price-value">$0.00</span>
+                                <span class="price-change" id="price-change-24h">0.00%</span>
+                            </div>
+                            <div class="price-stats">
+                                <div class="price-stat">
+                                    <span class="stat-label">24h High</span>
+                                    <span class="stat-value" id="price-high-24h">$0.00</span>
+                                </div>
+                                <div class="price-stat">
+                                    <span class="stat-label">24h Low</span>
+                                    <span class="stat-value" id="price-low-24h">$0.00</span>
+                                </div>
+                                <div class="price-stat">
+                                    <span class="stat-label">24h Volume</span>
+                                    <span class="stat-value" id="price-volume-24h">$0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Price Chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>BTC/USD Price Chart</h3>
+                    <div class="chart-controls">
+                        <select id="chart-timeframe" class="form-control form-control-sm">
+                            <option value="1H">1 Hour</option>
+                            <option value="4H">4 Hours</option>
+                            <option value="1D" selected>1 Day</option>
+                            <option value="1W">1 Week</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="price-chart" style="height: 400px;"></div>
+                </div>
+            </div>
+            
+            <!-- Bottom Grid -->
+            <div class="bottom-grid">
+                <!-- Portfolio Overview -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Portfolio Overview</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="portfolio-metrics">
+                            <div class="metric-card">
+                                <div class="metric-card-label">
+                                    Total Value
+                                    <span class="paper-badge" id="portfolio-paper-badge" style="display: none;">PAPER</span>
+                                </div>
+                                <div class="metric-card-value" id="portfolio-total-value">$0.00</div>
+                                <div class="metric-card-change" id="portfolio-change-value">+0.00%</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-card-label">BTC Balance</div>
+                                <div class="metric-card-value" id="portfolio-btc-balance">₿0.00000000</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-card-label">USD Balance</div>
+                                <div class="metric-card-value" id="portfolio-usd-balance">$0.00</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-card-label">Total P&L</div>
+                                <div class="metric-card-value" id="portfolio-pnl">$0.00</div>
+                                <div class="metric-card-change" id="portfolio-pnl-percentage">+0.00%</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Portfolio Chart -->
+                        <div id="portfolio-chart" style="height: 200px; margin-top: 1rem;"></div>
+                    </div>
+                </div>
+                
+                <!-- Order Execution -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Order Execution</h3>
+                    </div>
+                    <div class="card-body">
+                        <form id="trade-form">
+                            <div class="form-group">
+                                <label class="form-label">Order Type</label>
+                                <div class="btn-group" role="group">
+                                    <input type="radio" class="btn-check" name="order-type" id="order-buy" value="BUY" checked>
+                                    <label class="btn btn-outline-success" for="order-buy">Buy</label>
+                                    
+                                    <input type="radio" class="btn-check" name="order-type" id="order-sell" value="SELL">
+                                    <label class="btn btn-outline-danger" for="order-sell">Sell</label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="order-quantity" class="form-label">Quantity (BTC)</label>
+                                <input type="number" class="form-control" id="order-quantity" 
+                                       step="0.00000001" min="0.00000001" placeholder="0.00000000">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="order-price" class="form-label">Price (USD) - Leave empty for market order</label>
+                                <input type="number" class="form-control" id="order-price" 
+                                       step="0.01" min="0" placeholder="Market Order">
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary btn-block" id="execute-order-btn">
+                                <span id="order-btn-text">Execute Order</span>
+                                <span id="order-btn-spinner" class="spinner-border spinner-border-sm" style="display: none;"></span>
+                            </button>
+                        </form>
+                        
+                        <div id="order-message" class="alert" style="display: none; margin-top: 1rem;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right Column - Sidebar -->
+        <div class="dashboard-sidebar">
+            <!-- Trading Mode Toggle -->
+            <div class="card trading-mode-card">
+                <div class="card-header">
+                    <h3>Trading Mode</h3>
+                </div>
+                <div class="card-body">
+                    <div class="trading-mode-toggle">
+                        <div class="btn-group" role="group">
+                            <input type="radio" class="btn-check" name="trading-mode" id="mode-live" value="live" checked>
+                            <label class="btn btn-outline-primary" for="mode-live">
+                                <i class="fas fa-dollar-sign"></i> Live Trading
+                            </label>
+                            
+                            <input type="radio" class="btn-check" name="trading-mode" id="mode-paper" value="paper">
+                            <label class="btn btn-outline-warning" for="mode-paper">
+                                <i class="fas fa-file-alt"></i> Paper Trading
+                            </label>
+                        </div>
+                    </div>
+                    <div class="trading-mode-info">
+                        <div id="live-mode-info" class="mode-info">
+                            <small class="text-muted">Trading with real funds</small>
+                        </div>
+                        <div id="paper-mode-info" class="mode-info" style="display: none;">
+                            <small class="text-warning">Simulated trading - No real funds</small>
+                            <div class="paper-trading-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">Initial Capital:</span>
+                                    <span class="stat-value" id="paper-initial-capital">$10,000</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Trading Signals -->
+            <div class="card signals-panel">
+                <div class="card-header">
+                    <h3>Trading Signals</h3>
+                </div>
+                <div class="card-body">
+                    <!-- Current Signal -->
+                    <div class="current-signal">
+                        <h4>Current Signal</h4>
+                        <div class="signal-display">
+                            <div class="signal-badge" id="current-signal-badge">HOLD</div>
+                            <div class="signal-details">
+                                <div class="signal-confidence">
+                                    <span>Confidence:</span>
+                                    <span id="signal-confidence-value">0%</span>
+                                </div>
+                                <div class="signal-price">
+                                    <span>Price:</span>
+                                    <span id="signal-price-value">$0.00</span>
+                                </div>
+                                <div class="signal-time">
+                                    <span>Time:</span>
+                                    <span id="signal-time-value">--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Signal History -->
+                    <div class="signal-history">
+                        <h4>Recent Signals</h4>
+                        <div id="signal-history-list">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recent Trades -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Recent Trades</h3>
+                </div>
+                <div class="card-body">
+                    <div id="recent-trades-list">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Open Positions -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Open Positions</h3>
+                </div>
+                <div class="card-body">
+                    <div id="open-positions-list">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script>
+    // Initialize dashboard on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeDashboard();
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,120 @@
+{
+  "timestamp": "2025-07-11 19:56:14",
+  "total_tests": 24,
+  "passed": 24,
+  "failed": 0,
+  "results": {
+    "css": [
+      [
+        "src/frontend/styles/theme.css",
+        "VALID"
+      ],
+      [
+        "src/frontend/styles/components.css",
+        "VALID"
+      ]
+    ],
+    "components": [
+      [
+        "components/layout/dashboard_grid.py",
+        "EXISTS"
+      ],
+      [
+        "components/display/metric_card.py",
+        "EXISTS"
+      ],
+      [
+        "components/display/signal_badge.py",
+        "EXISTS"
+      ],
+      [
+        "components/display/data_table.py",
+        "EXISTS"
+      ],
+      [
+        "components/display/chart_container.py",
+        "EXISTS"
+      ],
+      [
+        "components/controls/form_controls.py",
+        "EXISTS"
+      ]
+    ],
+    "pages": [
+      [
+        "app.py",
+        "EXISTS"
+      ],
+      [
+        "pages/1_Trading_Dashboard.py",
+        "EXISTS"
+      ],
+      [
+        "pages/2_Analytics_Research.py",
+        "EXISTS"
+      ],
+      [
+        "pages/3_Settings_Configuration.py",
+        "EXISTS"
+      ]
+    ],
+    "integration": [
+      [
+        "1_\ud83c\udfe0_Dashboard.py",
+        "REMOVED"
+      ],
+      [
+        "2_\ud83d\udcc8_Signals.py",
+        "REMOVED"
+      ],
+      [
+        "3_\ud83d\udcb0_Portfolio.py",
+        "REMOVED"
+      ],
+      [
+        "4_\ud83d\udd2c_Analytics.py",
+        "REMOVED"
+      ],
+      [
+        "5_\ud83d\udcc4_Paper_Trading.py",
+        "REMOVED"
+      ],
+      [
+        "6_\u2699\ufe0f_Settings.py",
+        "REMOVED"
+      ]
+    ],
+    "api": [
+      [
+        "/health",
+        200,
+        "SUCCESS"
+      ],
+      [
+        "/system/status",
+        200,
+        "SUCCESS"
+      ],
+      [
+        "/price/current",
+        200,
+        "SUCCESS"
+      ],
+      [
+        "/signals/enhanced/latest",
+        200,
+        "SUCCESS"
+      ],
+      [
+        "/portfolio/metrics",
+        200,
+        "SUCCESS"
+      ],
+      [
+        "/config/current",
+        200,
+        "SUCCESS"
+      ]
+    ]
+  }
+}

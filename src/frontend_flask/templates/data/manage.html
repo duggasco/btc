@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Data Management</h1>
+    <p class="lead">Manage and delete historical data from the system</p>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <!-- Warning Alert -->
+        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>Warning:</strong> Deleting data is permanent and cannot be undone. Please review carefully before confirming deletion.
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        
+        <!-- Available Data Section -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Available Data</h5>
+            </div>
+            <div class="card-body">
+                <div id="loading-spinner" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading available data...</p>
+                </div>
+                
+                <div id="data-table-container" style="display: none;">
+                    <table id="available-data-table" class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Data Type</th>
+                                <th>Symbol</th>
+                                <th>Source</th>
+                                <th>Date Range</th>
+                                <th>Records</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="data-table-body">
+                            <!-- Data will be populated here -->
+                        </tbody>
+                    </table>
+                    
+                    <div id="no-data-message" class="text-center py-4" style="display: none;">
+                        <p class="text-muted">No data available for deletion</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Data Statistics Modal -->
+        <div class="modal fade" id="statsModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Data Statistics</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="stats-loading" class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <div id="stats-content" style="display: none;">
+                            <!-- Stats will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Delete Confirmation Modal -->
+        <div class="modal fade" id="deleteModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title">Confirm Deletion</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <strong>Warning:</strong> This action cannot be undone!
+                        </div>
+                        
+                        <div id="deletion-details">
+                            <!-- Deletion details will be populated here -->
+                        </div>
+                        
+                        <div class="form-group mt-3">
+                            <label for="delete-confirmation-text">Type "DELETE" to confirm:</label>
+                            <input type="text" class="form-control" id="delete-confirmation-text" placeholder="DELETE">
+                            <small class="form-text text-muted">This is a safety measure to prevent accidental deletion</small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirm-delete-btn" disabled>
+                            <i class="fas fa-trash"></i> Delete Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Advanced Deletion Options -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">Advanced Deletion Options</h5>
+            </div>
+            <div class="card-body">
+                <form id="advanced-delete-form">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label for="adv-data-type">Data Type</label>
+                                <select class="form-control" id="adv-data-type">
+                                    <option value="">Select type...</option>
+                                    <option value="ohlcv">OHLCV</option>
+                                    <option value="onchain">On-Chain</option>
+                                    <option value="sentiment">Sentiment</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-group">
+                                <label for="adv-source">Source</label>
+                                <input type="text" class="form-control" id="adv-source" placeholder="e.g., binance">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-group">
+                                <label for="adv-symbol">Symbol</label>
+                                <input type="text" class="form-control" id="adv-symbol" value="BTC">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-group">
+                                <label for="adv-start-date">Start Date</label>
+                                <input type="date" class="form-control" id="adv-start-date">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-group">
+                                <label for="adv-end-date">End Date</label>
+                                <input type="date" class="form-control" id="adv-end-date">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <button type="button" class="btn btn-warning" id="preview-delete-btn">
+                                <i class="fas fa-search"></i> Preview Deletion
+                            </button>
+                            <button type="button" class="btn btn-danger" id="advanced-delete-btn" disabled>
+                                <i class="fas fa-trash"></i> Delete with Criteria
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Messages -->
+<div id="messages"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/data-manage.js') }}"></script>
+{% endblock %}

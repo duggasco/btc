@@ -640,25 +640,36 @@ class EnhancedDataFetcher(CachedDataFetcher):
         try:
             url = "https://api.coingecko.com/api/v3/simple/price"
             params = {'ids': 'bitcoin', 'vs_currencies': 'usd'}
-            response = self.session.get(url, params=params, timeout=5)
+            response = self.session.get(url, params=params, timeout=10)
             if response.status_code == 200:
-                price = float(response.json()['bitcoin']['usd'])
-                logger.info(f"Current BTC price from CoinGecko: ${price:,.2f}")
-                return price
+                data = response.json()
+                if 'bitcoin' in data and 'usd' in data['bitcoin']:
+                    price = float(data['bitcoin']['usd'])
+                    logger.info(f"Current BTC price from CoinGecko: ${price:,.2f}")
+                    return price
+                else:
+                    logger.warning(f"Unexpected CoinGecko response structure: {data}")
+            else:
+                logger.warning(f"CoinGecko returned status {response.status_code}: {response.text}")
         except Exception as e:
             logger.warning(f"Failed to get price from CoinGecko: {e}")
         
-        # Try CryptoCompare as last resort
+        # Try direct requests as fallback (in case session has issues)
         try:
-            url = "https://min-api.cryptocompare.com/data/price"
-            params = {'fsym': 'BTC', 'tsyms': 'USD'}
-            response = self.session.get(url, params=params, timeout=5)
+            import requests as direct_requests
+            response = direct_requests.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={'ids': 'bitcoin', 'vs_currencies': 'usd'},
+                timeout=10
+            )
             if response.status_code == 200:
-                price = float(response.json()['USD'])
-                logger.info(f"Current BTC price from CryptoCompare: ${price:,.2f}")
-                return price
+                data = response.json()
+                if 'bitcoin' in data and 'usd' in data['bitcoin']:
+                    price = float(data['bitcoin']['usd'])
+                    logger.info(f"Current BTC price from direct CoinGecko call: ${price:,.2f}")
+                    return price
         except Exception as e:
-            logger.warning(f"Failed to get price from CryptoCompare: {e}")
+            logger.warning(f"Failed direct CoinGecko call: {e}")
         
         # If all sources fail, raise an error
         logger.error("Failed to get current BTC price from all sources")
